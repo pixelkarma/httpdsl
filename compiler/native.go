@@ -59,6 +59,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["strconv"] = true
 	c.usedImports["strings"] = true
 	c.usedImports["net/url"] = true
+	c.usedImports["bytes"] = true
 	c.usedImports["os"] = true
 	c.usedImports["sync"] = true
 	c.usedImports["time"] = true
@@ -101,9 +102,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["url_encode"] || c.usedBuiltins["url_decode"] {
 		c.usedImports["net/url"] = true
 	}
-	if c.usedBuiltins["http_get"] || c.usedBuiltins["http_post"] {
-		c.usedImports["bytes"] = true
-	}
+
 	if c.usedBuiltins["bcrypt_hash"] || c.usedBuiltins["bcrypt_verify"] {
 		c.needsBcrypt = true
 	}
@@ -901,6 +900,90 @@ func builtin_sleep(args ...Value) Value {
 	ms := toInt64(args[0])
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 	return null
+}
+
+func builtin_fetch(args ...Value) Value {
+	if len(args) == 0 { throw(Value("fetch requires a URL")) }
+	url := valueToString(args[0])
+	method := "GET"
+	var reqBody io.Reader
+	reqHeaders := map[string]string{}
+	timeout := 30 * time.Second
+
+	if len(args) >= 2 {
+		if opts, ok := args[1].(map[string]Value); ok {
+			if m, ok := opts["method"]; ok { method = valueToString(m) }
+			if h, ok := opts["headers"].(map[string]Value); ok {
+				for k, v := range h { reqHeaders[k] = valueToString(v) }
+			}
+			if t, ok := opts["timeout"]; ok {
+				timeout = time.Duration(toInt64(t)) * time.Millisecond
+			}
+			if b, ok := opts["body"]; ok {
+				switch bv := b.(type) {
+				case string:
+					reqBody = strings.NewReader(bv)
+				case map[string]Value, []Value:
+					jb, _ := json.Marshal(valueToGo(bv))
+					reqBody = bytes.NewReader(jb)
+					if _, ok := reqHeaders["Content-Type"]; !ok {
+						reqHeaders["Content-Type"] = "application/json"
+					}
+				default:
+					reqBody = strings.NewReader(valueToString(bv))
+				}
+			}
+		}
+	}
+
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil { throw(Value("fetch: " + err.Error())) }
+	for k, v := range reqHeaders { req.Header.Set(k, v) }
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil { throw(Value("fetch: " + err.Error())) }
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil { throw(Value("fetch: " + err.Error())) }
+	bodyStr := string(body)
+
+	// Detect type from Content-Type
+	ct := resp.Header.Get("Content-Type")
+	respType := "text"
+	var respBody Value = Value(bodyStr)
+	if strings.Contains(ct, "application/json") {
+		respType = "json"
+		parsed := parseJSONBody(bodyStr)
+		if parsed != null { respBody = parsed }
+	} else if strings.Contains(ct, "text/html") {
+		respType = "html"
+	}
+
+	// Response headers
+	respHeaders := make(map[string]Value)
+	for k, v := range resp.Header {
+		if len(v) == 1 { respHeaders[strings.ToLower(k)] = Value(v[0]) } else {
+			arr := make([]Value, len(v))
+			for i, s := range v { arr[i] = Value(s) }
+			respHeaders[strings.ToLower(k)] = Value(arr)
+		}
+	}
+
+	// Cookies from Set-Cookie
+	respCookies := make(map[string]Value)
+	for _, c := range resp.Cookies() {
+		respCookies[c.Name] = Value(c.Value)
+	}
+
+	return Value(map[string]Value{
+		"status":  Value(int64(resp.StatusCode)),
+		"type":    Value(respType),
+		"body":    respBody,
+		"headers": Value(respHeaders),
+		"cookies": Value(respCookies),
+	})
 }
 
 func builtin_await(args ...Value) Value {
@@ -2464,6 +2547,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_race(%s)", argStr)
 		case "sleep":
 			return fmt.Sprintf("builtin_sleep(%s)", argStr)
+		case "fetch":
+			return fmt.Sprintf("builtin_fetch(%s)", argStr)
 		case "now":
 			return "Value(time.Now().Unix())"
 		case "now_ms":
