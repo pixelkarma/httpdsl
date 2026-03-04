@@ -424,6 +424,7 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 
 		// Execute via bytecode VM
 		vm := NewVM(env)
+		vm.routeEnv = routeEnv
 		result := vm.Execute(compiled, []Value{paramsMap, reqObj})
 		_ = routeEnv // env still used for header/cookie context
 		// Also check routeEnv for response headers/cookies set by builtins
@@ -875,6 +876,12 @@ func (interp *Interpreter) evalIndex(left, idx Value) Value {
 }
 
 // --- Helpers ---
+
+func isNull(v Value) bool {
+	if v == nil { return true }
+	_, ok := v.(*NullValue)
+	return ok
+}
 
 func isTruthy(v Value) bool {
 	switch val := v.(type) {

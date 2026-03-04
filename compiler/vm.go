@@ -25,11 +25,12 @@ type mapIter struct {
 
 // VM executes bytecode
 type VM struct {
-	stack   [vmStackSize]Value
-	sp      int
-	frames  [vmFrameSize]vmFrame
-	fp      int
-	globals *Environment
+	stack    [vmStackSize]Value
+	sp       int
+	frames   [vmFrameSize]vmFrame
+	fp       int
+	globals  *Environment
+	routeEnv *Environment // per-request env for header()/cookie() builtins
 }
 
 func NewVM(globals *Environment) *VM {
@@ -302,6 +303,15 @@ func (vm *VM) run() Value {
 				copy(args, vm.stack[vm.sp-nArgs:vm.sp])
 				vm.sp -= nArgs + 1 // pop args + function
 				result := f.Fn(args...)
+				vm.push(result)
+
+			case *EnvBuiltinFunction:
+				args := make([]Value, nArgs)
+				copy(args, vm.stack[vm.sp-nArgs:vm.sp])
+				vm.sp -= nArgs + 1
+				env := vm.routeEnv
+				if env == nil { env = vm.globals }
+				result := f.Fn(env, args...)
 				vm.push(result)
 
 			case *CompiledFunction:

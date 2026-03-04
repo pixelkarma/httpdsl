@@ -1391,16 +1391,31 @@ func (interp *Interpreter) registerBuiltins() {
 	// ===== Section 9: HTTP Response (env-aware) =====
 
 	interp.global.Set("header", &EnvBuiltinFunction{Fn: func(env *Environment, args ...Value) Value {
-		if len(args) < 2 {
+		if len(args) < 1 {
 			return NULL
 		}
 		name := valueToString(args[0])
-		val := valueToString(args[1])
 
-		// Walk up to find _response_headers
 		if hdrs, ok := env.Get("_response_headers"); ok {
 			if hmap, ok := hdrs.(map[string]Value); ok {
-				hmap[name] = val
+				if len(args) < 2 || args[1] == nil || isNull(args[1]) {
+					// header("X-Foo") or header("X-Foo", null) → remove
+					delete(hmap, name)
+				} else {
+					hmap[name] = valueToString(args[1])
+				}
+			}
+		}
+		return NULL
+	}})
+
+	// clear_headers() — remove all accumulated response headers
+	interp.global.Set("clear_headers", &EnvBuiltinFunction{Fn: func(env *Environment, args ...Value) Value {
+		if hdrs, ok := env.Get("_response_headers"); ok {
+			if hmap, ok := hdrs.(map[string]Value); ok {
+				for k := range hmap {
+					delete(hmap, k)
+				}
 			}
 		}
 		return NULL
