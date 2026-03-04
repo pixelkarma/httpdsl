@@ -31,7 +31,7 @@ func main() {
 		}
 		target = os.Args[2]
 		program := parseFiles(target)
-		doBuild(program, target, "")
+		doBuild(program, target)
 	case "run":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "Usage: httpdsl run <file.httpdsl>")
@@ -130,7 +130,7 @@ func doRun(program *compiler.Program, target string) {
 	}
 }
 
-func doBuild(program *compiler.Program, target string, outputPath string) {
+func doBuild(program *compiler.Program, target string, outputOverride ...string) {
 	src, err := compiler.GenerateNativeCode(program)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
@@ -194,7 +194,10 @@ func doBuild(program *compiler.Program, target string, outputPath string) {
 	}
 
 	// Determine output path
-	if outputPath == "" {
+	var outputPath string
+	if len(outputOverride) > 0 && outputOverride[0] != "" {
+		outputPath = outputOverride[0]
+	} else {
 		base := strings.TrimSuffix(filepath.Base(target), ".httpdsl")
 		if base == "" || base == "." {
 			base = "server"
