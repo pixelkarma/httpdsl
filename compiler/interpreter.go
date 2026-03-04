@@ -6,9 +6,8 @@ import (
 	"httpdsl/runtime"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
-	"strings"
+	"sync"
 )
 
 // Value types
@@ -37,8 +36,20 @@ type BuiltinFunction struct {
 	Fn func(args ...Value) Value
 }
 
+// EnvBuiltinFunction has access to the calling environment (for header, cookie, etc.)
+type EnvBuiltinFunction struct {
+	Fn func(env *Environment, args ...Value) Value
+}
+
+// RedirectValue signals an HTTP redirect from a route handler
+type RedirectValue struct {
+	URL        string
+	StatusCode int
+}
+
 // Environment (scope)
 type Environment struct {
+	mu       sync.RWMutex
 	store    map[string]Value
 	outer    *Environment
 	boundary bool // true = function boundary, stops SetExisting from walking up
@@ -62,7 +73,9 @@ func NewFunctionEnvironment(outer *Environment) *Environment {
 }
 
 func (e *Environment) Get(name string) (Value, bool) {
+	e.mu.RLock()
 	val, ok := e.store[name]
+	e.mu.RUnlock()
 	if !ok && e.outer != nil {
 		return e.outer.Get(name)
 	}
@@ -70,14 +83,21 @@ func (e *Environment) Get(name string) (Value, bool) {
 }
 
 func (e *Environment) Set(name string, val Value) {
+	e.mu.Lock()
 	e.store[name] = val
+	e.mu.Unlock()
 }
 
 // SetExisting sets in the scope where the variable already exists,
 // but won't cross function boundaries (boundary == true)
 func (e *Environment) SetExisting(name string, val Value) {
-	if _, ok := e.store[name]; ok {
+	e.mu.RLock()
+	_, ok := e.store[name]
+	e.mu.RUnlock()
+	if ok {
+		e.mu.Lock()
 		e.store[name] = val
+		e.mu.Unlock()
 		return
 	}
 	if e.outer != nil && !e.boundary {
@@ -85,292 +105,164 @@ func (e *Environment) SetExisting(name string, val Value) {
 		return
 	}
 	// Create in current scope
+	e.mu.Lock()
 	e.store[name] = val
+	e.mu.Unlock()
+}
+
+// ConcurrentStore is a thread-safe key-value store for cross-request state
+type ConcurrentStore struct {
+	mu   sync.RWMutex
+	data map[string]Value
+}
+
+func NewConcurrentStore() *ConcurrentStore {
+	return &ConcurrentStore{data: make(map[string]Value)}
+}
+
+func (s *ConcurrentStore) Get(key string) (Value, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.data[key]
+	return v, ok
+}
+
+func (s *ConcurrentStore) SetVal(key string, val Value) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = val
+}
+
+func (s *ConcurrentStore) Delete(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, key)
+}
+
+func (s *ConcurrentStore) All() map[string]Value {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	copy_ := make(map[string]Value, len(s.data))
+	for k, v := range s.data {
+		copy_[k] = v
+	}
+	return copy_
 }
 
 // Interpreter
 type Interpreter struct {
 	global *Environment
 	Server *runtime.Server
+	Store  *ConcurrentStore
 }
 
 func NewInterpreter() *Interpreter {
 	i := &Interpreter{
 		global: NewEnvironment(),
 		Server: runtime.NewServer(),
+		Store:  NewConcurrentStore(),
 	}
 	i.registerBuiltins()
+	i.registerStoreBuiltins()
 	return i
 }
 
-func (interp *Interpreter) registerBuiltins() {
-	interp.global.Set("print", &BuiltinFunction{Fn: func(args ...Value) Value {
-		parts := make([]string, len(args))
-		for i, a := range args {
-			parts[i] = valueToString(a)
-		}
-		fmt.Println(strings.Join(parts, " "))
-		return &NullValue{}
-	}})
-
-	interp.global.Set("len", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return int64(0)
-		}
-		switch v := args[0].(type) {
-		case string:
-			return int64(len(v))
-		case []Value:
-			return int64(len(v))
-		case map[string]Value:
-			return int64(len(v))
-		default:
-			return int64(0)
-		}
-	}})
-
-	interp.global.Set("str", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return ""
-		}
-		return valueToString(args[0])
-	}})
-
-	interp.global.Set("int", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return int64(0)
-		}
-		switch v := args[0].(type) {
-		case int64:
-			return v
-		case float64:
-			return int64(v)
-		case string:
-			n, _ := strconv.ParseInt(v, 10, 64)
-			return n
-		case bool:
-			if v {
-				return int64(1)
-			}
-			return int64(0)
-		default:
-			return int64(0)
-		}
-	}})
-
-	interp.global.Set("float", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return float64(0)
-		}
-		switch v := args[0].(type) {
-		case int64:
-			return float64(v)
-		case float64:
-			return v
-		case string:
-			n, _ := strconv.ParseFloat(v, 64)
-			return n
-		default:
-			return float64(0)
-		}
-	}})
-
-	interp.global.Set("env", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return ""
-		}
-		if name, ok := args[0].(string); ok {
-			return os.Getenv(name)
-		}
-		return ""
-	}})
-
-	interp.global.Set("keys", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return []Value{}
-		}
-		if m, ok := args[0].(map[string]Value); ok {
-			result := make([]Value, 0, len(m))
-			for k := range m {
-				result = append(result, k)
-			}
-			return result
-		}
-		return []Value{}
-	}})
-
-	interp.global.Set("values", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return []Value{}
-		}
-		if m, ok := args[0].(map[string]Value); ok {
-			result := make([]Value, 0, len(m))
-			for _, v := range m {
-				result = append(result, v)
-			}
-			return result
-		}
-		return []Value{}
-	}})
-
-	interp.global.Set("append", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) < 2 {
-			return args[0]
-		}
-		if arr, ok := args[0].([]Value); ok {
-			return append(arr, args[1:]...)
-		}
-		return args[0]
-	}})
-
-	interp.global.Set("type", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return "null"
-		}
-		switch args[0].(type) {
-		case int64:
-			return "int"
-		case float64:
-			return "float"
-		case string:
-			return "string"
-		case bool:
-			return "bool"
-		case []Value:
-			return "array"
-		case map[string]Value:
-			return "object"
-		case *FunctionValue:
-			return "function"
-		case *NullValue:
-			return "null"
-		default:
-			return "unknown"
-		}
-	}})
-
-	interp.global.Set("contains", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 2 {
-			return false
-		}
-		s, ok1 := args[0].(string)
-		sub, ok2 := args[1].(string)
-		if !ok1 || !ok2 {
-			return false
-		}
-		return strings.Contains(s, sub)
-	}})
-
-	interp.global.Set("trim", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return ""
-		}
-		if s, ok := args[0].(string); ok {
-			return strings.TrimSpace(s)
-		}
-		return ""
-	}})
-
-	interp.global.Set("split", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 2 {
-			return []Value{}
-		}
-		s, ok1 := args[0].(string)
-		sep, ok2 := args[1].(string)
-		if !ok1 || !ok2 {
-			return []Value{}
-		}
-		parts := strings.Split(s, sep)
-		result := make([]Value, len(parts))
-		for i, p := range parts {
-			result[i] = p
-		}
-		return result
-	}})
-
-	interp.global.Set("upper", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return ""
-		}
-		if s, ok := args[0].(string); ok {
-			return strings.ToUpper(s)
-		}
-		return ""
-	}})
-
-	interp.global.Set("lower", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 1 {
-			return ""
-		}
-		if s, ok := args[0].(string); ok {
-			return strings.ToLower(s)
-		}
-		return ""
-	}})
-
-	interp.global.Set("replace", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 3 {
-			return ""
-		}
-		s, ok1 := args[0].(string)
-		old, ok2 := args[1].(string)
-		new_, ok3 := args[2].(string)
-		if !ok1 || !ok2 || !ok3 {
-			return ""
-		}
-		return strings.ReplaceAll(s, old, new_)
-	}})
-
-	interp.global.Set("starts_with", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 2 {
-			return false
-		}
-		s, ok1 := args[0].(string)
-		prefix, ok2 := args[1].(string)
-		if !ok1 || !ok2 {
-			return false
-		}
-		return strings.HasPrefix(s, prefix)
-	}})
-
-	interp.global.Set("ends_with", &BuiltinFunction{Fn: func(args ...Value) Value {
-		if len(args) != 2 {
-			return false
-		}
-		s, ok1 := args[0].(string)
-		suffix, ok2 := args[1].(string)
-		if !ok1 || !ok2 {
-			return false
-		}
-		return strings.HasSuffix(s, suffix)
-	}})
-
-	// json namespace as an object with parse and stringify
-	jsonObj := map[string]Value{
-		"parse": &BuiltinFunction{Fn: func(args ...Value) Value {
-			if len(args) != 1 {
+func (interp *Interpreter) registerStoreBuiltins() {
+	// Thread-safe store namespace for cross-request state
+	storeObj := map[string]Value{
+		"get": &BuiltinFunction{Fn: func(args ...Value) Value {
+			if len(args) < 1 {
 				return &NullValue{}
 			}
-			s, ok := args[0].(string)
+			key := valueToString(args[0])
+			val, ok := interp.Store.Get(key)
 			if !ok {
+				if len(args) >= 2 {
+					return args[1] // default value
+				}
 				return &NullValue{}
 			}
-			var raw interface{}
-			if err := json.Unmarshal([]byte(s), &raw); err != nil {
-				return &NullValue{}
-			}
-			return goToValue(raw)
+			return val
 		}},
-		"stringify": &BuiltinFunction{Fn: func(args ...Value) Value {
-			if len(args) != 1 {
-				return ""
+		"set": &BuiltinFunction{Fn: func(args ...Value) Value {
+			if len(args) < 2 {
+				return &NullValue{}
 			}
-			data := valueToGo(args[0])
-			b, _ := json.Marshal(data)
-			return string(b)
+			interp.Store.SetVal(valueToString(args[0]), args[1])
+			return args[1]
+		}},
+		"delete": &BuiltinFunction{Fn: func(args ...Value) Value {
+			if len(args) < 1 {
+				return &NullValue{}
+			}
+			interp.Store.Delete(valueToString(args[0]))
+			return &NullValue{}
+		}},
+		"has": &BuiltinFunction{Fn: func(args ...Value) Value {
+			if len(args) < 1 {
+				return false
+			}
+			_, ok := interp.Store.Get(valueToString(args[0]))
+			return ok
+		}},
+		"all": &BuiltinFunction{Fn: func(args ...Value) Value {
+			return interp.Store.All()
+		}},
+		"incr": &BuiltinFunction{Fn: func(args ...Value) Value {
+			if len(args) < 1 {
+				return int64(0)
+			}
+			key := valueToString(args[0])
+			amount := int64(1)
+			if len(args) >= 2 {
+				if n, ok := args[1].(int64); ok {
+					amount = n
+				}
+			}
+			interp.Store.mu.Lock()
+			defer interp.Store.mu.Unlock()
+			cur, _ := interp.Store.data[key]
+			var newVal int64
+			if n, ok := cur.(int64); ok {
+				newVal = n + amount
+			} else {
+				newVal = amount
+			}
+			interp.Store.data[key] = newVal
+			return newVal
 		}},
 	}
-	interp.global.Set("json", jsonObj)
+	interp.global.Set("store", storeObj)
+}
+
+// callFunction invokes a function value with the given arguments
+func (interp *Interpreter) callFunction(fn Value, args []Value) Value {
+	switch f := fn.(type) {
+	case *BuiltinFunction:
+		return f.Fn(args...)
+	case *FunctionValue:
+		fnEnv := NewFunctionEnvironment(f.Env)
+		for i, param := range f.Params {
+			if i < len(args) {
+				fnEnv.Set(param, args[i])
+			} else {
+				fnEnv.Set(param, &NullValue{})
+			}
+		}
+		result := interp.execStatements(f.Body.Statements, fnEnv)
+		if rv, ok := result.(*ReturnValue); ok {
+			if len(rv.Values) == 1 {
+				return rv.Values[0]
+			}
+			return rv
+		}
+		if hrv, ok := result.(*HTTPReturnValue); ok {
+			return hrv
+		}
+		return &NullValue{}
+	default:
+		return &NullValue{}
+	}
 }
 
 // Execute a program
@@ -446,6 +338,10 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 		// Create a new env for this request (function boundary)
 		routeEnv := NewFunctionEnvironment(env)
 
+		// Response context for header()/cookie() builtins
+		routeEnv.Set("_response_headers", make(map[string]Value))
+		routeEnv.Set("_response_cookies", []Value{})
+
 		// Set up params
 		paramsMap := make(map[string]Value)
 		for k, v := range pathParams {
@@ -494,6 +390,26 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 
 		result := interp.execStatements(body.Statements, routeEnv)
 
+		// Apply accumulated response headers
+		if hdrs, ok := routeEnv.Get("_response_headers"); ok {
+			if hmap, ok := hdrs.(map[string]Value); ok {
+				for k, v := range hmap {
+					w.Header().Set(k, valueToString(v))
+				}
+			}
+		}
+
+		// Apply accumulated cookies
+		if cookies, ok := routeEnv.Get("_response_cookies"); ok {
+			if carr, ok := cookies.([]Value); ok {
+				for _, c := range carr {
+					if cs, ok := c.(string); ok {
+						w.Header().Add("Set-Cookie", cs)
+					}
+				}
+			}
+		}
+
 		switch rv := result.(type) {
 		case *HTTPReturnValue:
 			switch rv.ResponseType {
@@ -508,7 +424,13 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 				fmt.Fprint(w, valueToString(rv.Body))
 			}
 		case *ReturnValue:
-			// Regular return in route context — return first value as JSON
+			// Check if any return value is a redirect
+			if len(rv.Values) > 0 {
+				if redir, ok := rv.Values[0].(*RedirectValue); ok {
+					http.Redirect(w, r, redir.URL, redir.StatusCode)
+					return
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			if len(rv.Values) > 0 {
 				data := valueToGo(rv.Values[0])
@@ -810,6 +732,8 @@ func (interp *Interpreter) evalCall(e *CallExpression, env *Environment) Value {
 	switch f := fn.(type) {
 	case *BuiltinFunction:
 		return f.Fn(args...)
+	case *EnvBuiltinFunction:
+		return f.Fn(env, args...)
 	case *FunctionValue:
 		fnEnv := NewFunctionEnvironment(f.Env)
 		for i, param := range f.Params {
