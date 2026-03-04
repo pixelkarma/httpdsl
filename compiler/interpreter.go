@@ -249,6 +249,102 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 	}})
 
+	interp.global.Set("contains", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 2 {
+			return false
+		}
+		s, ok1 := args[0].(string)
+		sub, ok2 := args[1].(string)
+		if !ok1 || !ok2 {
+			return false
+		}
+		return strings.Contains(s, sub)
+	}})
+
+	interp.global.Set("trim", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 1 {
+			return ""
+		}
+		if s, ok := args[0].(string); ok {
+			return strings.TrimSpace(s)
+		}
+		return ""
+	}})
+
+	interp.global.Set("split", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 2 {
+			return []Value{}
+		}
+		s, ok1 := args[0].(string)
+		sep, ok2 := args[1].(string)
+		if !ok1 || !ok2 {
+			return []Value{}
+		}
+		parts := strings.Split(s, sep)
+		result := make([]Value, len(parts))
+		for i, p := range parts {
+			result[i] = p
+		}
+		return result
+	}})
+
+	interp.global.Set("upper", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 1 {
+			return ""
+		}
+		if s, ok := args[0].(string); ok {
+			return strings.ToUpper(s)
+		}
+		return ""
+	}})
+
+	interp.global.Set("lower", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 1 {
+			return ""
+		}
+		if s, ok := args[0].(string); ok {
+			return strings.ToLower(s)
+		}
+		return ""
+	}})
+
+	interp.global.Set("replace", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 3 {
+			return ""
+		}
+		s, ok1 := args[0].(string)
+		old, ok2 := args[1].(string)
+		new_, ok3 := args[2].(string)
+		if !ok1 || !ok2 || !ok3 {
+			return ""
+		}
+		return strings.ReplaceAll(s, old, new_)
+	}})
+
+	interp.global.Set("starts_with", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 2 {
+			return false
+		}
+		s, ok1 := args[0].(string)
+		prefix, ok2 := args[1].(string)
+		if !ok1 || !ok2 {
+			return false
+		}
+		return strings.HasPrefix(s, prefix)
+	}})
+
+	interp.global.Set("ends_with", &BuiltinFunction{Fn: func(args ...Value) Value {
+		if len(args) != 2 {
+			return false
+		}
+		s, ok1 := args[0].(string)
+		suffix, ok2 := args[1].(string)
+		if !ok1 || !ok2 {
+			return false
+		}
+		return strings.HasSuffix(s, suffix)
+	}})
+
 	// json namespace as an object with parse and stringify
 	jsonObj := map[string]Value{
 		"parse": &BuiltinFunction{Fn: func(args ...Value) Value {
@@ -314,6 +410,8 @@ func (interp *Interpreter) execStatement(stmt Statement, env *Environment) Value
 		}
 	case *AssignStatement:
 		return interp.execAssign(s, env)
+	case *IndexAssignStatement:
+		return interp.execIndexAssign(s, env)
 	case *CompoundAssignStatement:
 		return interp.execCompoundAssign(s, env)
 	case *IfStatement:
@@ -457,6 +555,23 @@ func (interp *Interpreter) execAssign(s *AssignStatement, env *Environment) Valu
 			if i < len(s.Values) {
 				env.SetExisting(name, interp.evalExpr(s.Values[i], env))
 			}
+		}
+	}
+	return &NullValue{}
+}
+
+func (interp *Interpreter) execIndexAssign(s *IndexAssignStatement, env *Environment) Value {
+	left := interp.evalExpr(s.Left, env)
+	idx := interp.evalExpr(s.Index, env)
+	val := interp.evalExpr(s.Value, env)
+
+	switch obj := left.(type) {
+	case map[string]Value:
+		key := valueToString(idx)
+		obj[key] = val
+	case []Value:
+		if i, ok := idx.(int64); ok && i >= 0 && int(i) < len(obj) {
+			obj[i] = val
 		}
 	}
 	return &NullValue{}

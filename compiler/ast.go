@@ -77,6 +77,16 @@ type AssignStatement struct {
 func (s *AssignStatement) statementNode()       {}
 func (s *AssignStatement) TokenLiteral() string { return s.Token.Literal }
 
+type IndexAssignStatement struct {
+	Token Token
+	Left  Expression // the object/array expression
+	Index Expression // the key/index
+	Value Expression
+}
+
+func (s *IndexAssignStatement) statementNode()       {}
+func (s *IndexAssignStatement) TokenLiteral() string { return s.Token.Literal }
+
 type CompoundAssignStatement struct {
 	Token    Token
 	Name     string

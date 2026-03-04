@@ -444,8 +444,23 @@ func (p *Parser) parseIdentStartStatement() Statement {
 }
 
 func (p *Parser) parseExpressionStatement() Statement {
-	stmt := &ExpressionStatement{Token: p.curTok}
-	stmt.Expression = p.parseExpression(PREC_LOWEST)
+	tok := p.curTok
+	expr := p.parseExpression(PREC_LOWEST)
+
+	// Check if this is an index assignment: expr[key] = val or expr.field = val
+	if p.curTokenIs(TOKEN_ASSIGN) {
+		p.nextToken() // skip =
+		val := p.parseExpression(PREC_LOWEST)
+		switch e := expr.(type) {
+		case *IndexExpression:
+			return &IndexAssignStatement{Token: tok, Left: e.Left, Index: e.Index, Value: val}
+		case *DotExpression:
+			return &IndexAssignStatement{Token: tok, Left: e.Left, Index: &StringLiteral{Token: tok, Value: e.Field}, Value: val}
+		}
+	}
+
+	stmt := &ExpressionStatement{Token: tok}
+	stmt.Expression = expr
 	return stmt
 }
 
