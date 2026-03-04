@@ -1,5 +1,7 @@
 package compiler
 
+import "strconv"
+
 type Lexer struct {
 	input   string
 	pos     int  // current position
@@ -234,6 +236,31 @@ func (l *Lexer) readIdentifier() string {
 func (l *Lexer) readNumber() (string, bool) {
 	start := l.pos
 	isFloat := false
+	// Octal: 0755 or 0o755
+	if l.ch == '0' {
+		next := l.peekChar()
+		if next == 'o' || next == 'O' {
+			// 0o755 form
+			l.readChar() // skip 0
+			l.readChar() // skip o
+			oStart := l.pos
+			for l.ch >= '0' && l.ch <= '7' {
+				l.readChar()
+			}
+			val, _ := strconv.ParseInt(l.input[oStart:l.pos], 8, 64)
+			return strconv.FormatInt(val, 10), false
+		}
+		if next >= '0' && next <= '7' {
+			// 0755 form
+			l.readChar() // skip leading 0
+			oStart := l.pos
+			for l.ch >= '0' && l.ch <= '7' {
+				l.readChar()
+			}
+			val, _ := strconv.ParseInt(l.input[oStart:l.pos], 8, 64)
+			return strconv.FormatInt(val, 10), false
+		}
+	}
 	for isDigit(l.ch) {
 		l.readChar()
 	}
@@ -249,20 +276,35 @@ func (l *Lexer) readNumber() (string, bool) {
 
 func (l *Lexer) readString() string {
 	l.readChar() // skip opening "
-	start := l.pos
+	var buf []byte
 	for l.ch != '"' && l.ch != 0 {
 		if l.ch == '\\' {
-			l.readChar() // skip escaped char
-		}
-		if l.ch == '\n' {
-			l.line++
-			l.col = 0
+			l.readChar() // skip backslash
+			switch l.ch {
+			case 'n':
+				buf = append(buf, '\n')
+			case 't':
+				buf = append(buf, '\t')
+			case 'r':
+				buf = append(buf, '\r')
+			case '\\':
+				buf = append(buf, '\\')
+			case '"':
+				buf = append(buf, '"')
+			default:
+				buf = append(buf, '\\', l.ch)
+			}
+		} else {
+			if l.ch == '\n' {
+				l.line++
+				l.col = 0
+			}
+			buf = append(buf, l.ch)
 		}
 		l.readChar()
 	}
-	result := l.input[start:l.pos]
 	// don't readChar here — NextToken will advance past the closing "
-	return result
+	return string(buf)
 }
 
 func isLetter(ch byte) bool {

@@ -101,6 +101,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["log"] || c.usedBuiltins["log_info"] || c.usedBuiltins["log_warn"] || c.usedBuiltins["log_error"] {
 		c.usedImports["log"] = true
 	}
+	if c.usedBuiltins["file"] {
+		c.usedImports["os"] = true
+	}
 
 	// Type inference pass
 	c.fnTypes = make(map[string]*TypeEnv)
@@ -1011,6 +1014,133 @@ func builtin_flat(args ...Value) Value {
 	return []Value{}
 }
 `)
+
+	if c.usedBuiltins["file"] {
+		c.raw(`
+// ===== File I/O =====
+func builtin_file_read(args ...Value) Value {
+	if len(args) == 0 { return null }
+	data, err := os.ReadFile(valueToString(args[0]))
+	if err != nil { return null }
+	return Value(string(data))
+}
+
+func builtin_file_write(args ...Value) Value {
+	if len(args) < 2 { throw(Value("file.write requires path and data")) }
+	path := valueToString(args[0])
+	data := valueToString(args[1])
+	if len(args) >= 3 {
+		perm := os.FileMode(toInt64(args[2]))
+		if err := os.WriteFile(path, []byte(data), perm); err != nil {
+			throw(Value("file.write: " + err.Error()))
+		}
+	} else {
+		// Preserve existing permissions, default 0644 for new files
+		perm := os.FileMode(0644)
+		if info, err := os.Stat(path); err == nil {
+			perm = info.Mode().Perm()
+		}
+		if err := os.WriteFile(path, []byte(data), perm); err != nil {
+			throw(Value("file.write: " + err.Error()))
+		}
+	}
+	return Value(true)
+}
+
+func builtin_file_append(args ...Value) Value {
+	if len(args) < 2 { throw(Value("file.append requires path and data")) }
+	path := valueToString(args[0])
+	data := valueToString(args[1])
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil { throw(Value("file.append: " + err.Error())) }
+	defer f.Close()
+	if _, err := f.WriteString(data); err != nil {
+		throw(Value("file.append: " + err.Error()))
+	}
+	return Value(true)
+}
+
+func builtin_file_read_json(args ...Value) Value {
+	if len(args) == 0 { return null }
+	data, err := os.ReadFile(valueToString(args[0]))
+	if err != nil { return null }
+	return parseJSONBody(string(data))
+}
+
+func builtin_file_write_json(args ...Value) Value {
+	if len(args) < 2 { throw(Value("file.write_json requires path and data")) }
+	path := valueToString(args[0])
+	b, err := json.MarshalIndent(valueToGo(args[1]), "", "  ")
+	if err != nil { throw(Value("file.write_json: " + err.Error())) }
+	if len(args) >= 3 {
+		perm := os.FileMode(toInt64(args[2]))
+		if err := os.WriteFile(path, append(b, '\n'), perm); err != nil {
+			throw(Value("file.write_json: " + err.Error()))
+		}
+	} else {
+		perm := os.FileMode(0644)
+		if info, err := os.Stat(path); err == nil {
+			perm = info.Mode().Perm()
+		}
+		if err := os.WriteFile(path, append(b, '\n'), perm); err != nil {
+			throw(Value("file.write_json: " + err.Error()))
+		}
+	}
+	return Value(true)
+}
+
+func builtin_file_exists(args ...Value) Value {
+	if len(args) == 0 { return Value(false) }
+	_, err := os.Stat(valueToString(args[0]))
+	return Value(err == nil)
+}
+
+func builtin_file_delete(args ...Value) Value {
+	if len(args) == 0 { throw(Value("file.delete requires a path")) }
+	if err := os.Remove(valueToString(args[0])); err != nil {
+		throw(Value("file.delete: " + err.Error()))
+	}
+	return Value(true)
+}
+
+func builtin_file_list(args ...Value) Value {
+	if len(args) == 0 { return null }
+	entries, err := os.ReadDir(valueToString(args[0]))
+	if err != nil { return null }
+	result := make([]Value, len(entries))
+	for i, e := range entries {
+		info, _ := e.Info()
+		size := int64(0)
+		if info != nil { size = info.Size() }
+		result[i] = Value(map[string]Value{
+			"name":   Value(e.Name()),
+			"is_dir": Value(e.IsDir()),
+			"size":   Value(size),
+		})
+	}
+	return Value(result)
+}
+
+func builtin_file_mkdir(args ...Value) Value {
+	if len(args) == 0 { throw(Value("file.mkdir requires a path")) }
+	perm := os.FileMode(0755)
+	if len(args) >= 2 { perm = os.FileMode(toInt64(args[1])) }
+	if err := os.MkdirAll(valueToString(args[0]), perm); err != nil {
+		throw(Value("file.mkdir: " + err.Error()))
+	}
+	return Value(true)
+}
+
+func builtin_file_chmod(args ...Value) Value {
+	if len(args) < 2 { throw(Value("file.chmod requires path and permissions")) }
+	perm := os.FileMode(toInt64(args[1]))
+	if err := os.Chmod(valueToString(args[0]), perm); err != nil {
+		throw(Value("file.chmod: " + err.Error()))
+	}
+	return Value(true)
+}
+`)
+	}
 	c.ln("")
 }
 
@@ -1692,6 +1822,29 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				case "stringify":
 					return fmt.Sprintf("builtin_json_stringify(%s)", argStr)
 				}
+			case "file":
+				switch dot.Field {
+				case "read":
+					return fmt.Sprintf("builtin_file_read(%s)", argStr)
+				case "write":
+					return fmt.Sprintf("builtin_file_write(%s)", argStr)
+				case "append":
+					return fmt.Sprintf("builtin_file_append(%s)", argStr)
+				case "read_json":
+					return fmt.Sprintf("builtin_file_read_json(%s)", argStr)
+				case "write_json":
+					return fmt.Sprintf("builtin_file_write_json(%s)", argStr)
+				case "exists":
+					return fmt.Sprintf("builtin_file_exists(%s)", argStr)
+				case "delete":
+					return fmt.Sprintf("builtin_file_delete(%s)", argStr)
+				case "list":
+					return fmt.Sprintf("builtin_file_list(%s)", argStr)
+				case "mkdir":
+					return fmt.Sprintf("builtin_file_mkdir(%s)", argStr)
+				case "chmod":
+					return fmt.Sprintf("builtin_file_chmod(%s)", argStr)
+				}
 			case "store":
 				switch dot.Field {
 				case "get":
@@ -1811,7 +1964,7 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 func (c *NativeCompiler) dotExpr(e *DotExpression) string {
 	// json and store are handled at call sites
 	if ident, ok := e.Left.(*Identifier); ok {
-		if ident.Value == "json" || ident.Value == "store" {
+		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" {
 			// These are namespace objects; the actual call is handled in callExpr
 			return fmt.Sprintf("dotValue(%s, %q)", safeIdent(ident.Value), e.Field)
 		}

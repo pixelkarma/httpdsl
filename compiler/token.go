@@ -58,6 +58,7 @@ const (
 	TOKEN_FALSE
 	TOKEN_NULL
 	TOKEN_ENV
+	TOKEN_FILE
 	TOKEN_BREAK
 	TOKEN_CONTINUE
 	TOKEN_TRY
@@ -81,6 +82,7 @@ var keywords = map[string]TokenType{
 	"false":    TOKEN_FALSE,
 	"null":     TOKEN_NULL,
 	"env":      TOKEN_ENV,
+	"file":     TOKEN_FILE,
 	"break":    TOKEN_BREAK,
 	"continue": TOKEN_CONTINUE,
 	"try":      TOKEN_TRY,
@@ -198,6 +200,8 @@ func (t TokenType) String() string {
 		return "NULL"
 	case TOKEN_ENV:
 		return "ENV"
+	case TOKEN_FILE:
+		return "FILE"
 	case TOKEN_BREAK:
 		return "BREAK"
 	case TOKEN_CONTINUE:
