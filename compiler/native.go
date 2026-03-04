@@ -49,6 +49,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["net/http"] = true
 	c.usedImports["strconv"] = true
 	c.usedImports["strings"] = true
+	c.usedImports["net/url"] = true
 	if c.usedBuiltins["store"] {
 		c.usedImports["sync"] = true
 	}
@@ -140,8 +141,11 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 		c.scanExpr(s.Left); c.scanExpr(s.Index); c.scanExpr(s.Value)
 	case *ReturnStatement:
 		for _, v := range s.Values { c.scanExpr(v) }
-	case *HTTPReturnStatement:
-		c.scanExpr(s.Body)
+	case *TryCatchStatement:
+		c.scanBlock(s.Try)
+		c.scanBlock(s.Catch)
+	case *ThrowStatement:
+		c.scanExpr(s.Value)
 	case *IfStatement:
 		c.scanExpr(s.Condition)
 		c.scanBlock(s.Consequence)
@@ -528,6 +532,138 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(404)
 	w.Write([]byte("{\"error\":\"not found\"}"))
+}
+
+// Throw support
+type throwValue struct {
+	value Value
+}
+
+func throw(v Value) {
+	panic(&throwValue{value: v})
+}
+
+// Response writer
+func writeResponse(_w http.ResponseWriter, resp Value) {
+	rm, ok := resp.(map[string]Value)
+	if !ok {
+		_w.WriteHeader(500)
+		return
+	}
+	// Apply response headers
+	if hdrs, ok := rm["headers"].(map[string]Value); ok {
+		for k, v := range hdrs {
+			_w.Header().Set(k, valueToString(v))
+		}
+	}
+	// Apply cookies
+	if cookies, ok := rm["cookies"].(map[string]Value); ok {
+		for name, v := range cookies {
+			switch cv := v.(type) {
+			case map[string]Value:
+				c := &http.Cookie{Name: name}
+				if val, ok := cv["value"]; ok { c.Value = valueToString(val) }
+				if p, ok := cv["path"]; ok { c.Path = valueToString(p) } else { c.Path = "/" }
+				if d, ok := cv["domain"]; ok { c.Domain = valueToString(d) }
+				if ho, ok := cv["httpOnly"]; ok { if b, ok := ho.(bool); ok { c.HttpOnly = b } }
+				if s, ok := cv["secure"]; ok { if b, ok := s.(bool); ok { c.Secure = b } }
+				if ma, ok := cv["maxAge"]; ok { if n, ok := ma.(int64); ok { c.MaxAge = int(n) } }
+				if ss, ok := cv["sameSite"]; ok {
+					switch valueToString(ss) {
+					case "lax": c.SameSite = http.SameSiteLaxMode
+					case "strict": c.SameSite = http.SameSiteStrictMode
+					case "none": c.SameSite = http.SameSiteNoneMode
+					}
+				}
+				http.SetCookie(_w, c)
+			case string:
+				http.SetCookie(_w, &http.Cookie{Name: name, Value: cv, Path: "/"})
+			}
+		}
+	}
+	// Determine content type and write body
+	status := 200
+	if s, ok := rm["status"].(int64); ok { status = int(s) }
+	respType := "json"
+	if t, ok := rm["type"].(string); ok { respType = t }
+	body := rm["body"]
+	switch respType {
+	case "json":
+		if _w.Header().Get("Content-Type") == "" {
+			_w.Header().Set("Content-Type", "application/json")
+		}
+		_w.WriteHeader(status)
+		if body != nil { json.NewEncoder(_w).Encode(valueToGo(body)) }
+	case "text":
+		if _w.Header().Get("Content-Type") == "" {
+			_w.Header().Set("Content-Type", "text/plain")
+		}
+		_w.WriteHeader(status)
+		if body != nil { fmt.Fprint(_w, valueToString(body)) }
+	case "html":
+		if _w.Header().Get("Content-Type") == "" {
+			_w.Header().Set("Content-Type", "text/html")
+		}
+		_w.WriteHeader(status)
+		if body != nil { fmt.Fprint(_w, valueToString(body)) }
+	default:
+		_w.WriteHeader(status)
+		if body != nil { fmt.Fprint(_w, valueToString(body)) }
+	}
+}
+
+// Body parsers
+func parseJSONBody(s string) Value {
+	if s == "" { return null }
+	var raw interface{}
+	if err := json.Unmarshal([]byte(s), &raw); err != nil { return null }
+	return goToValue(raw)
+}
+
+func parseFormBody(s string) Value {
+	result := make(map[string]Value)
+	for _, pair := range strings.Split(s, "&") {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) == 2 {
+			key, _ := url.QueryUnescape(parts[0])
+			val, _ := url.QueryUnescape(parts[1])
+			result[key] = Value(val)
+		}
+	}
+	return result
+}
+
+func parseMultipartBody(r *http.Request) (Value, Value) {
+	data := make(map[string]Value)
+	files := make([]Value, 0)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return data, Value(files)
+	}
+	if r.MultipartForm != nil {
+		for k, v := range r.MultipartForm.Value {
+			if len(v) == 1 { data[k] = Value(v[0]) } else {
+				arr := make([]Value, len(v))
+				for i, s := range v { arr[i] = Value(s) }
+				data[k] = Value(arr)
+			}
+		}
+		for k, fhs := range r.MultipartForm.File {
+			for _, fh := range fhs {
+				f, err := fh.Open()
+				if err != nil { continue }
+				fileData, _ := io.ReadAll(f)
+				f.Close()
+				files = append(files, Value(map[string]Value{
+					"field": Value(k),
+					"name":  Value(fh.Filename),
+					"size":  Value(int64(fh.Size)),
+					"type":  Value(fh.Header.Get("Content-Type")),
+					"data":  Value(string(fileData)),
+				}))
+			}
+		}
+	}
+	return data, Value(files)
 }
 
 // Suppress unused
@@ -1183,7 +1319,16 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 		// check if it's a call we need to keep (print, etc)
 		c.lnf("_ = %s", c.expr(s.Expression))
 	case *ReturnStatement:
-		if len(s.Values) == 0 {
+		if isRoute && len(s.Values) == 0 {
+			// In route context, bare return sends the response and exits
+			c.ln("writeResponse(_w, response)")
+			c.ln("return")
+		} else if isRoute && len(s.Values) == 1 {
+			// return response (or return controllerFn(request, response))
+			c.lnf("response = %s", c.expr(s.Values[0]))
+			c.ln("writeResponse(_w, response)")
+			c.ln("return")
+		} else if len(s.Values) == 0 {
 			c.ln("return null")
 		} else if len(s.Values) == 1 {
 			c.lnf("return %s", c.expr(s.Values[0]))
@@ -1194,8 +1339,10 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 			}
 			c.lnf("return &multiReturn{Values: []Value{%s}}", strings.Join(vals, ", "))
 		}
-	case *HTTPReturnStatement:
-		c.emitHTTPReturn(s)
+	case *TryCatchStatement:
+		c.emitTryCatch(s, isRoute)
+	case *ThrowStatement:
+		c.lnf("throw(%s)", c.expr(s.Value))
 	case *IfStatement:
 		c.emitIf(s, isRoute)
 	case *WhileStatement:
@@ -1221,6 +1368,42 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 		c.indent--
 		c.ln("}")
 	}
+}
+
+func (c *NativeCompiler) emitTryCatch(s *TryCatchStatement, isRoute bool) {
+	errVar := safeIdent(s.CatchVar)
+	c.ln("func() {")
+	c.indent++
+	c.ln("defer func() {")
+	c.indent++
+	c.ln("if _r := recover(); _r != nil {")
+	c.indent++
+	c.lnf("var %s Value", errVar)
+	c.ln("if _tv, ok := _r.(*throwValue); ok {")
+	c.indent++
+	c.lnf("%s = _tv.value", errVar)
+	c.indent--
+	c.ln("} else {")
+	c.indent++
+	c.lnf("%s = Value(fmt.Sprintf(\"%%v\", _r))", errVar)
+	c.indent--
+	c.ln("}")
+	c.lnf("_ = %s", errVar)
+	// Declare catch block vars
+	catchVars := c.collectVars(s.Catch)
+	for name := range catchVars {
+		if name != s.CatchVar {
+			c.lnf("var %s Value = null", safeIdent(name))
+		}
+	}
+	c.emitBlock(s.Catch, isRoute)
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("}()")
+	c.emitBlock(s.Try, isRoute)
+	c.indent--
+	c.ln("}()")
 }
 
 func (c *NativeCompiler) emitAssign(s *AssignStatement, isRoute bool) {
@@ -1264,21 +1447,6 @@ func (c *NativeCompiler) emitCompoundAssign(s *CompoundAssignStatement) {
 	default:
 		c.lnf("%s = addValues(%s, %s)", name, name, c.expr(s.Value))
 	}
-}
-
-func (c *NativeCompiler) emitHTTPReturn(s *HTTPReturnStatement) {
-	bodyExpr := c.expr(s.Body)
-	switch s.ResponseType {
-	case "json":
-		c.ln("_w.Header().Set(\"Content-Type\", \"application/json\")")
-		c.lnf("_w.WriteHeader(%d)", s.StatusCode)
-		c.lnf("json.NewEncoder(_w).Encode(valueToGo(%s))", bodyExpr)
-	case "text":
-		c.ln("_w.Header().Set(\"Content-Type\", \"text/plain\")")
-		c.lnf("_w.WriteHeader(%d)", s.StatusCode)
-		c.lnf("fmt.Fprint(_w, valueToString(%s))", bodyExpr)
-	}
-	c.ln("return")
 }
 
 func (c *NativeCompiler) emitIf(s *IfStatement, isRoute bool) {
@@ -1673,72 +1841,6 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("}")
 }
 
-func (c *NativeCompiler) emitRoute(route *RouteStatement) {
-	c.lnf("rt.add(%q, %q, func(_w http.ResponseWriter, _r *http.Request) {", route.Method, route.Path)
-	c.indent++
-
-	// Declare all variables used in the route body
-	vars := c.collectVars(route.Body)
-	// Always have params and request
-	c.ln("_params := getParams(_r)")
-
-	// Build request object
-	c.ln("_bodyBytes, _ := io.ReadAll(_r.Body)")
-	c.ln("defer _r.Body.Close()")
-	c.ln("_queryMap := make(map[string]Value)")
-	c.ln("for _k, _v := range _r.URL.Query() {")
-	c.indent++
-	c.ln("if len(_v) == 1 { _queryMap[_k] = Value(_v[0]) } else {")
-	c.indent++
-	c.ln("_arr := make([]Value, len(_v))")
-	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
-	c.ln("_queryMap[_k] = Value(_arr)")
-	c.indent--
-	c.ln("}")
-	c.indent--
-	c.ln("}")
-	c.ln("_headerMap := make(map[string]Value)")
-	c.ln("for _k, _v := range _r.Header {")
-	c.indent++
-	c.ln("if len(_v) == 1 { _headerMap[_k] = Value(_v[0]) } else {")
-	c.indent++
-	c.ln("_arr := make([]Value, len(_v))")
-	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
-	c.ln("_headerMap[_k] = Value(_arr)")
-	c.indent--
-	c.ln("}")
-	c.indent--
-	c.ln("}")
-
-	// Set up params and request as variables
-	c.ln("params := _params")
-	c.ln("request := Value(map[string]Value{")
-	c.indent++
-	c.ln("\"body\": Value(string(_bodyBytes)),")
-	c.ln("\"method\": Value(_r.Method),")
-	c.ln("\"path\": Value(_r.URL.Path),")
-	c.ln("\"query\": Value(_queryMap),")
-	c.ln("\"headers\": Value(_headerMap),")
-	c.indent--
-	c.ln("})")
-	c.ln("_ = params")
-	c.ln("_ = request")
-
-	// Declare variables
-	for name := range vars {
-		if name != "params" && name != "request" {
-			c.lnf("var %s Value = null", safeIdent(name))
-		}
-	}
-	c.ln("")
-
-	// Emit route body
-	c.emitBlock(route.Body, true)
-
-	c.indent--
-	c.ln("})")
-	c.ln("")
-}
 
 // collectVars finds all variable names assigned in a block
 func (c *NativeCompiler) collectVars(block *BlockStatement) map[string]bool {
@@ -1784,5 +1886,238 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 	case *FnStatement:
 		vars[s.Name] = true
 		c.collectVarsFromBlock(s.Body, vars)
+	case *TryCatchStatement:
+		// Only collect try block vars (they need hoisting for outer access).
+		// Catch var and catch block vars stay inside the recover closure.
+		c.collectVarsFromBlock(s.Try, vars)
 	}
+}
+func (c *NativeCompiler) emitRoute(route *RouteStatement) {
+	c.lnf("rt.add(%q, %q, func(_w http.ResponseWriter, _r *http.Request) {", route.Method, route.Path)
+	c.indent++
+
+	// Read request basics
+	c.ln("_pathParams := getParams(_r)")
+	c.ln("_bodyBytes, _ := io.ReadAll(_r.Body)")
+	c.ln("defer _r.Body.Close()")
+
+	// Parse query params
+	c.ln("_queryMap := make(map[string]Value)")
+	c.ln("for _k, _v := range _r.URL.Query() {")
+	c.indent++
+	c.ln("if len(_v) == 1 { _queryMap[_k] = Value(_v[0]) } else {")
+	c.indent++
+	c.ln("_arr := make([]Value, len(_v))")
+	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
+	c.ln("_queryMap[_k] = Value(_arr)")
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("}")
+
+	// Parse request headers
+	c.ln("_reqHeaders := make(map[string]Value)")
+	c.ln("for _k, _v := range _r.Header {")
+	c.indent++
+	c.ln("if len(_v) == 1 { _reqHeaders[_k] = Value(_v[0]) } else {")
+	c.indent++
+	c.ln("_arr := make([]Value, len(_v))")
+	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
+	c.ln("_reqHeaders[_k] = Value(_arr)")
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("}")
+
+	// Parse request cookies
+	c.ln("_reqCookies := make(map[string]Value)")
+	c.ln("for _, _c := range _r.Cookies() {")
+	c.indent++
+	c.ln("_reqCookies[_c.Name] = Value(_c.Value)")
+	c.indent--
+	c.ln("}")
+
+	// Client IP
+	c.ln(`_clientIP := _r.RemoteAddr`)
+	c.ln(`if _xff := _r.Header.Get("X-Forwarded-For"); _xff != "" { _clientIP = strings.Split(_xff, ",")[0] }`)
+
+	// Content type and body parsing
+	c.ln("_contentType := _r.Header.Get(\"Content-Type\")")
+	c.ln("var _reqData Value = null")
+	c.ln("_bodyStr := string(_bodyBytes)")
+	c.ln("var _reqFiles Value = Value([]Value{})")
+
+	typeCheck := route.TypeCheck
+	hasTypeCheck := typeCheck != ""
+
+	if !hasTypeCheck {
+		// Auto-detect content type
+		c.ln("if strings.Contains(_contentType, \"application/json\") {")
+		c.indent++
+		c.ln("_reqData = parseJSONBody(_bodyStr)")
+		c.indent--
+		c.ln("} else if strings.Contains(_contentType, \"application/x-www-form-urlencoded\") {")
+		c.indent++
+		c.ln("_reqData = parseFormBody(_bodyStr)")
+		c.indent--
+		c.ln("} else if strings.Contains(_contentType, \"multipart/form-data\") {")
+		c.indent++
+		c.ln("_reqData, _reqFiles = parseMultipartBody(_r)")
+		c.indent--
+		c.ln("} else if len(_bodyBytes) > 0 {")
+		c.indent++
+		c.ln("_reqData = parseJSONBody(_bodyStr)")
+		c.ln("if _reqData == null { _reqData = Value(_bodyStr) }")
+		c.indent--
+		c.ln("}")
+	} else {
+		c.lnf("// Enforced type: %s", typeCheck)
+		c.ln("var _typeError Value = null")
+		switch typeCheck {
+		case "json":
+			c.ln("if strings.Contains(_contentType, \"application/json\") || _contentType == \"\" {")
+			c.indent++
+			c.ln("if len(_bodyBytes) > 0 {")
+			c.indent++
+			c.ln("_reqData = parseJSONBody(_bodyStr)")
+			c.ln("if _reqData == null { _typeError = Value(\"invalid JSON body\") }")
+			c.indent--
+			c.ln("}")
+			c.indent--
+			c.ln("} else {")
+			c.indent++
+			c.ln("_typeError = Value(\"expected Content-Type application/json, got \" + _contentType)")
+			c.indent--
+			c.ln("}")
+		case "text":
+			c.ln("_reqData = Value(_bodyStr)")
+		case "form":
+			c.ln("if strings.Contains(_contentType, \"application/x-www-form-urlencoded\") {")
+			c.indent++
+			c.ln("_reqData = parseFormBody(_bodyStr)")
+			c.indent--
+			c.ln("} else if strings.Contains(_contentType, \"multipart/form-data\") {")
+			c.indent++
+			c.ln("_reqData, _reqFiles = parseMultipartBody(_r)")
+			c.indent--
+			c.ln("} else {")
+			c.indent++
+			c.ln("_typeError = Value(\"expected form data, got \" + _contentType)")
+			c.indent--
+			c.ln("}")
+		}
+	}
+
+	// Build request object
+	c.ln("request := Value(map[string]Value{")
+	c.indent++
+	c.ln("\"method\":  Value(_r.Method),")
+	c.ln("\"path\":    Value(_r.URL.Path),")
+	c.ln("\"body\":    Value(_bodyStr),")
+	c.ln("\"data\":    _reqData,")
+	c.ln("\"params\":  Value(_pathParams),")
+	c.ln("\"query\":   Value(_queryMap),")
+	c.ln("\"headers\": Value(_reqHeaders),")
+	c.ln("\"cookies\": Value(_reqCookies),")
+	c.ln("\"ip\":      Value(_clientIP),")
+	c.ln("\"files\":   _reqFiles,")
+	c.indent--
+	c.ln("})")
+
+	// Build response object
+	c.ln("response := Value(map[string]Value{")
+	c.indent++
+	c.ln("\"status\":  Value(int64(200)),")
+	c.ln("\"type\":    Value(\"json\"),")
+	c.ln("\"body\":    Value(map[string]Value{}),")
+	c.ln("\"headers\": Value(map[string]Value{}),")
+	c.ln("\"cookies\": Value(map[string]Value{}),")
+	c.indent--
+	c.ln("})")
+
+	// Handle type check failure
+	if hasTypeCheck {
+		if route.ElseBlock != nil {
+			c.ln("if _typeError != null {")
+			c.indent++
+			c.ln("error := _typeError")
+			c.ln("_ = error")
+			c.ln("_ = request")
+			c.ln("_ = response")
+
+			elseVars := c.collectVars(route.ElseBlock)
+			for name := range elseVars {
+				if name != "request" && name != "response" && name != "error" {
+					c.lnf("var %s Value = null", safeIdent(name))
+				}
+			}
+			c.emitBlock(route.ElseBlock, true)
+			c.ln("writeResponse(_w, response)")
+			c.ln("return")
+			c.indent--
+			c.ln("}")
+		} else {
+			c.ln("if _typeError != null {")
+			c.indent++
+			c.ln(`_w.Header().Set("Content-Type", "application/json")`)
+			c.ln("_w.WriteHeader(400)")
+			c.ln(`json.NewEncoder(_w).Encode(map[string]interface{}{"error": valueToGo(_typeError)})`)
+			c.ln("return")
+			c.indent--
+			c.ln("}")
+		}
+	}
+
+	// Declare route body variables
+	vars := c.collectVars(route.Body)
+	for name := range vars {
+		if name != "request" && name != "response" {
+			c.lnf("var %s Value = null", safeIdent(name))
+		}
+	}
+	c.ln("_ = request")
+	c.ln("_ = response")
+	c.ln("")
+
+	// Wrap route body in recover for throw — catch goes to else block
+	if route.ElseBlock != nil {
+		c.ln("func() {")
+		c.indent++
+		c.ln("defer func() {")
+		c.indent++
+		c.ln("if _r := recover(); _r != nil {")
+		c.indent++
+		c.ln("if _tv, ok := _r.(*throwValue); ok {")
+		c.indent++
+		c.ln("error := _tv.value")
+		c.ln("_ = error")
+		elseVars := c.collectVars(route.ElseBlock)
+		for name := range elseVars {
+			if name != "request" && name != "response" && name != "error" {
+				c.lnf("var %s Value = null", safeIdent(name))
+			}
+		}
+		c.emitBlock(route.ElseBlock, true)
+		c.indent--
+		c.ln("} else { panic(_r) }")
+		c.indent--
+		c.ln("}")
+		c.indent--
+		c.ln("}()")
+	}
+
+	// Emit route body
+	c.emitBlock(route.Body, true)
+
+	if route.ElseBlock != nil {
+		c.indent--
+		c.ln("}()")
+	}
+
+	// Auto-return response
+	c.ln("writeResponse(_w, response)")
+
+	c.indent--
+	c.ln("})")
+	c.ln("")
 }

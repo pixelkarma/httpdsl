@@ -3,17 +3,12 @@ server {
     port 8000
 }
 
-// In-memory store
-fn make_store() {
-    return []
-}
-
 // Root endpoint - API info
 route GET "" {
-    return json {
-        "name": "httpdsl demo",
-        "version": "0.1.0",
-        "endpoints": [
+    response.body = {
+        name: "httpdsl demo",
+        version: "0.2.0",
+        endpoints: [
             "GET /",
             "GET /hello",
             "GET /greet/:name",
@@ -26,12 +21,11 @@ route GET "" {
 }
 
 route GET "hello" {
-    return json { "message": "hello from httpdsl!" }
+    response.body = { message: "hello from httpdsl!" }
 }
 
 route GET "greet/:name" {
-    name = params.name
-    return json { "greeting": "Hello, " + name + "!" }
+    response.body = { greeting: "Hello, " + request.params.name + "!" }
 }
 
 // Math operations
@@ -55,15 +49,17 @@ fn calculate(op, a, b) {
 }
 
 route GET "math/:op/:a/:b" {
-    result, status = calculate(params.op, int(params.a), int(params.b))
+    result, status = calculate(request.params.op, int(request.params.a), int(request.params.b))
     if status != "ok" {
-        return json 400 { "error": status }
+        response.status = 400
+        response.body = { error: status }
+        return
     }
-    return json {
-        "operation": params.op,
-        "a": int(params.a),
-        "b": int(params.b),
-        "result": result
+    response.body = {
+        operation: request.params.op,
+        a: int(request.params.a),
+        b: int(request.params.b),
+        result: result
     }
 }
 
@@ -85,35 +81,39 @@ fn fib(n) {
 }
 
 route GET "fibonacci/:n" {
-    n = int(params.n)
+    n = int(request.params.n)
     if n < 0 {
-        return json 400 { "error": "n must be non-negative" }
+        response.status = 400
+        response.body = { error: "n must be non-negative" }
+        return
     }
-    
-    // Build sequence
+
     seq = []
     i = 0
     while(i <= n) {
         seq = append(seq, fib(i))
         i += 1
     }
-    
-    return json {
-        "n": n,
-        "value": fib(n),
-        "sequence": seq
+
+    response.body = {
+        n: n,
+        value: fib(n),
+        sequence: seq
     }
 }
 
 route GET "health" {
-    return text "ok"
+    response.type = "text"
+    response.body = "ok"
 }
 
-route POST "echo" {
-    body = json.parse(request.body)
-    return json {
-        "echo": body,
-        "method": request.method,
-        "path": request.path
+route POST "echo" json {
+    response.body = {
+        echo: request.data,
+        method: request.method,
+        path: request.path
     }
+} else {
+    response.status = 400
+    response.body = { error: "expected JSON" }
 }

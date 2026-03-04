@@ -5,24 +5,23 @@ server {
 
 // Simple hello world
 route GET "hello" {
-    return json { "message": "hello world" }
+    response.body = { message: "hello world" }
 }
 
 // Path parameters
 route GET "users/:id" {
-    return json { "user_id": params.id }
+    response.body = { user_id: request.params.id }
 }
 
 // POST with body parsing
-route POST "users" {
-    user = json.parse(request.body)
-    return json 201 { "created": true, "user": user }
+route POST "users" json {
+    response.status = 201
+    response.body = { created: true, user: request.data }
 }
 
 // Query parameters
 route GET "search" {
-    q = request.query.q
-    return json { "query": q, "results": [] }
+    response.body = { query: request.query.q, results: [] }
 }
 
 // Using functions
@@ -31,8 +30,8 @@ fn greet(name) {
 }
 
 route GET "greet/:name" {
-    message = greet(params.name)
-    return json { "greeting": message }
+    message = greet(request.params.name)
+    response.body = { greeting: message }
 }
 
 // Loops and logic
@@ -43,7 +42,7 @@ route GET "numbers" {
         items = append(items, i)
         i += 1
     }
-    return json { "numbers": items }
+    response.body = { numbers: items }
 }
 
 // Each loop
@@ -51,9 +50,9 @@ route GET "fruits" {
     fruits = ["apple", "banana", "cherry"]
     result = []
     each fruit, idx in fruits {
-        result = append(result, { "index": idx, "name": fruit })
+        result = append(result, { index: idx, name: fruit })
     }
-    return json { "fruits": result }
+    response.body = { fruits: result }
 }
 
 // Multiple return values
@@ -65,16 +64,18 @@ fn divide(a, b) {
 }
 
 route GET "divide/:a/:b" {
-    result, status = divide(int(params.a), int(params.b))
-    return json { "result": result, "status": status }
+    result, status = divide(int(request.params.a), int(request.params.b))
+    response.body = { result: result, status: status }
 }
 
 // Text response
 route GET "health" {
-    return text "ok"
+    response.type = "text"
+    response.body = "ok"
 }
 
 // Error responses
 route GET "error" {
-    return json 500 { "error": "something went wrong" }
+    response.status = 500
+    response.body = { error: "something went wrong" }
 }

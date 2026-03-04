@@ -4,18 +4,17 @@ server {
 
 // 1. Simple JSON
 route GET "hello" {
-    return json { "message": "hello world" }
+    response.body = { message: "hello world" }
 }
 
 // 2. Path param + string concat
 route GET "greet/:name" {
-    return json { "greeting": "Hello, " + params.name + "!" }
+    response.body = { greeting: "Hello, " + request.params.name + "!" }
 }
 
 // 3. JSON body parse + response
 route POST "echo" {
-    body = json.parse(request.body)
-    return json { "echo": body, "method": request.method }
+    response.body = { echo: request.data, method: request.method }
 }
 
 // 4. Computation (fibonacci)
@@ -36,14 +35,14 @@ fn fib(n) {
 }
 
 route GET "fibonacci/:n" {
-    n = int(params.n)
+    n = int(request.params.n)
     seq = []
     i = 0
     while(i <= n) {
         seq = append(seq, fib(i))
         i += 1
     }
-    return json { "n": n, "value": fib(n), "sequence": seq }
+    response.body = { n: n, value: fib(n), sequence: seq }
 }
 
 // 5. Array building with loop
@@ -54,5 +53,5 @@ route GET "numbers" {
         nums = append(nums, i)
         i += 1
     }
-    return json { "numbers": nums }
+    response.body = { numbers: nums }
 }

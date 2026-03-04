@@ -129,6 +129,10 @@ func (p *Parser) parseStatement() Statement {
 		stmt := &ContinueStatement{Token: p.curTok}
 		p.nextToken()
 		return stmt
+	case TOKEN_TRY:
+		return p.parseTryCatchStatement()
+	case TOKEN_THROW:
+		return p.parseThrowStatement()
 	case TOKEN_IDENT:
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
@@ -164,12 +168,35 @@ func (p *Parser) parseRouteStatement() Statement {
 	}
 	p.nextToken()
 
+	// Optional type check: json, text, or form
+	if p.curTokenIs(TOKEN_JSON) {
+		stmt.TypeCheck = "json"
+		p.nextToken()
+	} else if p.curTokenIs(TOKEN_TEXT) {
+		stmt.TypeCheck = "text"
+		p.nextToken()
+	} else if p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "form" {
+		stmt.TypeCheck = "form"
+		p.nextToken()
+	}
+
 	// Body block
 	if !p.curTokenIs(TOKEN_LBRACE) {
 		p.addError("expected '{', got %s", p.curTok.Type)
 		return nil
 	}
 	stmt.Body = p.parseBlockStatement()
+
+	// Optional else block
+	if p.curTokenIs(TOKEN_ELSE) {
+		p.nextToken() // skip 'else'
+		if !p.curTokenIs(TOKEN_LBRACE) {
+			p.addError("expected '{' after else, got %s", p.curTok.Type)
+			return nil
+		}
+		stmt.ElseBlock = p.parseBlockStatement()
+	}
+
 	return stmt
 }
 
@@ -223,29 +250,10 @@ func (p *Parser) parseFnParams() []string {
 	return params
 }
 
-// return json 201 { ... } | return text "..." | return expr, expr
+// return | return expr, expr
 func (p *Parser) parseReturnStatement() Statement {
 	tok := p.curTok
 	p.nextToken() // skip 'return'
-
-	// HTTP return: return json ... or return text ...
-	if p.curTokenIs(TOKEN_JSON) || p.curTokenIs(TOKEN_TEXT) {
-		stmt := &HTTPReturnStatement{Token: tok}
-		stmt.ResponseType = p.curTok.Literal
-		stmt.StatusCode = 200
-		p.nextToken()
-
-		// Optional status code
-		if p.curTokenIs(TOKEN_INT) {
-			code, _ := strconv.Atoi(p.curTok.Literal)
-			stmt.StatusCode = code
-			p.nextToken()
-		}
-
-		// Body expression
-		stmt.Body = p.parseExpression(PREC_LOWEST)
-		return stmt
-	}
 
 	// Regular return with expression list
 	stmt := &ReturnStatement{Token: tok}
@@ -257,6 +265,59 @@ func (p *Parser) parseReturnStatement() Statement {
 		p.nextToken()
 		stmt.Values = append(stmt.Values, p.parseExpression(PREC_LOWEST))
 	}
+	return stmt
+}
+
+// try { ... } catch(varname) { ... }
+func (p *Parser) parseTryCatchStatement() Statement {
+	stmt := &TryCatchStatement{Token: p.curTok}
+	p.nextToken() // skip 'try'
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after try, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Try = p.parseBlockStatement()
+
+	if !p.curTokenIs(TOKEN_CATCH) {
+		p.addError("expected 'catch' after try block, got %s", p.curTok.Type)
+		return nil
+	}
+	p.nextToken() // skip 'catch'
+
+	if !p.curTokenIs(TOKEN_LPAREN) {
+		p.addError("expected '(' after catch, got %s", p.curTok.Type)
+		return nil
+	}
+	p.nextToken() // skip '('
+
+	if !p.curTokenIs(TOKEN_IDENT) {
+		p.addError("expected variable name in catch, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.CatchVar = p.curTok.Literal
+	p.nextToken()
+
+	if !p.curTokenIs(TOKEN_RPAREN) {
+		p.addError("expected ')' after catch variable, got %s", p.curTok.Type)
+		return nil
+	}
+	p.nextToken() // skip ')'
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after catch(...), got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Catch = p.parseBlockStatement()
+
+	return stmt
+}
+
+// throw expression
+func (p *Parser) parseThrowStatement() Statement {
+	stmt := &ThrowStatement{Token: p.curTok}
+	p.nextToken() // skip 'throw'
+	stmt.Value = p.parseExpression(PREC_LOWEST)
 	return stmt
 }
 

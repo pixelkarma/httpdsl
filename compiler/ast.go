@@ -30,11 +30,13 @@ func (p *Program) TokenLiteral() string {
 // --- Statements ---
 
 type RouteStatement struct {
-	Token  Token
-	Method string
-	Path   string
-	Params []string // extracted :param names from path
-	Body   *BlockStatement
+	Token     Token
+	Method    string
+	Path      string
+	Params    []string        // extracted :param names from path
+	TypeCheck string          // "json", "text", "form", or "" (auto-detect)
+	Body      *BlockStatement
+	ElseBlock *BlockStatement // runs on type mismatch or uncaught errors
 }
 
 func (s *RouteStatement) statementNode()       {}
@@ -58,15 +60,23 @@ type ReturnStatement struct {
 func (s *ReturnStatement) statementNode()       {}
 func (s *ReturnStatement) TokenLiteral() string { return s.Token.Literal }
 
-type HTTPReturnStatement struct {
-	Token        Token
-	ResponseType string // "json" or "text"
-	StatusCode   int    // default 200
-	Body         Expression
+type TryCatchStatement struct {
+	Token    Token
+	Try      *BlockStatement
+	CatchVar string // variable name for error (e.g. "err")
+	Catch    *BlockStatement
 }
 
-func (s *HTTPReturnStatement) statementNode()       {}
-func (s *HTTPReturnStatement) TokenLiteral() string { return s.Token.Literal }
+func (s *TryCatchStatement) statementNode()       {}
+func (s *TryCatchStatement) TokenLiteral() string { return s.Token.Literal }
+
+type ThrowStatement struct {
+	Token Token
+	Value Expression // the error value (string, object, anything)
+}
+
+func (s *ThrowStatement) statementNode()       {}
+func (s *ThrowStatement) TokenLiteral() string { return s.Token.Literal }
 
 type AssignStatement struct {
 	Token  Token

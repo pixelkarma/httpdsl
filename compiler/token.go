@@ -60,6 +60,9 @@ const (
 	TOKEN_ENV
 	TOKEN_BREAK
 	TOKEN_CONTINUE
+	TOKEN_TRY
+	TOKEN_CATCH
+	TOKEN_THROW
 )
 
 var keywords = map[string]TokenType{
@@ -80,6 +83,9 @@ var keywords = map[string]TokenType{
 	"env":      TOKEN_ENV,
 	"break":    TOKEN_BREAK,
 	"continue": TOKEN_CONTINUE,
+	"try":      TOKEN_TRY,
+	"catch":    TOKEN_CATCH,
+	"throw":    TOKEN_THROW,
 }
 
 type Token struct {
@@ -196,6 +202,12 @@ func (t TokenType) String() string {
 		return "BREAK"
 	case TOKEN_CONTINUE:
 		return "CONTINUE"
+	case TOKEN_TRY:
+		return "TRY"
+	case TOKEN_CATCH:
+		return "CATCH"
+	case TOKEN_THROW:
+		return "THROW"
 	default:
 		return "UNKNOWN"
 	}
