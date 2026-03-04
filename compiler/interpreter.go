@@ -39,8 +39,9 @@ type BuiltinFunction struct {
 
 // Environment (scope)
 type Environment struct {
-	store  map[string]Value
-	outer  *Environment
+	store    map[string]Value
+	outer    *Environment
+	boundary bool // true = function boundary, stops SetExisting from walking up
 }
 
 func NewEnvironment() *Environment {
@@ -50,6 +51,13 @@ func NewEnvironment() *Environment {
 func NewEnclosedEnvironment(outer *Environment) *Environment {
 	env := NewEnvironment()
 	env.outer = outer
+	return env
+}
+
+func NewFunctionEnvironment(outer *Environment) *Environment {
+	env := NewEnvironment()
+	env.outer = outer
+	env.boundary = true
 	return env
 }
 
@@ -65,16 +73,18 @@ func (e *Environment) Set(name string, val Value) {
 	e.store[name] = val
 }
 
-// SetExisting sets in the scope where the variable already exists
+// SetExisting sets in the scope where the variable already exists,
+// but won't cross function boundaries (boundary == true)
 func (e *Environment) SetExisting(name string, val Value) {
 	if _, ok := e.store[name]; ok {
 		e.store[name] = val
 		return
 	}
-	if e.outer != nil {
+	if e.outer != nil && !e.boundary {
 		e.outer.SetExisting(name, val)
 		return
 	}
+	// Create in current scope
 	e.store[name] = val
 }
 
@@ -335,8 +345,8 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 	path := s.Path
 
 	interp.Server.Router.Add(method, path, func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
-		// Create a new env for this request
-		routeEnv := NewEnclosedEnvironment(env)
+		// Create a new env for this request (function boundary)
+		routeEnv := NewFunctionEnvironment(env)
 
 		// Set up params
 		paramsMap := make(map[string]Value)
@@ -686,7 +696,7 @@ func (interp *Interpreter) evalCall(e *CallExpression, env *Environment) Value {
 	case *BuiltinFunction:
 		return f.Fn(args...)
 	case *FunctionValue:
-		fnEnv := NewEnclosedEnvironment(f.Env)
+		fnEnv := NewFunctionEnvironment(f.Env)
 		for i, param := range f.Params {
 			if i < len(args) {
 				fnEnv.Set(param, args[i])
