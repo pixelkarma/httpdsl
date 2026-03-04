@@ -1,0 +1,80 @@
+// Server configuration
+server {
+    port 8080
+}
+
+// Simple hello world
+route GET "hello" {
+    return json { "message": "hello world" }
+}
+
+// Path parameters
+route GET "users/:id" {
+    return json { "user_id": params.id }
+}
+
+// POST with body parsing
+route POST "users" {
+    user = json.parse(request.body)
+    return json 201 { "created": true, "user": user }
+}
+
+// Query parameters
+route GET "search" {
+    q = request.query.q
+    return json { "query": q, "results": [] }
+}
+
+// Using functions
+fn greet(name) {
+    return "Hello, " + name + "!"
+}
+
+route GET "greet/:name" {
+    message = greet(params.name)
+    return json { "greeting": message }
+}
+
+// Loops and logic
+route GET "numbers" {
+    items = []
+    i = 0
+    while(i < 10) {
+        items = append(items, i)
+        i += 1
+    }
+    return json { "numbers": items }
+}
+
+// Each loop
+route GET "fruits" {
+    fruits = ["apple", "banana", "cherry"]
+    result = []
+    each fruit, idx in fruits {
+        result = append(result, { "index": idx, "name": fruit })
+    }
+    return json { "fruits": result }
+}
+
+// Multiple return values
+fn divide(a, b) {
+    if b == 0 {
+        return 0, "cannot divide by zero"
+    }
+    return a / b, "ok"
+}
+
+route GET "divide/:a/:b" {
+    result, status = divide(int(params.a), int(params.b))
+    return json { "result": result, "status": status }
+}
+
+// Text response
+route GET "health" {
+    return text "ok"
+}
+
+// Error responses
+route GET "error" {
+    return json 500 { "error": "something went wrong" }
+}
