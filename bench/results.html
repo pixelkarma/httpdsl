@@ -25,53 +25,61 @@
 <div class="chart" id="chart"></div>
 
 <table>
-  <tr><th>Test</th><th>httpdsl (req/s)</th><th>Go (req/s)</th><th>Ratio</th><th>Verdict</th></tr>
+  <tr><th>Test</th><th>httpdsl (req/s)</th><th>Go (req/s)</th><th>Ratio</th><th>Before → After</th></tr>
   <tr>
     <td>Simple JSON</td>
-    <td>69,836</td>
-    <td class="fast">79,640</td>
-    <td class="ratio">0.88x</td>
-    <td>Nearly identical — both I/O bound</td>
+    <td>72,587</td>
+    <td class="fast">80,437</td>
+    <td class="ratio">0.90x</td>
+    <td>69,836 → 72,587 <span class="fast">(+4%)</span></td>
   </tr>
   <tr>
     <td>Path Params + String</td>
-    <td>67,819</td>
-    <td class="fast">77,305</td>
+    <td>68,518</td>
+    <td class="fast">77,657</td>
     <td class="ratio">0.88x</td>
-    <td>Marginal overhead from AST walk</td>
+    <td>67,819 → 68,518 <span class="fast">(+1%)</span></td>
   </tr>
   <tr>
     <td>JSON Parse + Echo</td>
-    <td>57,310</td>
-    <td class="fast">65,883</td>
-    <td class="ratio">0.87x</td>
-    <td>Both bottlenecked on JSON serde</td>
+    <td>55,823</td>
+    <td class="fast">63,344</td>
+    <td class="ratio">0.88x</td>
+    <td>57,310 → 55,823 <span style="color:#8b949e">(~same)</span></td>
   </tr>
   <tr>
     <td>Fibonacci(20) sequence</td>
-    <td class="slow">9,780</td>
-    <td class="fast">71,399</td>
-    <td class="ratio">0.14x</td>
-    <td>~7x slower — interpreter loop overhead</td>
+    <td>13,860</td>
+    <td class="fast">69,766</td>
+    <td class="ratio">0.20x</td>
+    <td>9,780 → 13,860 <span class="fast">(+42%)</span></td>
   </tr>
   <tr>
     <td>100-element array build</td>
-    <td class="slow">5,033</td>
-    <td class="fast">71,639</td>
-    <td class="ratio">0.07x</td>
-    <td>~14x slower — append + scope alloc cost</td>
+    <td>29,317</td>
+    <td class="fast">65,310</td>
+    <td class="ratio">0.45x</td>
+    <td>5,033 → 29,317 <span class="fast">(+483%)</span></td>
   </tr>
 </table>
 
 <div class="note">
-  <strong>Analysis:</strong> For typical API work (route matching, JSON in/out, string ops), httpdsl achieves
-  <strong>85-90% of native Go throughput</strong> — the bottleneck is network I/O and JSON serialization, not the interpreter.
+  <strong>Optimizations applied:</strong>
+  <ul style="margin: 8px 0;">
+    <li>Skip mutex on per-request environments (only global scope locks)</li>
+    <li>Singleton NULL/BREAK/CONTINUE to eliminate allocation per statement</li>
+    <li>Reuse loop environment in <code>each</code> instead of allocating per iteration</li>
+    <li>Inline <code>x = append(x, val)</code> pattern — bypasses function dispatch entirely</li>
+    <li>Fast path for <code>i += 1</code> (int64 + int64 without interface boxing)</li>
+    <li>Pre-sized environment maps for function calls</li>
+  </ul>
+  <strong>Results:</strong> API workloads (JSON in/out) sit at <strong>88-90% of native Go</strong>.
+  Computation went from 7-14x slower to <strong>2-5x slower</strong>.
+  Array building saw the biggest gain: <strong>5,033 → 29,317 rps (+483%)</strong> from inlining append.
   <br><br>
-  For computation-heavy routes (tight loops, recursive calls), the tree-walking interpreter pays 7-14x overhead
-  from AST node allocation, scope creation, interface boxing, and mutex acquisition per variable access.
-  <br><br>
-  <strong>Bottom line:</strong> If your routes do what APIs typically do (validate input, query a store, return JSON),
-  httpdsl is fast enough for production. If you need computation, do it in Go and call it as a builtin.
+  <strong>Remaining gap:</strong> The 2-5x computation overhead is inherent to tree-walking interpretation:
+  AST dispatch, interface{} boxing, map-based variable lookup. Closing this further requires
+  either bytecode compilation or JIT — both viable next steps.
 </div>
 
 <script>
@@ -89,16 +97,16 @@ const spec = {
   title: "Requests/second (higher is better)",
   data: {
     values: [
-      {test: "Simple JSON", lang: "httpdsl", rps: 69836},
-      {test: "Simple JSON", lang: "Go native", rps: 79640},
-      {test: "Path Params", lang: "httpdsl", rps: 67819},
-      {test: "Path Params", lang: "Go native", rps: 77305},
-      {test: "JSON Echo", lang: "httpdsl", rps: 57310},
-      {test: "JSON Echo", lang: "Go native", rps: 65883},
-      {test: "Fibonacci(20)", lang: "httpdsl", rps: 9780},
-      {test: "Fibonacci(20)", lang: "Go native", rps: 71399},
-      {test: "100-elem Array", lang: "httpdsl", rps: 5033},
-      {test: "100-elem Array", lang: "Go native", rps: 71639}
+      {test: "Simple JSON", lang: "httpdsl", rps: 72587},
+      {test: "Simple JSON", lang: "Go native", rps: 80437},
+      {test: "Path Params", lang: "httpdsl", rps: 68518},
+      {test: "Path Params", lang: "Go native", rps: 77657},
+      {test: "JSON Echo", lang: "httpdsl", rps: 55823},
+      {test: "JSON Echo", lang: "Go native", rps: 63344},
+      {test: "Fibonacci(20)", lang: "httpdsl", rps: 13860},
+      {test: "Fibonacci(20)", lang: "Go native", rps: 69766},
+      {test: "100-elem Array", lang: "httpdsl", rps: 29317},
+      {test: "100-elem Array", lang: "Go native", rps: 65310}
     ]
   },
   mark: {type: "bar", cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4},

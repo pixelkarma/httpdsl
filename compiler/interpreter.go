@@ -16,6 +16,13 @@ type NullValue struct{}
 type BreakSignal struct{}
 type ContinueSignal struct{}
 
+// Singletons to avoid repeated allocation
+var (
+	NULL     Value = &NullValue{}
+	BREAK    Value = &BreakSignal{}
+	CONTINUE Value = &ContinueSignal{}
+)
+
 type ReturnValue struct {
 	Values []Value
 }
@@ -53,29 +60,37 @@ type Environment struct {
 	store    map[string]Value
 	outer    *Environment
 	boundary bool // true = function boundary, stops SetExisting from walking up
+	shared   bool // true = accessed by multiple goroutines, needs mutex
 }
 
 func NewEnvironment() *Environment {
-	return &Environment{store: make(map[string]Value)}
+	return &Environment{store: make(map[string]Value, 8)}
 }
 
 func NewEnclosedEnvironment(outer *Environment) *Environment {
-	env := NewEnvironment()
-	env.outer = outer
-	return env
+	return &Environment{store: make(map[string]Value, 4), outer: outer}
 }
 
 func NewFunctionEnvironment(outer *Environment) *Environment {
-	env := NewEnvironment()
-	env.outer = outer
-	env.boundary = true
-	return env
+	return &Environment{store: make(map[string]Value, 8), outer: outer, boundary: true}
+}
+
+func NewSizedFunctionEnvironment(outer *Environment, size int) *Environment {
+	return &Environment{store: make(map[string]Value, size), outer: outer, boundary: true}
 }
 
 func (e *Environment) Get(name string) (Value, bool) {
-	e.mu.RLock()
+	if e.shared {
+		e.mu.RLock()
+		val, ok := e.store[name]
+		e.mu.RUnlock()
+		if !ok && e.outer != nil {
+			return e.outer.Get(name)
+		}
+		return val, ok
+	}
+	// Fast path: no locking needed for single-goroutine envs
 	val, ok := e.store[name]
-	e.mu.RUnlock()
 	if !ok && e.outer != nil {
 		return e.outer.Get(name)
 	}
@@ -83,31 +98,45 @@ func (e *Environment) Get(name string) (Value, bool) {
 }
 
 func (e *Environment) Set(name string, val Value) {
-	e.mu.Lock()
-	e.store[name] = val
-	e.mu.Unlock()
-}
-
-// SetExisting sets in the scope where the variable already exists,
-// but won't cross function boundaries (boundary == true)
-func (e *Environment) SetExisting(name string, val Value) {
-	e.mu.RLock()
-	_, ok := e.store[name]
-	e.mu.RUnlock()
-	if ok {
+	if e.shared {
 		e.mu.Lock()
 		e.store[name] = val
 		e.mu.Unlock()
 		return
 	}
+	e.store[name] = val
+}
+
+// SetExisting sets in the scope where the variable already exists,
+// but won't cross function boundaries (boundary == true)
+func (e *Environment) SetExisting(name string, val Value) {
+	if e.shared {
+		e.mu.RLock()
+		_, ok := e.store[name]
+		e.mu.RUnlock()
+		if ok {
+			e.mu.Lock()
+			e.store[name] = val
+			e.mu.Unlock()
+			return
+		}
+	} else {
+		if _, ok := e.store[name]; ok {
+			e.store[name] = val
+			return
+		}
+	}
 	if e.outer != nil && !e.boundary {
 		e.outer.SetExisting(name, val)
 		return
 	}
-	// Create in current scope
-	e.mu.Lock()
-	e.store[name] = val
-	e.mu.Unlock()
+	if e.shared {
+		e.mu.Lock()
+		e.store[name] = val
+		e.mu.Unlock()
+	} else {
+		e.store[name] = val
+	}
 }
 
 // ConcurrentStore is a thread-safe key-value store for cross-request state
@@ -157,8 +186,10 @@ type Interpreter struct {
 }
 
 func NewInterpreter() *Interpreter {
+	global := NewEnvironment()
+	global.shared = true // accessed by multiple request goroutines
 	i := &Interpreter{
-		global: NewEnvironment(),
+		global: global,
 		Server: runtime.NewServer(),
 		Store:  NewConcurrentStore(),
 	}
@@ -172,7 +203,7 @@ func (interp *Interpreter) registerStoreBuiltins() {
 	storeObj := map[string]Value{
 		"get": &BuiltinFunction{Fn: func(args ...Value) Value {
 			if len(args) < 1 {
-				return &NullValue{}
+				return NULL
 			}
 			key := valueToString(args[0])
 			val, ok := interp.Store.Get(key)
@@ -180,23 +211,23 @@ func (interp *Interpreter) registerStoreBuiltins() {
 				if len(args) >= 2 {
 					return args[1] // default value
 				}
-				return &NullValue{}
+				return NULL
 			}
 			return val
 		}},
 		"set": &BuiltinFunction{Fn: func(args ...Value) Value {
 			if len(args) < 2 {
-				return &NullValue{}
+				return NULL
 			}
 			interp.Store.SetVal(valueToString(args[0]), args[1])
 			return args[1]
 		}},
 		"delete": &BuiltinFunction{Fn: func(args ...Value) Value {
 			if len(args) < 1 {
-				return &NullValue{}
+				return NULL
 			}
 			interp.Store.Delete(valueToString(args[0]))
-			return &NullValue{}
+			return NULL
 		}},
 		"has": &BuiltinFunction{Fn: func(args ...Value) Value {
 			if len(args) < 1 {
@@ -241,27 +272,27 @@ func (interp *Interpreter) callFunction(fn Value, args []Value) Value {
 	case *BuiltinFunction:
 		return f.Fn(args...)
 	case *FunctionValue:
-		fnEnv := NewFunctionEnvironment(f.Env)
+		fnEnv := NewSizedFunctionEnvironment(f.Env, len(f.Params)+4)
 		for i, param := range f.Params {
 			if i < len(args) {
-				fnEnv.Set(param, args[i])
+				fnEnv.store[param] = args[i]
 			} else {
-				fnEnv.Set(param, &NullValue{})
+				fnEnv.store[param] = NULL
 			}
 		}
 		result := interp.execStatements(f.Body.Statements, fnEnv)
-		if rv, ok := result.(*ReturnValue); ok {
+		switch rv := result.(type) {
+		case *ReturnValue:
 			if len(rv.Values) == 1 {
 				return rv.Values[0]
 			}
 			return rv
+		case *HTTPReturnValue:
+			return rv
 		}
-		if hrv, ok := result.(*HTTPReturnValue); ok {
-			return hrv
-		}
-		return &NullValue{}
+		return NULL
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -278,7 +309,7 @@ func (interp *Interpreter) execStatements(stmts []Statement, env *Environment) V
 			return result
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execStatement(stmt Statement, env *Environment) Value {
@@ -316,15 +347,15 @@ func (interp *Interpreter) execStatement(stmt Statement, env *Environment) Value
 		return interp.execServer(s, env)
 	case *ExpressionStatement:
 		interp.evalExpr(s.Expression, env)
-		return &NullValue{}
+		return NULL
 	case *BlockStatement:
 		return interp.execStatements(s.Statements, env)
 	case *BreakStatement:
-		return &BreakSignal{}
+		return BREAK
 	case *ContinueStatement:
-		return &ContinueSignal{}
+		return CONTINUE
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -441,7 +472,7 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 		}
 	})
 
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execFnStatement(s *FnStatement, env *Environment) Value {
@@ -451,10 +482,29 @@ func (interp *Interpreter) execFnStatement(s *FnStatement, env *Environment) Val
 		Env:    env,
 	}
 	env.Set(s.Name, fn)
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execAssign(s *AssignStatement, env *Environment) Value {
+	// Fast path: x = append(x, val) — most common array pattern
+	if len(s.Names) == 1 && len(s.Values) == 1 {
+		if call, ok := s.Values[0].(*CallExpression); ok {
+			if fnIdent, ok := call.Function.(*Identifier); ok && fnIdent.Value == "append" && len(call.Arguments) >= 2 {
+				if argIdent, ok := call.Arguments[0].(*Identifier); ok && argIdent.Value == s.Names[0] {
+					// This is x = append(x, ...) — do it inline
+					current, _ := env.Get(s.Names[0])
+					if arr, ok := current.([]Value); ok {
+						for _, arg := range call.Arguments[1:] {
+							arr = append(arr, interp.evalExpr(arg, env))
+						}
+						env.SetExisting(s.Names[0], arr)
+						return NULL
+					}
+				}
+			}
+		}
+	}
+
 	if len(s.Values) == 1 && len(s.Names) > 1 {
 		// Multiple names, one value (must be a function call returning multiple values)
 		val := interp.evalExpr(s.Values[0], env)
@@ -463,13 +513,13 @@ func (interp *Interpreter) execAssign(s *AssignStatement, env *Environment) Valu
 				if i < len(rv.Values) {
 					env.SetExisting(name, rv.Values[i])
 				} else {
-					env.SetExisting(name, &NullValue{})
+					env.SetExisting(name, NULL)
 				}
 			}
 		} else {
 			env.SetExisting(s.Names[0], val)
 			for i := 1; i < len(s.Names); i++ {
-				env.SetExisting(s.Names[i], &NullValue{})
+				env.SetExisting(s.Names[i], NULL)
 			}
 		}
 	} else {
@@ -479,7 +529,7 @@ func (interp *Interpreter) execAssign(s *AssignStatement, env *Environment) Valu
 			}
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execIndexAssign(s *IndexAssignStatement, env *Environment) Value {
@@ -496,23 +546,50 @@ func (interp *Interpreter) execIndexAssign(s *IndexAssignStatement, env *Environ
 			obj[i] = val
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execCompoundAssign(s *CompoundAssignStatement, env *Environment) Value {
-	current, _ := env.Get(s.Name)
 	right := interp.evalExpr(s.Value, env)
-	var result Value
-	switch s.Operator {
-	case "+=":
-		result = addValues(current, right)
-	case "-=":
-		result = subtractValues(current, right)
-	default:
-		result = current
+
+	// Fast path: try to do the operation directly on the local store
+	// without the overhead of Get + SetExisting
+	targetEnv := env
+	for targetEnv != nil {
+		if current, ok := targetEnv.store[s.Name]; ok {
+			var result Value
+			// Fast int64 += int64 path (most common: i += 1)
+			if ci, ok := current.(int64); ok {
+				if ri, ok := right.(int64); ok {
+					if s.Operator == "+=" {
+						result = ci + ri
+					} else {
+						result = ci - ri
+					}
+					targetEnv.store[s.Name] = result
+					return NULL
+				}
+			}
+			// General path
+			switch s.Operator {
+			case "+=":
+				result = addValues(current, right)
+			case "-=":
+				result = subtractValues(current, right)
+			default:
+				result = current
+			}
+			targetEnv.store[s.Name] = result
+			return NULL
+		}
+		if targetEnv.boundary {
+			break
+		}
+		targetEnv = targetEnv.outer
 	}
-	env.SetExisting(s.Name, result)
-	return &NullValue{}
+	// Not found: create in current scope
+	env.store[s.Name] = right
+	return NULL
 }
 
 func (interp *Interpreter) execIf(s *IfStatement, env *Environment) Value {
@@ -523,7 +600,7 @@ func (interp *Interpreter) execIf(s *IfStatement, env *Environment) Value {
 	if s.Alternative != nil {
 		return interp.execStatement(s.Alternative, env)
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execWhile(s *WhileStatement, env *Environment) Value {
@@ -546,59 +623,50 @@ func (interp *Interpreter) execWhile(s *WhileStatement, env *Environment) Value 
 			return result
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execEach(s *EachStatement, env *Environment) Value {
 	iterable := interp.evalExpr(s.Iterable, env)
 
+	// Reuse a single loop environment across all iterations
+	loopEnv := NewEnclosedEnvironment(env)
+
 	switch v := iterable.(type) {
 	case []Value:
 		for i, item := range v {
-			loopEnv := NewEnclosedEnvironment(env)
-			loopEnv.Set(s.Value, item)
+			loopEnv.store[s.Value] = item
 			if s.Index != "" {
-				loopEnv.Set(s.Index, int64(i))
+				loopEnv.store[s.Index] = int64(i)
 			}
 			result := interp.execStatements(s.Body.Statements, loopEnv)
-			if _, ok := result.(*BreakSignal); ok {
-				break
-			}
-			if _, ok := result.(*ContinueSignal); ok {
+			switch result.(type) {
+			case *BreakSignal:
+				return NULL
+			case *ContinueSignal:
 				continue
-			}
-			if _, ok := result.(*ReturnValue); ok {
-				return result
-			}
-			if _, ok := result.(*HTTPReturnValue); ok {
+			case *ReturnValue, *HTTPReturnValue:
 				return result
 			}
 		}
 	case map[string]Value:
-		i := int64(0)
 		for key, val := range v {
-			loopEnv := NewEnclosedEnvironment(env)
-			loopEnv.Set(s.Value, key)
+			loopEnv.store[s.Value] = key
 			if s.Index != "" {
-				loopEnv.Set(s.Index, val)
+				loopEnv.store[s.Index] = val
 			}
 			result := interp.execStatements(s.Body.Statements, loopEnv)
-			if _, ok := result.(*BreakSignal); ok {
-				break
-			}
-			if _, ok := result.(*ContinueSignal); ok {
+			switch result.(type) {
+			case *BreakSignal:
+				return NULL
+			case *ContinueSignal:
 				continue
-			}
-			if _, ok := result.(*ReturnValue); ok {
+			case *ReturnValue, *HTTPReturnValue:
 				return result
 			}
-			if _, ok := result.(*HTTPReturnValue); ok {
-				return result
-			}
-			i++
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) execServer(s *ServerStatement, env *Environment) Value {
@@ -611,14 +679,14 @@ func (interp *Interpreter) execServer(s *ServerStatement, env *Environment) Valu
 			}
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 // --- Expression evaluation ---
 
 func (interp *Interpreter) evalExpr(expr Expression, env *Environment) Value {
 	if expr == nil {
-		return &NullValue{}
+		return NULL
 	}
 	switch e := expr.(type) {
 	case *IntegerLiteral:
@@ -630,11 +698,11 @@ func (interp *Interpreter) evalExpr(expr Expression, env *Environment) Value {
 	case *BooleanLiteral:
 		return e.Value
 	case *NullLiteral:
-		return &NullValue{}
+		return NULL
 	case *Identifier:
 		val, ok := env.Get(e.Value)
 		if !ok {
-			return &NullValue{}
+			return NULL
 		}
 		return val
 	case *ArrayLiteral:
@@ -667,7 +735,7 @@ func (interp *Interpreter) evalExpr(expr Expression, env *Environment) Value {
 		idx := interp.evalExpr(e.Index, env)
 		return interp.evalIndex(left, idx)
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -683,7 +751,7 @@ func (interp *Interpreter) evalPrefix(op string, right Value) Value {
 			return -v
 		}
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) evalInfix(op string, left, right Value) Value {
@@ -719,7 +787,7 @@ func (interp *Interpreter) evalInfix(op string, left, right Value) Value {
 	case "||":
 		return isTruthy(left) || isTruthy(right)
 	}
-	return &NullValue{}
+	return NULL
 }
 
 func (interp *Interpreter) evalCall(e *CallExpression, env *Environment) Value {
@@ -735,27 +803,27 @@ func (interp *Interpreter) evalCall(e *CallExpression, env *Environment) Value {
 	case *EnvBuiltinFunction:
 		return f.Fn(env, args...)
 	case *FunctionValue:
-		fnEnv := NewFunctionEnvironment(f.Env)
+		fnEnv := NewSizedFunctionEnvironment(f.Env, len(f.Params)+4)
 		for i, param := range f.Params {
 			if i < len(args) {
-				fnEnv.Set(param, args[i])
+				fnEnv.store[param] = args[i]
 			} else {
-				fnEnv.Set(param, &NullValue{})
+				fnEnv.store[param] = NULL
 			}
 		}
 		result := interp.execStatements(f.Body.Statements, fnEnv)
-		if rv, ok := result.(*ReturnValue); ok {
+		switch rv := result.(type) {
+		case *ReturnValue:
 			if len(rv.Values) == 1 {
 				return rv.Values[0]
 			}
-			return rv // multi-return stays as ReturnValue for destructuring
+			return rv
+		case *HTTPReturnValue:
+			return rv
 		}
-		if hrv, ok := result.(*HTTPReturnValue); ok {
-			return hrv
-		}
-		return &NullValue{}
+		return NULL
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -767,9 +835,9 @@ func (interp *Interpreter) evalDot(e *DotExpression, env *Environment) Value {
 		if val, ok := v[e.Field]; ok {
 			return val
 		}
-		return &NullValue{}
+		return NULL
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -781,22 +849,22 @@ func (interp *Interpreter) evalIndex(left, idx Value) Value {
 				return v[i]
 			}
 		}
-		return &NullValue{}
+		return NULL
 	case map[string]Value:
 		key := valueToString(idx)
 		if val, ok := v[key]; ok {
 			return val
 		}
-		return &NullValue{}
+		return NULL
 	case string:
 		if i, ok := idx.(int64); ok {
 			if i >= 0 && int(i) < len(v) {
 				return string(v[i])
 			}
 		}
-		return &NullValue{}
+		return NULL
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 
@@ -893,7 +961,7 @@ func goToValue(v interface{}) Value {
 	case bool:
 		return val
 	case nil:
-		return &NullValue{}
+		return NULL
 	case []interface{}:
 		result := make([]Value, len(val))
 		for i, item := range val {
@@ -907,7 +975,7 @@ func goToValue(v interface{}) Value {
 		}
 		return result
 	default:
-		return &NullValue{}
+		return NULL
 	}
 }
 

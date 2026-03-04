@@ -35,7 +35,7 @@ func (interp *Interpreter) registerBuiltins() {
 				parts[i] = valueToString(a)
 			}
 			fmt.Println(strings.Join(parts, " "))
-			return &NullValue{}
+			return NULL
 		},
 	})
 
@@ -367,7 +367,7 @@ func (interp *Interpreter) registerBuiltins() {
 				if len(args) == 1 {
 					return args[0]
 				}
-				return &NullValue{}
+				return NULL
 			}
 			start := toInt64(args[1])
 
@@ -423,17 +423,17 @@ func (interp *Interpreter) registerBuiltins() {
 					_, err := regexp.Compile(valueToString(args[0]))
 					return err == nil
 				}
-				return &NullValue{}
+				return NULL
 			}
 			s := valueToString(args[0])
 			pattern := valueToString(args[1])
 			re, err := regexp.Compile(pattern)
 			if err != nil {
-				return &NullValue{}
+				return NULL
 			}
 			matches := re.FindStringSubmatch(s)
 			if matches == nil {
-				return &NullValue{}
+				return NULL
 			}
 			result := make([]Value, len(matches))
 			for i, m := range matches {
@@ -566,7 +566,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("merge", &BuiltinFunction{
 		Fn: func(args ...Value) Value {
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			switch args[0].(type) {
 			case map[string]Value:
@@ -607,7 +607,7 @@ func (interp *Interpreter) registerBuiltins() {
 				if len(args) == 1 {
 					return args[0]
 				}
-				return &NullValue{}
+				return NULL
 			}
 			switch v := args[0].(type) {
 			case map[string]Value:
@@ -679,7 +679,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("reverse", &BuiltinFunction{
 		Fn: func(args ...Value) Value {
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			switch v := args[0].(type) {
 			case []Value:
@@ -752,11 +752,11 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("find", &BuiltinFunction{
 		Fn: func(args ...Value) Value {
 			if len(args) < 2 {
-				return &NullValue{}
+				return NULL
 			}
 			arr, ok := args[0].([]Value)
 			if !ok {
-				return &NullValue{}
+				return NULL
 			}
 			fn := args[1]
 			for i, item := range arr {
@@ -765,7 +765,7 @@ func (interp *Interpreter) registerBuiltins() {
 					return item
 				}
 			}
-			return &NullValue{}
+			return NULL
 		},
 	})
 
@@ -839,7 +839,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("min", &BuiltinFunction{
 		Fn: func(args ...Value) Value {
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			// If single arg is an array, find min in array
 			if len(args) == 1 {
@@ -848,7 +848,7 @@ func (interp *Interpreter) registerBuiltins() {
 				}
 			}
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			minVal := args[0]
 			for _, arg := range args[1:] {
@@ -863,7 +863,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("max", &BuiltinFunction{
 		Fn: func(args ...Value) Value {
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			// If single arg is an array, find max in array
 			if len(args) == 1 {
@@ -872,7 +872,7 @@ func (interp *Interpreter) registerBuiltins() {
 				}
 			}
 			if len(args) == 0 {
-				return &NullValue{}
+				return NULL
 			}
 			maxVal := args[0]
 			for _, arg := range args[1:] {
@@ -1085,7 +1085,7 @@ func (interp *Interpreter) registerBuiltins() {
 				time.Sleep(time.Duration(v*1000) * time.Microsecond)
 			}
 		}
-		return &NullValue{}
+		return NULL
 	}})
 
 	// ===== Section 6: Encoding =====
@@ -1111,7 +1111,7 @@ func (interp *Interpreter) registerBuiltins() {
 				// Try without padding
 				b, err = base64.RawURLEncoding.DecodeString(s)
 				if err != nil {
-					return &NullValue{}
+					return NULL
 				}
 			}
 		}
@@ -1192,7 +1192,7 @@ func (interp *Interpreter) registerBuiltins() {
 
 	interp.global.Set("bcrypt_hash", &BuiltinFunction{Fn: func(args ...Value) Value {
 		if len(args) < 1 {
-			return &NullValue{}
+			return NULL
 		}
 		password := valueToString(args[0])
 		cost := bcrypt.DefaultCost
@@ -1203,7 +1203,7 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
 		if err != nil {
-			return &NullValue{}
+			return NULL
 		}
 		return string(hash)
 	}})
@@ -1222,7 +1222,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("jwt_sign", &BuiltinFunction{Fn: func(args ...Value) Value {
 		// jwt_sign(payload_obj, secret_string)
 		if len(args) < 2 {
-			return &NullValue{}
+			return NULL
 		}
 		payload := valueToGo(args[0])
 		secret := valueToString(args[1])
@@ -1230,7 +1230,7 @@ func (interp *Interpreter) registerBuiltins() {
 		headerJSON := []byte(`{"alg":"HS256","typ":"JWT"}`)
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
-			return &NullValue{}
+			return NULL
 		}
 
 		headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
@@ -1247,14 +1247,14 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("jwt_verify", &BuiltinFunction{Fn: func(args ...Value) Value {
 		// jwt_verify(token_string, secret_string) → payload object or null
 		if len(args) < 2 {
-			return &NullValue{}
+			return NULL
 		}
 		token := valueToString(args[0])
 		secret := valueToString(args[1])
 
 		parts := strings.Split(token, ".")
 		if len(parts) != 3 {
-			return &NullValue{}
+			return NULL
 		}
 
 		// Verify signature
@@ -1264,17 +1264,17 @@ func (interp *Interpreter) registerBuiltins() {
 		expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 
 		if !hmac.Equal([]byte(parts[2]), []byte(expectedSig)) {
-			return &NullValue{}
+			return NULL
 		}
 
 		// Decode payload
 		payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
 		if err != nil {
-			return &NullValue{}
+			return NULL
 		}
 		var raw interface{}
 		if err := json.Unmarshal(payloadJSON, &raw); err != nil {
-			return &NullValue{}
+			return NULL
 		}
 		return goToValue(raw)
 	}})
@@ -1283,7 +1283,7 @@ func (interp *Interpreter) registerBuiltins() {
 
 	interp.global.Set("http_get", &BuiltinFunction{Fn: func(args ...Value) Value {
 		if len(args) < 1 {
-			return &NullValue{}
+			return NULL
 		}
 		rawURL := valueToString(args[0])
 
@@ -1329,7 +1329,7 @@ func (interp *Interpreter) registerBuiltins() {
 	interp.global.Set("http_post", &BuiltinFunction{Fn: func(args ...Value) Value {
 		// http_post(url, body, headers?)
 		if len(args) < 1 {
-			return &NullValue{}
+			return NULL
 		}
 		rawURL := valueToString(args[0])
 
@@ -1392,7 +1392,7 @@ func (interp *Interpreter) registerBuiltins() {
 
 	interp.global.Set("header", &EnvBuiltinFunction{Fn: func(env *Environment, args ...Value) Value {
 		if len(args) < 2 {
-			return &NullValue{}
+			return NULL
 		}
 		name := valueToString(args[0])
 		val := valueToString(args[1])
@@ -1403,13 +1403,13 @@ func (interp *Interpreter) registerBuiltins() {
 				hmap[name] = val
 			}
 		}
-		return &NullValue{}
+		return NULL
 	}})
 
 	interp.global.Set("cookie", &EnvBuiltinFunction{Fn: func(env *Environment, args ...Value) Value {
 		// cookie(name, value) or cookie(name, value, options_object)
 		if len(args) < 2 {
-			return &NullValue{}
+			return NULL
 		}
 		name := valueToString(args[0])
 		val := valueToString(args[1])
@@ -1465,12 +1465,12 @@ func (interp *Interpreter) registerBuiltins() {
 				env.SetExisting("_response_cookies", carr)
 			}
 		}
-		return &NullValue{}
+		return NULL
 	}})
 
 	interp.global.Set("redirect", &BuiltinFunction{Fn: func(args ...Value) Value {
 		if len(args) < 1 {
-			return &NullValue{}
+			return NULL
 		}
 		redirURL := valueToString(args[0])
 		code := 302
@@ -1486,7 +1486,7 @@ func (interp *Interpreter) registerBuiltins() {
 
 	interp.global.Set("log", &BuiltinFunction{Fn: func(args ...Value) Value {
 		if len(args) == 0 {
-			return &NullValue{}
+			return NULL
 		}
 		level := "INFO"
 		var parts []string
@@ -1500,7 +1500,7 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 		timestamp := time.Now().Format("15:04:05")
 		fmt.Printf("[%s] %s %s\n", timestamp, level, strings.Join(parts, " "))
-		return &NullValue{}
+		return NULL
 	}})
 
 	interp.global.Set("log_info", &BuiltinFunction{Fn: func(args ...Value) Value {
@@ -1510,7 +1510,7 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 		timestamp := time.Now().Format("15:04:05")
 		fmt.Printf("[%s] \033[36mINFO\033[0m %s\n", timestamp, strings.Join(parts, " "))
-		return &NullValue{}
+		return NULL
 	}})
 
 	interp.global.Set("log_warn", &BuiltinFunction{Fn: func(args ...Value) Value {
@@ -1520,7 +1520,7 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 		timestamp := time.Now().Format("15:04:05")
 		fmt.Printf("[%s] \033[33mWARN\033[0m %s\n", timestamp, strings.Join(parts, " "))
-		return &NullValue{}
+		return NULL
 	}})
 
 	interp.global.Set("log_error", &BuiltinFunction{Fn: func(args ...Value) Value {
@@ -1530,7 +1530,7 @@ func (interp *Interpreter) registerBuiltins() {
 		}
 		timestamp := time.Now().Format("15:04:05")
 		fmt.Printf("[%s] \033[31mERROR\033[0m %s\n", timestamp, strings.Join(parts, " "))
-		return &NullValue{}
+		return NULL
 	}})
 
 	// ===== Section 11: Environment =====
@@ -1553,13 +1553,13 @@ func (interp *Interpreter) registerBuiltins() {
 	jsonObj := map[string]Value{
 		"parse": &BuiltinFunction{Fn: func(args ...Value) Value {
 			if len(args) < 1 {
-				return &NullValue{}
+				return NULL
 			}
 			// Accept string or auto-coerce
 			s := valueToString(args[0])
 			var raw interface{}
 			if err := json.Unmarshal([]byte(s), &raw); err != nil {
-				return &NullValue{}
+				return NULL
 			}
 			return goToValue(raw)
 		}},
