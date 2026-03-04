@@ -619,6 +619,10 @@ func (p *Parser) parsePrefixExpr() Expression {
 		expr := &Identifier{Token: p.curTok, Value: "file"}
 		p.nextToken()
 		return expr
+	case TOKEN_DB:
+		expr := &Identifier{Token: p.curTok, Value: "db"}
+		p.nextToken()
+		return expr
 	default:
 		p.addError("unexpected token: %s (%q)", p.curTok.Type, p.curTok.Literal)
 		p.nextToken()
@@ -641,7 +645,7 @@ func (p *Parser) parseInfixExpr(left Expression) Expression {
 	case TOKEN_DOT:
 		tok := p.curTok
 		p.nextToken() // skip .
-		if !p.curTokenIs(TOKEN_IDENT) && !p.curTokenIs(TOKEN_JSON) && !p.curTokenIs(TOKEN_TEXT) && !p.curTokenIs(TOKEN_FILE) {
+		if !p.curTokenIs(TOKEN_IDENT) && !p.curTokenIs(TOKEN_JSON) && !p.curTokenIs(TOKEN_TEXT) && !p.curTokenIs(TOKEN_FILE) && !p.curTokenIs(TOKEN_DB) {
 			p.addError("expected field name after '.', got %s", p.curTok.Type)
 			return left
 		}

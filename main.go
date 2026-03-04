@@ -153,12 +153,44 @@ func doBuild(program *compiler.Program, target string, outputPath string) {
 
 	// Write go.mod
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
+	var requires []string
 	if strings.Contains(src, "golang.org/x/crypto/bcrypt") {
-		goMod += "\nrequire golang.org/x/crypto v0.48.0\n"
+		requires = append(requires, "golang.org/x/crypto v0.48.0")
+	}
+	drivers := compiler.DetectDBDrivers(program)
+	if drivers["sqlite"] {
+		requires = append(requires, "modernc.org/sqlite v1.46.1")
+	}
+	if drivers["postgres"] {
+		requires = append(requires, "github.com/jackc/pgx/v5 v5.8.0")
+	}
+	if drivers["mysql"] {
+		requires = append(requires, "github.com/go-sql-driver/mysql v1.9.3")
+	}
+	if drivers["mongo"] {
+		requires = append(requires, "go.mongodb.org/mongo-driver/v2 v2.5.0")
+	}
+	if len(requires) > 0 {
+		goMod += "\nrequire (\n"
+		for _, r := range requires {
+			goMod += "\t" + r + "\n"
+		}
+		goMod += ")\n"
 	}
 	if err := os.WriteFile(filepath.Join(buildDir, "go.mod"), []byte(goMod), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing go.mod: %s\n", err)
 		os.Exit(1)
+	}
+	// Run go mod tidy if there are external dependencies
+	needsTidy := len(requires) > 0
+	if needsTidy {
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = buildDir
+		tidyCmd.Stderr = os.Stderr
+		if err := tidyCmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "go mod tidy failed: %s\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Determine output path
@@ -180,7 +212,7 @@ func doBuild(program *compiler.Program, target string, outputPath string) {
 	buildCmd.Stderr = os.Stderr
 	if err := buildCmd.Run(); err != nil {
 		// Save source for debugging
-		debugPath := outputPath + ".go"
+		debugPath := filepath.Join(os.TempDir(), filepath.Base(outputPath) + ".go")
 		os.WriteFile(debugPath, []byte(src), 0644)
 		fmt.Fprintf(os.Stderr, "Build failed. Source saved: %s\n", debugPath)
 		os.Exit(1)
