@@ -623,6 +623,11 @@ func (p *Parser) parsePrefixExpr() Expression {
 		expr := &Identifier{Token: p.curTok, Value: "db"}
 		p.nextToken()
 		return expr
+	case TOKEN_ASYNC:
+		tok := p.curTok
+		p.nextToken() // skip 'async'
+		expr := p.parseExpression(PREC_LOWEST)
+		return &AsyncExpression{Token: tok, Expression: expr}
 	default:
 		p.addError("unexpected token: %s (%q)", p.curTok.Type, p.curTok.Literal)
 		p.nextToken()

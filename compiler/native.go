@@ -60,9 +60,8 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["strings"] = true
 	c.usedImports["net/url"] = true
 	c.usedImports["os"] = true
-	if c.usedBuiltins["store"] {
-		c.usedImports["sync"] = true
-	}
+	c.usedImports["sync"] = true
+	c.usedImports["time"] = true
 	if c.usedBuiltins["sort"] {
 		c.usedImports["sort"] = true
 	}
@@ -213,6 +212,8 @@ func (c *NativeCompiler) scanExpr(expr Expression) {
 		for _, p := range e.Pairs { c.scanExpr(p.Key); c.scanExpr(p.Value) }
 	case *FunctionLiteral:
 		c.scanBlock(e.Body)
+	case *AsyncExpression:
+		c.scanExpr(e.Expression)
 	}
 }
 
@@ -299,6 +300,8 @@ func (c *NativeCompiler) detectDBInExpr(expr Expression) {
 		for _, el := range e.Elements { c.detectDBInExpr(el) }
 	case *HashLiteral:
 		for _, p := range e.Pairs { c.detectDBInExpr(p.Key); c.detectDBInExpr(p.Value) }
+	case *AsyncExpression:
+		c.detectDBInExpr(e.Expression)
 	}
 }
 
@@ -357,6 +360,31 @@ type nullType struct{}
 var null Value = &nullType{}
 type multiReturn struct{ Values []Value }
 
+// Async/futures
+type dslFuture struct {
+	ch       chan Value
+	resolved bool
+	value    Value
+	mu       sync.Mutex
+}
+
+func (f *dslFuture) resolve() Value {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.resolved {
+		f.value = <-f.ch
+		f.resolved = true
+	}
+	return f.value
+}
+
+func resolveValue(v Value) Value {
+	if f, ok := v.(*dslFuture); ok {
+		return f.resolve()
+	}
+	return v
+}
+
 type ctxKey int
 const paramsKey ctxKey = 0
 
@@ -368,6 +396,7 @@ func getParams(r *http.Request) map[string]Value {
 }
 
 func isTruthy(v Value) bool {
+	v = resolveValue(v)
 	switch val := v.(type) {
 	case bool: return val
 	case int64: return val != 0
@@ -382,6 +411,7 @@ func isTruthy(v Value) bool {
 }
 
 func valueToString(v Value) string {
+	v = resolveValue(v)
 	switch val := v.(type) {
 	case string: return val
 	case int64: return strconv.FormatInt(val, 10)
@@ -397,6 +427,7 @@ func valueToString(v Value) string {
 }
 
 func valueToGo(v Value) interface{} {
+	v = resolveValue(v)
 	switch val := v.(type) {
 	case string: return val
 	case int64: return val
@@ -436,6 +467,7 @@ func goToValue(v interface{}) Value {
 }
 
 func addValues(a, b Value) Value {
+	a = resolveValue(a); b = resolveValue(b)
 	if ai, ok := a.(int64); ok {
 		if bi, ok := b.(int64); ok { return ai + bi }
 		if bf, ok := b.(float64); ok { return float64(ai) + bf }
@@ -449,6 +481,7 @@ func addValues(a, b Value) Value {
 }
 
 func subtractValues(a, b Value) Value {
+	a = resolveValue(a); b = resolveValue(b)
 	if ai, ok := a.(int64); ok {
 		if bi, ok := b.(int64); ok { return ai - bi }
 		if bf, ok := b.(float64); ok { return float64(ai) - bf }
@@ -461,6 +494,7 @@ func subtractValues(a, b Value) Value {
 }
 
 func multiplyValues(a, b Value) Value {
+	a = resolveValue(a); b = resolveValue(b)
 	if ai, ok := a.(int64); ok {
 		if bi, ok := b.(int64); ok { return ai * bi }
 		if bf, ok := b.(float64); ok { return float64(ai) * bf }
@@ -473,6 +507,7 @@ func multiplyValues(a, b Value) Value {
 }
 
 func divideValues(a, b Value) Value {
+	a = resolveValue(a); b = resolveValue(b)
 	if ai, ok := a.(int64); ok {
 		if bi, ok := b.(int64); ok {
 			if bi == 0 { return int64(0) }
@@ -538,6 +573,7 @@ func compareLess(a, b Value) bool {
 }
 
 func toInt64(v Value) int64 {
+	v = resolveValue(v)
 	switch val := v.(type) {
 	case int64: return val
 	case float64: return int64(val)
@@ -553,6 +589,7 @@ func toInt64(v Value) int64 {
 }
 
 func toFloat64v(v Value) float64 {
+	v = resolveValue(v)
 	switch val := v.(type) {
 	case float64: return val
 	case int64: return float64(val)
@@ -579,6 +616,7 @@ func indexValue(obj, idx Value) Value {
 }
 
 func dotValue(obj Value, field string) Value {
+	obj = resolveValue(obj)
 	if m, ok := obj.(map[string]Value); ok {
 		if v, ok := m[field]; ok { return v }
 	}
@@ -586,6 +624,7 @@ func dotValue(obj Value, field string) Value {
 }
 
 func setIndex(obj, idx, val Value) {
+	obj = resolveValue(obj)
 	switch o := obj.(type) {
 	case map[string]Value: o[valueToString(idx)] = val
 	case []Value:
@@ -855,6 +894,38 @@ func builtin_env(args ...Value) Value {
 	v := os.Getenv(valueToString(args[0]))
 	if v == "" { if len(args) >= 2 { return args[1] }; return null }
 	return Value(v)
+}
+
+func builtin_sleep(args ...Value) Value {
+	if len(args) == 0 { return null }
+	ms := toInt64(args[0])
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+	return null
+}
+
+func builtin_await(args ...Value) Value {
+	results := make([]Value, len(args))
+	for i, a := range args {
+		results[i] = resolveValue(a)
+	}
+	if len(results) == 1 { return results[0] }
+	return &multiReturn{Values: results}
+}
+
+func builtin_race(args ...Value) Value {
+	if len(args) == 0 { return null }
+	if len(args) == 1 { return resolveValue(args[0]) }
+	ch := make(chan Value, 1)
+	for _, a := range args {
+		go func(v Value) {
+			resolved := resolveValue(v)
+			select {
+			case ch <- resolved:
+			default:
+			}
+		}(a)
+	}
+	return <-ch
 }
 
 func builtin_len(args ...Value) Value {
@@ -1899,8 +1970,13 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 	case *IndexAssignStatement:
 		c.lnf("setIndex(%s, %s, %s)", c.expr(s.Left), c.expr(s.Index), c.expr(s.Value))
 	case *ExpressionStatement:
-		// check if it's a call we need to keep (print, etc)
-		c.lnf("_ = %s", c.expr(s.Expression))
+		// Fire-and-forget async: bare "async doWork()" → go func()
+		if ae, ok := s.Expression.(*AsyncExpression); ok {
+			inner := c.expr(ae.Expression)
+			c.lnf("go func() { _ = %s }()", inner)
+		} else {
+			c.lnf("_ = %s", c.expr(s.Expression))
+		}
 	case *ReturnStatement:
 		if isRoute && len(s.Values) == 0 {
 			// In route context, bare return sends the response and exits
@@ -2172,6 +2248,10 @@ func (c *NativeCompiler) expr(e Expression) string {
 		body := c.b.String()
 		c.b = old
 		return fmt.Sprintf("Value(func(%s) Value {\n%s%s})", strings.Join(params, ", "), body, strings.Repeat("\t", c.indent))
+	case *AsyncExpression:
+		inner := c.expr(ex.Expression)
+		tmp := c.tmp()
+		return fmt.Sprintf("func() Value { %s := &dslFuture{ch: make(chan Value, 1)}; go func() { %s.ch <- %s }(); return %s }()", tmp, tmp, inner, tmp)
 	}
 	return "null"
 }
@@ -2378,6 +2458,16 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_print(%s)", argStr)
 		case "env":
 			return fmt.Sprintf("builtin_env(%s)", argStr)
+		case "await":
+			return fmt.Sprintf("builtin_await(%s)", argStr)
+		case "race":
+			return fmt.Sprintf("builtin_race(%s)", argStr)
+		case "sleep":
+			return fmt.Sprintf("builtin_sleep(%s)", argStr)
+		case "now":
+			return "Value(time.Now().Unix())"
+		case "now_ms":
+			return "Value(time.Now().UnixMilli())"
 		case "len":
 			return fmt.Sprintf("builtin_len(%s)", argStr)
 		case "str":

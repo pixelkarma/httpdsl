@@ -299,3 +299,11 @@ type FunctionLiteral struct {
 
 func (e *FunctionLiteral) expressionNode()      {}
 func (e *FunctionLiteral) TokenLiteral() string { return e.Token.Literal }
+
+type AsyncExpression struct {
+	Token      Token
+	Expression Expression
+}
+
+func (e *AsyncExpression) expressionNode()      {}
+func (e *AsyncExpression) TokenLiteral() string { return e.Token.Literal }
