@@ -110,7 +110,11 @@ func (p *Parser) parseStatement() Statement {
 	case TOKEN_ROUTE:
 		return p.parseRouteStatement()
 	case TOKEN_FN:
-		return p.parseFnStatement()
+		if p.peekTokenIs(TOKEN_IDENT) {
+			return p.parseFnStatement()
+		}
+		// Anonymous fn used as expression statement
+		return p.parseExpressionStatement()
 	case TOKEN_RETURN:
 		return p.parseReturnStatement()
 	case TOKEN_IF:
@@ -136,6 +140,13 @@ func (p *Parser) parseStatement() Statement {
 	case TOKEN_IDENT:
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
+	case TOKEN_LBRACE:
+		// Could be object destructuring: { a, b } = expr
+		return p.parseExpressionStatement()
+	case TOKEN_LBRACKET:
+		// Could be array destructuring: [a, b] = expr
+		// Parse directly to avoid [ being consumed as index by prior expression
+		return p.parseBracketStartStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -504,11 +515,48 @@ func (p *Parser) parseIdentStartStatement() Statement {
 	return p.parseExpressionStatement()
 }
 
+func (p *Parser) parseBracketStartStatement() Statement {
+	tok := p.curTok
+	// Try to parse as array destructuring: [a, b, ...] = expr
+	// We know curTok is TOKEN_LBRACKET
+	p.nextToken() // skip [
+	var names []string
+	valid := true
+	if p.curTokenIs(TOKEN_IDENT) {
+		names = append(names, p.curTok.Literal)
+		p.nextToken()
+		for p.curTokenIs(TOKEN_COMMA) {
+			p.nextToken() // skip comma
+			if p.curTokenIs(TOKEN_IDENT) {
+				names = append(names, p.curTok.Literal)
+				p.nextToken()
+			} else {
+				valid = false
+				break
+			}
+		}
+	} else {
+		valid = false
+	}
+	if valid && p.curTokenIs(TOKEN_RBRACKET) {
+		p.nextToken() // skip ]
+		if p.curTokenIs(TOKEN_ASSIGN) {
+			p.nextToken() // skip =
+			val := p.parseExpression(PREC_LOWEST)
+			return &ArrayDestructureStatement{Token: tok, Names: names, Value: val}
+		}
+	}
+	// Not a destructuring — this is a parse error since [ at statement start
+	// with non-destructuring pattern is unusual
+	p.addError("expected destructuring pattern [a, b, ...] = expr")
+	return nil
+}
+
 func (p *Parser) parseExpressionStatement() Statement {
 	tok := p.curTok
 	expr := p.parseExpression(PREC_LOWEST)
 
-	// Check if this is an index assignment: expr[key] = val or expr.field = val
+	// Check if this is an index/destructure assignment
 	if p.curTokenIs(TOKEN_ASSIGN) {
 		p.nextToken() // skip =
 		val := p.parseExpression(PREC_LOWEST)
@@ -517,6 +565,24 @@ func (p *Parser) parseExpressionStatement() Statement {
 			return &IndexAssignStatement{Token: tok, Left: e.Left, Index: e.Index, Value: val}
 		case *DotExpression:
 			return &IndexAssignStatement{Token: tok, Left: e.Left, Index: &StringLiteral{Token: tok, Value: e.Field}, Value: val}
+		case *HashLiteral:
+			// Object destructuring: { a, b } = expr
+			keys := make([]string, 0, len(e.Pairs))
+			for _, pair := range e.Pairs {
+				if ident, ok := pair.Key.(*Identifier); ok {
+					keys = append(keys, ident.Value)
+				}
+			}
+			return &ObjectDestructureStatement{Token: tok, Keys: keys, Value: val}
+		case *ArrayLiteral:
+			// Array destructuring: [a, b] = expr
+			names := make([]string, 0, len(e.Elements))
+			for _, el := range e.Elements {
+				if ident, ok := el.(*Identifier); ok {
+					names = append(names, ident.Value)
+				}
+			}
+			return &ArrayDestructureStatement{Token: tok, Names: names, Value: val}
 		}
 	}
 
@@ -543,12 +609,17 @@ func (p *Parser) parseBlockStatement() *BlockStatement {
 // --- Expression parsing (Pratt parser) ---
 
 func (p *Parser) parseExpression(precedence int) Expression {
+	startLine := p.curTok.Line
 	left := p.parsePrefixExpr()
 	if left == nil {
 		return nil
 	}
 
 	for !p.curTokenIs(TOKEN_EOF) && precedence < p.curPrecedence() {
+		// Don't treat [ or { on a new line as infix (index/call) — it's a new statement
+		if (p.curTokenIs(TOKEN_LBRACKET) || p.curTokenIs(TOKEN_LBRACE)) && p.curTok.Line > startLine {
+			break
+		}
 		left = p.parseInfixExpr(left)
 		if left == nil {
 			return nil
@@ -577,6 +648,10 @@ func (p *Parser) parsePrefixExpr() Expression {
 		expr := &StringLiteral{Token: p.curTok, Value: p.curTok.Literal}
 		p.nextToken()
 		return expr
+	case TOKEN_TEMPLATE_STRING:
+		return p.parseTemplateString()
+	case TOKEN_FN:
+		return p.parseFunctionLiteral()
 	case TOKEN_TRUE:
 		expr := &BooleanLiteral{Token: p.curTok, Value: true}
 		p.nextToken()
@@ -714,13 +789,14 @@ func (p *Parser) parseHashLiteral() Expression {
 	if !p.curTokenIs(TOKEN_RBRACE) {
 		for {
 			key := p.parseExpression(PREC_LOWEST)
-			if !p.curTokenIs(TOKEN_COLON) {
-				p.addError("expected ':' in hash literal")
-				break
+			if p.curTokenIs(TOKEN_COLON) {
+				p.nextToken() // skip :
+				val := p.parseExpression(PREC_LOWEST)
+				pairs = append(pairs, HashPair{Key: key, Value: val})
+			} else {
+				// Shorthand: { a } means { a: a }
+				pairs = append(pairs, HashPair{Key: key, Value: key})
 			}
-			p.nextToken() // skip :
-			val := p.parseExpression(PREC_LOWEST)
-			pairs = append(pairs, HashPair{Key: key, Value: val})
 			if !p.curTokenIs(TOKEN_COMMA) {
 				break
 			}
@@ -734,4 +810,90 @@ func (p *Parser) parseHashLiteral() Expression {
 		p.nextToken()
 	}
 	return &HashLiteral{Token: tok, Pairs: pairs}
+}
+
+func (p *Parser) parseTemplateString() Expression {
+	tok := p.curTok
+	raw := p.curTok.Literal
+	p.nextToken() // skip template string token
+
+	// Split raw into static parts and ${expr} parts
+	var parts []Expression
+	i := 0
+	for i < len(raw) {
+		idx := strings.Index(raw[i:], "${")
+		if idx == -1 {
+			// Rest is static text
+			parts = append(parts, &StringLiteral{Token: tok, Value: raw[i:]})
+			break
+		}
+		// Add static text before ${  
+		if idx > 0 {
+			parts = append(parts, &StringLiteral{Token: tok, Value: raw[i : i+idx]})
+		}
+		// Find matching }
+		start := i + idx + 2 // skip ${  
+		depth := 1
+		j := start
+		for j < len(raw) && depth > 0 {
+			if raw[j] == '{' {
+				depth++
+			} else if raw[j] == '}' {
+				depth--
+			}
+			if depth > 0 {
+				j++
+			}
+		}
+		exprStr := raw[start:j]
+		// Parse the expression using a sub-lexer/parser
+		subLexer := NewLexer(exprStr)
+		subParser := NewParser(subLexer)
+		exprNode := subParser.parseExpression(PREC_LOWEST)
+		if exprNode != nil {
+			// Wrap in a call to valueToString via a string concatenation 
+			parts = append(parts, exprNode)
+		}
+		i = j + 1 // skip past }
+	}
+
+	if len(parts) == 0 {
+		return &StringLiteral{Token: tok, Value: ""}
+	}
+	if len(parts) == 1 {
+		if sl, ok := parts[0].(*StringLiteral); ok {
+			return sl
+		}
+	}
+
+	// Build concatenation tree
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result = &InfixExpression{
+			Token:    tok,
+			Left:     result,
+			Operator: "+",
+			Right:    parts[i],
+		}
+	}
+	return result
+}
+
+func (p *Parser) parseFunctionLiteral() Expression {
+	tok := p.curTok
+	p.nextToken() // skip 'fn'
+
+	if !p.curTokenIs(TOKEN_LPAREN) {
+		p.addError("expected '(' for anonymous function, got %s", p.curTok.Type)
+		return nil
+	}
+	params := p.parseFnParams()
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{', got %s", p.curTok.Type)
+		return nil
+	}
+	body := p.parseBlockStatement()
+
+	return &FunctionLiteral{Token: tok, Params: params, Body: body}
 }

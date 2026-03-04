@@ -152,6 +152,9 @@ func (l *Lexer) NextToken() Token {
 	case '"':
 		tok.Type = TOKEN_STRING
 		tok.Literal = l.readString()
+	case '`':
+		tok.Type = TOKEN_TEMPLATE_STRING
+		tok.Literal = l.readTemplateString()
 	case 0:
 		tok.Type = TOKEN_EOF
 		tok.Literal = ""
@@ -304,6 +307,21 @@ func (l *Lexer) readString() string {
 		l.readChar()
 	}
 	// don't readChar here — NextToken will advance past the closing "
+	return string(buf)
+}
+
+func (l *Lexer) readTemplateString() string {
+	l.readChar() // skip opening `
+	var buf []byte
+	for l.ch != '`' && l.ch != 0 {
+		if l.ch == '\n' {
+			l.line++
+			l.col = 0
+		}
+		buf = append(buf, l.ch)
+		l.readChar()
+	}
+	// don't readChar here — NextToken will advance past the closing `
 	return string(buf)
 }
 

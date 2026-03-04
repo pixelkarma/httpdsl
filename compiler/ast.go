@@ -175,6 +175,24 @@ type ContinueStatement struct {
 func (s *ContinueStatement) statementNode()       {}
 func (s *ContinueStatement) TokenLiteral() string { return s.Token.Literal }
 
+type ObjectDestructureStatement struct {
+	Token Token
+	Keys  []string   // the field names to extract
+	Value Expression // the right-hand side
+}
+
+func (s *ObjectDestructureStatement) statementNode()       {}
+func (s *ObjectDestructureStatement) TokenLiteral() string { return s.Token.Literal }
+
+type ArrayDestructureStatement struct {
+	Token Token
+	Names []string   // variable names
+	Value Expression // the right-hand side
+}
+
+func (s *ArrayDestructureStatement) statementNode()       {}
+func (s *ArrayDestructureStatement) TokenLiteral() string { return s.Token.Literal }
+
 // --- Expressions ---
 
 type Identifier struct {

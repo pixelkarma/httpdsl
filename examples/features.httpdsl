@@ -1,0 +1,52 @@
+server { port 8000 }
+
+// Template strings
+route GET "hello/:name" {
+    greeting = `Hello, ${request.params.name}! Welcome to httpdsl.`
+    response.body = { message: greeting }
+}
+
+// Closures
+fn make_greeter(prefix) {
+    return fn(name) {
+        return `${prefix}, ${name}!`
+    }
+}
+
+route GET "greet/:style/:name" {
+    greeters = {
+        formal: make_greeter("Good day"),
+        casual: make_greeter("Hey"),
+        excited: make_greeter("OMG HI")
+    }
+    greeter = greeters[request.params.style]
+    if greeter {
+        response.body = { message: greeter(request.params.name) }
+    } else {
+        response.status = 400
+        response.body = { error: `Unknown style: ${request.params.style}` }
+    }
+}
+
+// Destructuring
+route GET "destruct" {
+    obj = { name: "Alice", age: 30, city: "NYC" }
+    { name, age } = obj
+
+    arr = [10, 20, 30]
+    [first, second] = arr
+
+    response.body = {
+        name: name,
+        age: age,
+        first: first,
+        second: second
+    }
+}
+
+// Hash shorthand
+route GET "shorthand" {
+    name = "Bob"
+    age = 25
+    response.body = { name, age }
+}

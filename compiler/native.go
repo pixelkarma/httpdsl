@@ -183,6 +183,10 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 		c.scanBlock(s)
 	case *FnStatement:
 		c.scanBlock(s.Body)
+	case *ObjectDestructureStatement:
+		c.scanExpr(s.Value)
+	case *ArrayDestructureStatement:
+		c.scanExpr(s.Value)
 	}
 }
 
@@ -265,6 +269,10 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		c.detectDBInBlock(s.Catch)
 	case *ReturnStatement:
 		for _, v := range s.Values { c.detectDBInExpr(v) }
+	case *ObjectDestructureStatement:
+		c.detectDBInExpr(s.Value)
+	case *ArrayDestructureStatement:
+		c.detectDBInExpr(s.Value)
 	}
 }
 
@@ -692,6 +700,14 @@ type throwValue struct {
 
 func throw(v Value) {
 	panic(&throwValue{value: v})
+}
+
+func callValue(fn Value, args ...Value) Value {
+	fn = resolveValue(fn)
+	if f, ok := fn.(func(...Value) Value); ok {
+		return f(args...)
+	}
+	panic(&throwValue{value: "not a function"})
 }
 
 // Response writer
@@ -2109,6 +2125,18 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 		c.ln("return null")
 		c.indent--
 		c.ln("}")
+	case *ObjectDestructureStatement:
+		tmp := c.tmp()
+		c.lnf("%s := %s", tmp, c.expr(s.Value))
+		for _, key := range s.Keys {
+			c.lnf("%s = dotValue(%s, %q)", safeIdent(key), tmp, key)
+		}
+	case *ArrayDestructureStatement:
+		tmp := c.tmp()
+		c.lnf("%s := %s", tmp, c.expr(s.Value))
+		for i, name := range s.Names {
+			c.lnf("%s = indexValue(%s, int64(%d))", safeIdent(name), tmp, i)
+		}
 	}
 }
 
@@ -2618,12 +2646,18 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			}
 		}
 		// Unknown - might be a variable holding a function
-		return fmt.Sprintf("%s(%s)", safeIdent(ident.Value), argStr)
+		if argStr == "" {
+			return fmt.Sprintf("callValue(%s)", safeIdent(ident.Value))
+		}
+		return fmt.Sprintf("callValue(%s, %s)", safeIdent(ident.Value), argStr)
 	}
 
-	// General case: expression call
+	// General case: expression call (e.g. fn(x){ ... }(arg))
 	fnExpr := c.expr(e.Function)
-	return fmt.Sprintf("%s(%s)", fnExpr, argStr)
+	if argStr == "" {
+		return fmt.Sprintf("callValue(%s)", fnExpr)
+	}
+	return fmt.Sprintf("callValue(%s, %s)", fnExpr, argStr)
 }
 
 func (c *NativeCompiler) dotExpr(e *DotExpression) string {
@@ -2708,6 +2742,14 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 		// Only collect try block vars (they need hoisting for outer access).
 		// Catch var and catch block vars stay inside the recover closure.
 		c.collectVarsFromBlock(s.Try, vars)
+	case *ObjectDestructureStatement:
+		for _, key := range s.Keys {
+			vars[key] = true
+		}
+	case *ArrayDestructureStatement:
+		for _, name := range s.Names {
+			vars[name] = true
+		}
 	}
 }
 func (c *NativeCompiler) emitRoute(route *RouteStatement) {

@@ -11,6 +11,7 @@ const (
 	TOKEN_INT
 	TOKEN_FLOAT
 	TOKEN_STRING
+	TOKEN_TEMPLATE_STRING // backtick template
 
 	// Operators
 	TOKEN_ASSIGN   // =
@@ -220,6 +221,8 @@ func (t TokenType) String() string {
 		return "THROW"
 	case TOKEN_ASYNC:
 		return "ASYNC"
+	case TOKEN_TEMPLATE_STRING:
+		return "TEMPLATE_STRING"
 	default:
 		return "UNKNOWN"
 	}
