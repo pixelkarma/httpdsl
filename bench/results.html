@@ -25,61 +25,61 @@
 <div class="chart" id="chart"></div>
 
 <table>
-  <tr><th>Test</th><th>httpdsl (req/s)</th><th>Go (req/s)</th><th>Ratio</th><th>Before → After</th></tr>
+  <tr><th>Test</th><th>httpdsl VM (req/s)</th><th>Go (req/s)</th><th>Ratio</th><th>Tree-walk → Optimized → Bytecode VM</th></tr>
   <tr>
     <td>Simple JSON</td>
-    <td>72,587</td>
-    <td class="fast">80,437</td>
-    <td class="ratio">0.90x</td>
-    <td>69,836 → 72,587 <span class="fast">(+4%)</span></td>
+    <td>70,835</td>
+    <td class="fast">80,051</td>
+    <td class="ratio">0.88x</td>
+    <td>69,836 → 72,587 → 70,835</td>
   </tr>
   <tr>
     <td>Path Params + String</td>
-    <td>68,518</td>
-    <td class="fast">77,657</td>
-    <td class="ratio">0.88x</td>
-    <td>67,819 → 68,518 <span class="fast">(+1%)</span></td>
+    <td>64,965</td>
+    <td class="fast">77,476</td>
+    <td class="ratio">0.84x</td>
+    <td>67,819 → 68,518 → 64,965</td>
   </tr>
   <tr>
     <td>JSON Parse + Echo</td>
-    <td>55,823</td>
-    <td class="fast">63,344</td>
-    <td class="ratio">0.88x</td>
-    <td>57,310 → 55,823 <span style="color:#8b949e">(~same)</span></td>
+    <td>57,512</td>
+    <td class="fast">66,437</td>
+    <td class="ratio">0.87x</td>
+    <td>57,310 → 55,823 → 57,512</td>
   </tr>
   <tr>
     <td>Fibonacci(20) sequence</td>
-    <td>13,860</td>
-    <td class="fast">69,766</td>
-    <td class="ratio">0.20x</td>
-    <td>9,780 → 13,860 <span class="fast">(+42%)</span></td>
+    <td class="fast">34,812</td>
+    <td class="fast">71,007</td>
+    <td class="ratio">0.49x</td>
+    <td>9,780 → 13,860 → <span class="fast">34,812 (+256%)</span></td>
   </tr>
   <tr>
     <td>100-element array build</td>
-    <td>29,317</td>
-    <td class="fast">65,310</td>
-    <td class="ratio">0.45x</td>
-    <td>5,033 → 29,317 <span class="fast">(+483%)</span></td>
+    <td class="fast">38,692</td>
+    <td class="fast">71,481</td>
+    <td class="ratio">0.54x</td>
+    <td>5,033 → 29,317 → <span class="fast">38,692 (+669%)</span></td>
   </tr>
 </table>
 
 <div class="note">
-  <strong>Optimizations applied:</strong>
-  <ul style="margin: 8px 0;">
-    <li>Skip mutex on per-request environments (only global scope locks)</li>
-    <li>Singleton NULL/BREAK/CONTINUE to eliminate allocation per statement</li>
-    <li>Reuse loop environment in <code>each</code> instead of allocating per iteration</li>
-    <li>Inline <code>x = append(x, val)</code> pattern — bypasses function dispatch entirely</li>
-    <li>Fast path for <code>i += 1</code> (int64 + int64 without interface boxing)</li>
-    <li>Pre-sized environment maps for function calls</li>
-  </ul>
-  <strong>Results:</strong> API workloads (JSON in/out) sit at <strong>88-90% of native Go</strong>.
-  Computation went from 7-14x slower to <strong>2-5x slower</strong>.
-  Array building saw the biggest gain: <strong>5,033 → 29,317 rps (+483%)</strong> from inlining append.
+  <strong>Optimization journey (3 rounds):</strong>
+  <ol style="margin: 8px 0; line-height: 1.8;">
+    <li><strong>Tree-walker baseline</strong> — map-based scopes, mutex on every access, AST recursion</li>
+    <li><strong>Interpreter optimizations</strong> — skip mutex for per-request envs, inline append, singleton signals</li>
+    <li><strong>Bytecode VM</strong> — compile AST to bytecodes, stack-based VM with fixed-size stack array,
+        slot-indexed locals (no map lookups), int64 fast paths for arithmetic/comparison,
+        dedicated OP_INC_LOCAL and OP_APPEND opcodes, zero-alloc dispatch loop</li>
+  </ol>
+  <strong>Final results:</strong>
+  API workloads remain at <strong>84-88% of Go</strong> (I/O bound, JSON serialization dominates).
+  Fibonacci computation: <strong>9,780 → 34,812 rps (3.6x faster)</strong>, now at 49% of Go.
+  Array building: <strong>5,033 → 38,692 rps (7.7x faster)</strong>, now at 54% of Go.
   <br><br>
-  <strong>Remaining gap:</strong> The 2-5x computation overhead is inherent to tree-walking interpretation:
-  AST dispatch, interface{} boxing, map-based variable lookup. Closing this further requires
-  either bytecode compilation or JIT — both viable next steps.
+  <strong>Remaining gap:</strong> ~2x on computation comes from Go's <code>interface{}</code> boxing —
+  every Value goes through an interface, which the Go compiler can't optimize away.
+  A JIT compiler emitting native code is the only way past this wall.
 </div>
 
 <script>
@@ -97,16 +97,16 @@ const spec = {
   title: "Requests/second (higher is better)",
   data: {
     values: [
-      {test: "Simple JSON", lang: "httpdsl", rps: 72587},
-      {test: "Simple JSON", lang: "Go native", rps: 80437},
-      {test: "Path Params", lang: "httpdsl", rps: 68518},
-      {test: "Path Params", lang: "Go native", rps: 77657},
-      {test: "JSON Echo", lang: "httpdsl", rps: 55823},
-      {test: "JSON Echo", lang: "Go native", rps: 63344},
-      {test: "Fibonacci(20)", lang: "httpdsl", rps: 13860},
-      {test: "Fibonacci(20)", lang: "Go native", rps: 69766},
-      {test: "100-elem Array", lang: "httpdsl", rps: 29317},
-      {test: "100-elem Array", lang: "Go native", rps: 65310}
+      {test: "Simple JSON", lang: "httpdsl", rps: 70835},
+      {test: "Simple JSON", lang: "Go native", rps: 80051},
+      {test: "Path Params", lang: "httpdsl", rps: 64965},
+      {test: "Path Params", lang: "Go native", rps: 77476},
+      {test: "JSON Echo", lang: "httpdsl", rps: 57512},
+      {test: "JSON Echo", lang: "Go native", rps: 66437},
+      {test: "Fibonacci(20)", lang: "httpdsl", rps: 34812},
+      {test: "Fibonacci(20)", lang: "Go native", rps: 71007},
+      {test: "100-elem Array", lang: "httpdsl", rps: 38692},
+      {test: "100-elem Array", lang: "Go native", rps: 71481}
     ]
   },
   mark: {type: "bar", cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4},

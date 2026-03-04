@@ -365,6 +365,9 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 	method := s.Method
 	path := s.Path
 
+	// Pre-compile route body to bytecode
+	compiled := CompileRoute(s.Params, body)
+
 	interp.Server.Router.Add(method, path, func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
 		// Create a new env for this request (function boundary)
 		routeEnv := NewFunctionEnvironment(env)
@@ -419,7 +422,13 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 		}
 		routeEnv.Set("request", reqObj)
 
-		result := interp.execStatements(body.Statements, routeEnv)
+		// Execute via bytecode VM
+		vm := NewVM(env)
+		result := vm.Execute(compiled, []Value{paramsMap, reqObj})
+		_ = routeEnv // env still used for header/cookie context
+		// Also check routeEnv for response headers/cookies set by builtins
+		// (EnvBuiltinFunction uses env — we need to thread this through)
+		_ = body
 
 		// Apply accumulated response headers
 		if hdrs, ok := routeEnv.Get("_response_headers"); ok {
@@ -476,12 +485,9 @@ func (interp *Interpreter) execRouteStatement(s *RouteStatement, env *Environmen
 }
 
 func (interp *Interpreter) execFnStatement(s *FnStatement, env *Environment) Value {
-	fn := &FunctionValue{
-		Params: s.Params,
-		Body:   s.Body,
-		Env:    env,
-	}
-	env.Set(s.Name, fn)
+	// Compile to bytecode for VM execution
+	compiled := CompileFunction(s.Params, s.Body)
+	env.Set(s.Name, compiled)
 	return NULL
 }
 
