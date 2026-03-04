@@ -137,6 +137,8 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseTryCatchStatement()
 	case TOKEN_THROW:
 		return p.parseThrowStatement()
+	case TOKEN_GROUP:
+		return p.parseGroupStatement()
 	case TOKEN_IDENT:
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
@@ -174,6 +176,8 @@ func (p *Parser) parseRouteStatement() Statement {
 	// Extract :params from path
 	for _, seg := range strings.Split(stmt.Path, "/") {
 		if strings.HasPrefix(seg, ":") {
+			stmt.Params = append(stmt.Params, seg[1:])
+		} else if strings.HasPrefix(seg, "*") {
 			stmt.Params = append(stmt.Params, seg[1:])
 		}
 	}
@@ -432,10 +436,74 @@ func (p *Parser) parseServerStatement() Statement {
 		if p.curTokenIs(TOKEN_IDENT) {
 			key := p.curTok.Literal
 			p.nextToken()
-			val := p.parseExpression(PREC_LOWEST)
-			stmt.Settings[key] = val
+			if key == "cors" && p.curTokenIs(TOKEN_LBRACE) {
+				// cors { origins "*" methods "GET,POST" headers "Content-Type" }
+				p.nextToken() // skip '{'
+				corsMap := make(map[string]Expression)
+				for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {
+					if p.curTokenIs(TOKEN_IDENT) {
+						ck := p.curTok.Literal
+						p.nextToken()
+						corsMap[ck] = p.parseExpression(PREC_LOWEST)
+					} else {
+						p.nextToken()
+					}
+				}
+				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
+				stmt.Settings["cors"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(corsMap)}
+			} else {
+				val := p.parseExpression(PREC_LOWEST)
+				stmt.Settings[key] = val
+			}
 		} else {
 			p.addError("expected setting name in server block")
+			p.nextToken()
+		}
+	}
+	if p.curTokenIs(TOKEN_RBRACE) {
+		p.nextToken()
+	}
+	return stmt
+}
+
+func corsMapToPairs(m map[string]Expression) []HashPair {
+	var pairs []HashPair
+	for k, v := range m {
+		pairs = append(pairs, HashPair{Key: &StringLiteral{Value: k}, Value: v})
+	}
+	return pairs
+}
+
+// group "/prefix" { route GET "path" { ... } }
+func (p *Parser) parseGroupStatement() Statement {
+	stmt := &GroupStatement{Token: p.curTok}
+	p.nextToken() // skip 'group'
+
+	if !p.curTokenIs(TOKEN_STRING) {
+		p.addError("expected prefix string after 'group', got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Prefix = p.curTok.Literal
+	p.nextToken()
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after group prefix, got %s", p.curTok.Type)
+		return nil
+	}
+	p.nextToken() // skip '{'
+
+	for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {
+		if p.curTokenIs(TOKEN_ROUTE) {
+			route := p.parseRouteStatement()
+			if rs, ok := route.(*RouteStatement); ok {
+				// Prepend group prefix to route path
+				if stmt.Prefix != "" {
+					rs.Path = strings.TrimRight(stmt.Prefix, "/") + "/" + strings.TrimLeft(rs.Path, "/")
+				}
+				stmt.Routes = append(stmt.Routes, rs)
+			}
+		} else {
+			p.addError("expected 'route' inside group block")
 			p.nextToken()
 		}
 	}
@@ -698,6 +766,10 @@ func (p *Parser) parsePrefixExpr() Expression {
 		expr := &Identifier{Token: p.curTok, Value: "db"}
 		p.nextToken()
 		return expr
+	case TOKEN_JWT:
+		expr := &Identifier{Token: p.curTok, Value: "jwt"}
+		p.nextToken()
+		return expr
 	case TOKEN_ASYNC:
 		tok := p.curTok
 		p.nextToken() // skip 'async'
@@ -725,7 +797,7 @@ func (p *Parser) parseInfixExpr(left Expression) Expression {
 	case TOKEN_DOT:
 		tok := p.curTok
 		p.nextToken() // skip .
-		if !p.curTokenIs(TOKEN_IDENT) && !p.curTokenIs(TOKEN_JSON) && !p.curTokenIs(TOKEN_TEXT) && !p.curTokenIs(TOKEN_FILE) && !p.curTokenIs(TOKEN_DB) {
+		if !p.curTokenIs(TOKEN_IDENT) && !p.curTokenIs(TOKEN_JSON) && !p.curTokenIs(TOKEN_TEXT) && !p.curTokenIs(TOKEN_FILE) && !p.curTokenIs(TOKEN_DB) && !p.curTokenIs(TOKEN_JWT) {
 			p.addError("expected field name after '.', got %s", p.curTok.Type)
 			return left
 		}

@@ -325,3 +325,12 @@ type AsyncExpression struct {
 
 func (e *AsyncExpression) expressionNode()      {}
 func (e *AsyncExpression) TokenLiteral() string { return e.Token.Literal }
+
+type GroupStatement struct {
+	Token  Token
+	Prefix string
+	Routes []*RouteStatement
+}
+
+func (s *GroupStatement) statementNode()       {}
+func (s *GroupStatement) TokenLiteral() string { return s.Token.Literal }

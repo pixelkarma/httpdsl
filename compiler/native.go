@@ -11,6 +11,7 @@ type NativeCompiler struct {
 	indent       int
 	port         int
 	routes       []*RouteStatement
+	groups       []*GroupStatement
 	functions    []*FnStatement
 	usedBuiltins map[string]bool
 	usedImports  map[string]bool
@@ -19,6 +20,9 @@ type NativeCompiler struct {
 	tmpCounter   int
 	typeEnv      *TypeEnv // current function's type info
 	fnTypes      map[string]*TypeEnv // per-function type info
+	corsOrigins  string // CORS: allowed origins ("*" or comma-separated)
+	corsMethods  string // CORS: allowed methods
+	corsHeaders  string // CORS: allowed headers
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -40,6 +44,11 @@ func GenerateNativeCode(program *Program) (string, error) {
 		case *RouteStatement:
 			c.routes = append(c.routes, s)
 			c.scanBlock(s.Body)
+		case *GroupStatement:
+			for _, route := range s.Routes {
+				c.routes = append(c.routes, route)
+				c.scanBlock(route.Body)
+			}
 		case *FnStatement:
 			c.functions = append(c.functions, s)
 			c.scanBlock(s.Body)
@@ -47,6 +56,22 @@ func GenerateNativeCode(program *Program) (string, error) {
 			if pe, ok := s.Settings["port"]; ok {
 				if lit, ok := pe.(*IntegerLiteral); ok {
 					c.port = int(lit.Value)
+				}
+			}
+			// CORS config
+			if cors, ok := s.Settings["cors"]; ok {
+				if h, ok := cors.(*HashLiteral); ok {
+					for _, p := range h.Pairs {
+						key := ""
+						if sl, ok := p.Key.(*StringLiteral); ok { key = sl.Value }
+						val := ""
+						if sv, ok := p.Value.(*StringLiteral); ok { val = sv.Value }
+						switch key {
+						case "origins": c.corsOrigins = val
+						case "methods": c.corsMethods = val
+						case "headers": c.corsHeaders = val
+						}
+					}
 				}
 			}
 		}
@@ -63,37 +88,49 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["os"] = true
 	c.usedImports["sync"] = true
 	c.usedImports["time"] = true
-	if c.usedBuiltins["sort"] {
-		c.usedImports["sort"] = true
-	}
-	if c.usedBuiltins["match"] {
-		c.usedImports["regexp"] = true
-	}
+	// Always needed for always-emitted builtins
+	c.usedImports["sort"] = true
+	c.usedImports["regexp"] = true
+	c.usedImports["math"] = true
+	c.usedImports["math/rand"] = true
+	c.usedImports["crypto/rand"] = true
+	c.usedImports["crypto/sha256"] = true
+	c.usedImports["crypto/sha512"] = true
+	c.usedImports["crypto/md5"] = true
+	c.usedImports["crypto/hmac"] = true
+	c.usedImports["encoding/hex"] = true
+	c.usedImports["encoding/base64"] = true
+	c.usedImports["hash"] = true
+	c.usedImports["log"] = true
+	// Import tracking for builtins
 	if c.usedBuiltins["env"] {
 		c.usedImports["os"] = true
 	}
-	if c.usedBuiltins["sleep"] || c.usedBuiltins["now"] || c.usedBuiltins["now_ms"] {
+	if c.usedBuiltins["sleep"] || c.usedBuiltins["now"] || c.usedBuiltins["now_ms"] || c.usedBuiltins["date"] || c.usedBuiltins["date_format"] || c.usedBuiltins["date_parse"] || c.usedBuiltins["strtotime"] || c.usedBuiltins["cuid2"] {
 		c.usedImports["time"] = true
 	}
 	if c.usedBuiltins["abs"] || c.usedBuiltins["ceil"] || c.usedBuiltins["floor"] || c.usedBuiltins["round"] {
 		c.usedImports["math"] = true
 	}
-	if c.usedBuiltins["random"] || c.usedBuiltins["random_int"] {
+	if c.usedBuiltins["rand"] {
 		c.usedImports["math/rand"] = true
 	}
-	if c.usedBuiltins["uuid"] {
+	if c.usedBuiltins["uuid"] || c.usedBuiltins["cuid2"] {
 		c.usedImports["crypto/rand"] = true
 	}
-	if c.usedBuiltins["sha256"] || c.usedBuiltins["hmac"] {
+	if c.usedBuiltins["hash"] || c.usedBuiltins["hmac_hash"] || c.usedBuiltins["cuid2"] {
 		c.usedImports["crypto/sha256"] = true
 	}
-	if c.usedBuiltins["md5"] {
+	if c.usedBuiltins["hash"] {
+		c.usedImports["crypto/sha512"] = true
 		c.usedImports["crypto/md5"] = true
 	}
-	if c.usedBuiltins["hmac"] {
+	if c.usedBuiltins["hmac_hash"] {
 		c.usedImports["crypto/hmac"] = true
+		c.usedImports["crypto/sha512"] = true
+		c.usedImports["hash"] = true
 	}
-	if c.usedBuiltins["sha256"] || c.usedBuiltins["md5"] || c.usedBuiltins["hmac"] {
+	if c.usedBuiltins["hash"] || c.usedBuiltins["hmac_hash"] {
 		c.usedImports["encoding/hex"] = true
 	}
 	if c.usedBuiltins["base64_encode"] || c.usedBuiltins["base64_decode"] {
@@ -102,7 +139,6 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["url_encode"] || c.usedBuiltins["url_decode"] {
 		c.usedImports["net/url"] = true
 	}
-
 	if c.usedBuiltins["bcrypt_hash"] || c.usedBuiltins["bcrypt_verify"] {
 		c.needsBcrypt = true
 	}
@@ -111,6 +147,16 @@ func GenerateNativeCode(program *Program) (string, error) {
 	}
 	if c.usedBuiltins["file"] {
 		c.usedImports["os"] = true
+	}
+	if c.usedBuiltins["strtotime"] {
+		c.usedImports["strconv"] = true
+	}
+	if c.usedBuiltins["jwt"] {
+		c.usedImports["crypto/hmac"] = true
+		c.usedImports["crypto/sha256"] = true
+		c.usedImports["crypto/sha512"] = true
+		c.usedImports["encoding/base64"] = true
+		c.usedImports["hash"] = true
 	}
 
 	// Detect database drivers from db.open() calls
@@ -319,14 +365,17 @@ func (c *NativeCompiler) emitHeader() {
 	c.ln("import (")
 	c.indent++
 	stdlib := []string{"bytes", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
-		"crypto/sha256", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
-		"fmt", "io", "log", "math", "math/rand", "net/http", "net/url",
+		"crypto/sha256", "crypto/sha512", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
+		"fmt", "hash", "io", "log", "math", "math/rand", "net/http", "net/url",
 		"os", "regexp", "sort", "strconv", "strings", "sync", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
-			if imp == "math/rand" {
+			switch imp {
+			case "math/rand":
 				c.lnf("mrand %q", imp)
-			} else {
+			case "crypto/rand":
+				c.lnf("crand %q", imp)
+			default:
 				c.lnf("%q", imp)
 			}
 		}
@@ -651,8 +700,9 @@ type routeEntry struct {
 	handler  http.HandlerFunc
 }
 type routeSeg struct {
-	literal string
-	param   string
+	literal  string
+	param    string
+	wildcard string // *param — matches rest of path
 }
 type dslRouter struct {
 	routes []routeEntry
@@ -662,7 +712,9 @@ func (rt *dslRouter) add(method, pattern string, h http.HandlerFunc) {
 	parts := strings.Split(strings.Trim(pattern, "/"), "/")
 	segs := make([]routeSeg, len(parts))
 	for i, p := range parts {
-		if strings.HasPrefix(p, ":") {
+		if strings.HasPrefix(p, "*") {
+			segs[i] = routeSeg{wildcard: p[1:]}
+		} else if strings.HasPrefix(p, ":") {
 			segs[i] = routeSeg{param: p[1:]}
 		} else {
 			segs[i] = routeSeg{literal: p}
@@ -675,14 +727,24 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
 	parts := strings.Split(path, "/")
 	for _, route := range rt.routes {
-		if route.method != r.Method || len(parts) != len(route.segments) { continue }
+		if route.method != r.Method { continue }
+		// Check for wildcard routes (can match more segments)
+		hasWildcard := len(route.segments) > 0 && route.segments[len(route.segments)-1].wildcard != ""
+		if !hasWildcard && len(parts) != len(route.segments) { continue }
+		if hasWildcard && len(parts) < len(route.segments)-1 { continue }
 		ok := true
 		for i, seg := range route.segments {
+			if seg.wildcard != "" { break } // wildcard matches rest
+			if i >= len(parts) { ok = false; break }
 			if seg.param == "" && seg.literal != parts[i] { ok = false; break }
 		}
 		if !ok { continue }
 		params := make(map[string]Value)
 		for i, seg := range route.segments {
+			if seg.wildcard != "" {
+				params[seg.wildcard] = Value(strings.Join(parts[i:], "/"))
+				break
+			}
 			if seg.param != "" { params[seg.param] = Value(parts[i]) }
 		}
 		ctx := context.WithValue(r.Context(), paramsKey, params)
@@ -1044,6 +1106,12 @@ func builtin_str(args ...Value) Value {
 
 func builtin_int(args ...Value) Value {
 	if len(args) == 0 { return int64(0) }
+	if len(args) >= 2 {
+		// int(str, base) — parse with specified base
+		base := int(toInt64(args[1]))
+		if n, err := strconv.ParseInt(valueToString(args[0]), base, 64); err == nil { return n }
+		return int64(0)
+	}
 	return toInt64(args[0])
 }
 
@@ -1425,6 +1493,418 @@ func builtin_file_chmod(args ...Value) Value {
 		throw(Value("file.chmod: " + err.Error()))
 	}
 	return Value(true)
+`)
+	}
+
+	// Always-emitted builtins
+	c.raw(`
+func builtin_sort(args ...Value) Value {
+	if len(args) == 0 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return args[0] }
+	result := make([]Value, len(arr))
+	copy(result, arr)
+	desc := false
+	if len(args) >= 2 { desc = valueToString(args[1]) == "desc" }
+	sort.SliceStable(result, func(i, j int) bool {
+		if desc { return compareLess(result[j], result[i]) }
+		return compareLess(result[i], result[j])
+	})
+	return Value(result)
+}
+
+func builtin_sort_by(args ...Value) Value {
+	if len(args) < 2 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return args[0] }
+	key := valueToString(args[1])
+	result := make([]Value, len(arr))
+	copy(result, arr)
+	desc := false
+	if len(args) >= 3 { desc = valueToString(args[2]) == "desc" }
+	sort.SliceStable(result, func(i, j int) bool {
+		a := dotValue(result[i], key)
+		b := dotValue(result[j], key)
+		if desc { return compareLess(b, a) }
+		return compareLess(a, b)
+	})
+	return Value(result)
+}
+
+func builtin_regex_match(args ...Value) Value {
+	if len(args) < 2 { return null }
+	str := valueToString(args[0])
+	pattern := valueToString(args[1])
+	re, err := regexp.Compile(pattern)
+	if err != nil { return null }
+	matches := re.FindAllString(str, -1)
+	if matches == nil { return null }
+	result := make([]Value, len(matches))
+	for i, m := range matches { result[i] = Value(m) }
+	return Value(result)
+}
+
+func builtin_regex_replace(args ...Value) Value {
+	if len(args) < 3 { return Value("") }
+	str := valueToString(args[0])
+	pattern := valueToString(args[1])
+	repl := valueToString(args[2])
+	re, err := regexp.Compile(pattern)
+	if err != nil { return Value(str) }
+	return Value(re.ReplaceAllString(str, repl))
+}
+
+func builtin_rand(args ...Value) Value {
+	if len(args) == 0 { return Value(mrand.Float64()) }
+	if len(args) == 1 { return Value(int64(mrand.Intn(int(toInt64(args[0]))))) }
+	min := int(toInt64(args[0]))
+	max := int(toInt64(args[1]))
+	if max <= min { return Value(int64(min)) }
+	return Value(int64(min + mrand.Intn(max-min)))
+}
+
+func builtin_uuid(args ...Value) Value {
+	b := make([]byte, 16)
+	crand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return Value(fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]))
+}
+
+var cuid2Counter uint64
+var cuid2Mu sync.Mutex
+
+func builtin_cuid2(args ...Value) Value {
+	length := 24
+	if len(args) > 0 { l := int(toInt64(args[0])); if l > 0 { length = l } }
+	cuid2Mu.Lock()
+	cuid2Counter++
+	cnt := cuid2Counter
+	cuid2Mu.Unlock()
+	rb := make([]byte, 32)
+	crand.Read(rb)
+	ts := time.Now().UnixMilli()
+	data := fmt.Sprintf("%d%d%x", ts, cnt, rb)
+	hash := sha256.Sum256([]byte(data))
+	const chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+	result := make([]byte, length)
+	result[0] = chars[hash[0]%26+10] // first char always a letter
+	for i := 1; i < length; i++ {
+		result[i] = chars[hash[i%32]%36]
+	}
+	return Value(string(result))
+}
+
+func builtin_abs(args ...Value) Value {
+	if len(args) == 0 { return Value(int64(0)) }
+	v := args[0]
+	if i, ok := v.(int64); ok { if i < 0 { return Value(-i) }; return v }
+	if f, ok := v.(float64); ok { return Value(math.Abs(f)) }
+	return Value(int64(0))
+}
+
+func builtin_ceil(args ...Value) Value {
+	if len(args) == 0 { return Value(int64(0)) }
+	return Value(int64(math.Ceil(toFloat64v(args[0]))))
+}
+
+func builtin_floor(args ...Value) Value {
+	if len(args) == 0 { return Value(int64(0)) }
+	return Value(int64(math.Floor(toFloat64v(args[0]))))
+}
+
+func builtin_round(args ...Value) Value {
+	if len(args) == 0 { return Value(int64(0)) }
+	v := toFloat64v(args[0])
+	if len(args) >= 2 {
+		dec := toInt64(args[1])
+		mul := math.Pow(10, float64(dec))
+		return Value(math.Round(v*mul) / mul)
+	}
+	return Value(int64(math.Round(v)))
+}
+
+func builtin_base64_encode(args ...Value) Value {
+	if len(args) == 0 { return Value("") }
+	return Value(base64.StdEncoding.EncodeToString([]byte(valueToString(args[0]))))
+}
+
+func builtin_base64_decode(args ...Value) Value {
+	if len(args) == 0 { return Value("") }
+	b, err := base64.StdEncoding.DecodeString(valueToString(args[0]))
+	if err != nil { return null }
+	return Value(string(b))
+}
+
+func builtin_url_encode(args ...Value) Value {
+	if len(args) == 0 { return Value("") }
+	return Value(url.QueryEscape(valueToString(args[0])))
+}
+
+func builtin_url_decode(args ...Value) Value {
+	if len(args) == 0 { return Value("") }
+	v, err := url.QueryUnescape(valueToString(args[0]))
+	if err != nil { return Value(valueToString(args[0])) }
+	return Value(v)
+}
+
+func builtin_hash(args ...Value) Value {
+	if len(args) < 2 { return Value("") }
+	algo := valueToString(args[0])
+	data := []byte(valueToString(args[1]))
+	switch algo {
+	case "sha256":
+		h := sha256.Sum256(data)
+		return Value(hex.EncodeToString(h[:]))
+	case "sha512":
+		h := sha512.Sum512(data)
+		return Value(hex.EncodeToString(h[:]))
+	case "md5":
+		h := md5.Sum(data)
+		return Value(hex.EncodeToString(h[:]))
+	default:
+		return Value("")
+	}
+}
+
+func builtin_hmac_hash(args ...Value) Value {
+	if len(args) < 3 { return Value("") }
+	algo := valueToString(args[0])
+	key := []byte(valueToString(args[1]))
+	data := []byte(valueToString(args[2]))
+	var h hash.Hash
+	switch algo {
+	case "sha256":
+		h = hmac.New(sha256.New, key)
+	case "sha512":
+		h = hmac.New(sha512.New, key)
+	default:
+		return Value("")
+	}
+	h.Write(data)
+	return Value(hex.EncodeToString(h.Sum(nil)))
+}
+
+func builtin_log(args ...Value) Value {
+	parts := make([]string, len(args))
+	for i, a := range args { parts[i] = valueToString(a) }
+	log.Println(strings.Join(parts, " "))
+	return null
+}
+
+func builtin_log_info(args ...Value) Value {
+	parts := make([]string, len(args))
+	for i, a := range args { parts[i] = valueToString(a) }
+	log.Println("[INFO]", strings.Join(parts, " "))
+	return null
+}
+
+func builtin_log_warn(args ...Value) Value {
+	parts := make([]string, len(args))
+	for i, a := range args { parts[i] = valueToString(a) }
+	log.Println("[WARN]", strings.Join(parts, " "))
+	return null
+}
+
+func builtin_log_error(args ...Value) Value {
+	parts := make([]string, len(args))
+	for i, a := range args { parts[i] = valueToString(a) }
+	log.Println("[ERROR]", strings.Join(parts, " "))
+	return null
+}
+
+func builtin_map(args ...Value) Value {
+	if len(args) < 2 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value([]Value{}) }
+	fn := resolveValue(args[1])
+	result := make([]Value, len(arr))
+	if f, ok := fn.(func(...Value) Value); ok {
+		for i, v := range arr { result[i] = f(v, Value(int64(i))) }
+	} else {
+		copy(result, arr)
+	}
+	return Value(result)
+}
+
+func builtin_filter(args ...Value) Value {
+	if len(args) < 2 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value([]Value{}) }
+	fn := resolveValue(args[1])
+	result := make([]Value, 0)
+	if f, ok := fn.(func(...Value) Value); ok {
+		for i, v := range arr {
+			if isTruthy(f(v, Value(int64(i)))) { result = append(result, v) }
+		}
+	}
+	return Value(result)
+}
+
+func builtin_reduce(args ...Value) Value {
+	if len(args) < 3 { return null }
+	arr, ok := args[0].([]Value)
+	if !ok { return null }
+	fn := resolveValue(args[1])
+	acc := args[2]
+	if f, ok := fn.(func(...Value) Value); ok {
+		for _, v := range arr { acc = f(acc, v) }
+	}
+	return acc
+}
+
+func builtin_date(args ...Value) Value {
+	var t time.Time
+	if len(args) > 0 { t = time.Unix(toInt64(args[0]), 0) } else { t = time.Now() }
+	return Value(map[string]Value{
+		"year": Value(int64(t.Year())), "month": Value(int64(t.Month())),
+		"day": Value(int64(t.Day())), "hour": Value(int64(t.Hour())),
+		"minute": Value(int64(t.Minute())), "second": Value(int64(t.Second())),
+		"weekday": Value(int64(t.Weekday())), "unix": Value(t.Unix()),
+	})
+}
+
+func builtin_date_format(args ...Value) Value {
+	if len(args) < 2 { return Value("") }
+	t := time.Unix(toInt64(args[0]), 0)
+	fmt_ := valueToString(args[1])
+	return Value(t.Format(fmt_))
+}
+
+func builtin_date_parse(args ...Value) Value {
+	if len(args) < 2 { return null }
+	str := valueToString(args[0])
+	fmt_ := valueToString(args[1])
+	t, err := time.Parse(fmt_, str)
+	if err != nil { return null }
+	return Value(t.Unix())
+}
+
+func builtin_strtotime(args ...Value) Value {
+	if len(args) == 0 { return null }
+	input := valueToString(args[0])
+	// Parse: "now", "now + 3 days", "1234567890 + 2 hours", "+3 days", "-2 hours"
+	input = strings.TrimSpace(input)
+	var baseTime time.Time
+	rest := input
+	if strings.HasPrefix(input, "now") {
+		baseTime = time.Now()
+		rest = strings.TrimSpace(input[3:])
+	} else if input[0] == '+' || input[0] == '-' {
+		baseTime = time.Now()
+		rest = input
+	} else {
+		// Try to parse leading number as unix timestamp
+		parts := strings.SplitN(input, " ", 2)
+		if ts, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+			baseTime = time.Unix(ts, 0)
+			if len(parts) > 1 { rest = strings.TrimSpace(parts[1]) } else { rest = "" }
+		} else {
+			baseTime = time.Now()
+		}
+	}
+	if rest == "" { return Value(baseTime.Unix()) }
+	// Parse +/- N unit
+	var sign int
+	if rest[0] == '+' { sign = 1; rest = strings.TrimSpace(rest[1:]) } else if rest[0] == '-' { sign = -1; rest = strings.TrimSpace(rest[1:]) } else { return Value(baseTime.Unix()) }
+	parts := strings.SplitN(rest, " ", 2)
+	if len(parts) < 2 { return Value(baseTime.Unix()) }
+	amt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil { return Value(baseTime.Unix()) }
+	n := int(amt) * sign
+	unit := strings.TrimSuffix(strings.ToLower(parts[1]), "s") // "days" -> "day"
+	switch unit {
+	case "second": baseTime = baseTime.Add(time.Duration(n) * time.Second)
+	case "minute": baseTime = baseTime.Add(time.Duration(n) * time.Minute)
+	case "hour": baseTime = baseTime.Add(time.Duration(n) * time.Hour)
+	case "day": baseTime = baseTime.AddDate(0, 0, n)
+	case "week": baseTime = baseTime.AddDate(0, 0, n*7)
+	case "month": baseTime = baseTime.AddDate(0, n, 0)
+	case "year": baseTime = baseTime.AddDate(n, 0, 0)
+	}
+	return Value(baseTime.Unix())
+}
+
+type redirectSignal struct {
+	url    string
+	status int
+}
+
+func builtin_redirect(args ...Value) Value {
+	if len(args) == 0 { throw(Value("redirect requires a URL")) }
+	url := valueToString(args[0])
+	status := 302
+	if len(args) >= 2 { status = int(toInt64(args[1])) }
+	panic(&redirectSignal{url: url, status: status})
+}
+`)
+	if c.usedBuiltins["jwt"] {
+		c.raw(`
+func jwtBase64Encode(data []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
+}
+
+func jwtBase64Decode(s string) ([]byte, error) {
+	switch len(s) % 4 {
+	case 2: s += "=="
+	case 3: s += "="
+	}
+	return base64.URLEncoding.DecodeString(s)
+}
+
+func jwtHmacHash(algo string, key, data []byte) []byte {
+	var h func() hash.Hash
+	switch algo {
+	case "HS384": h = sha512.New384
+	case "HS512": h = sha512.New
+	default: h = sha256.New // HS256
+	}
+	mac := hmac.New(h, key)
+	mac.Write(data)
+	return mac.Sum(nil)
+}
+
+func builtin_jwt_sign(args ...Value) Value {
+	if len(args) < 2 { throw(Value("jwt.sign requires payload and secret")); return null }
+	payload := args[0]
+	secret := valueToString(args[1])
+	algo := "HS256"
+	if len(args) >= 3 { algo = valueToString(args[2]) }
+	headerJSON, _ := json.Marshal(map[string]string{"alg": algo, "typ": "JWT"})
+	payloadJSON, _ := json.Marshal(valueToGo(payload))
+	headerB64 := jwtBase64Encode(headerJSON)
+	payloadB64 := jwtBase64Encode(payloadJSON)
+	sigInput := headerB64 + "." + payloadB64
+	sig := jwtHmacHash(algo, []byte(secret), []byte(sigInput))
+	return Value(sigInput + "." + jwtBase64Encode(sig))
+}
+
+func builtin_jwt_verify(args ...Value) Value {
+	if len(args) < 2 { throw(Value("jwt.verify requires token and secret")); return null }
+	token := valueToString(args[0])
+	secret := valueToString(args[1])
+	algo := "HS256"
+	if len(args) >= 3 { algo = valueToString(args[2]) }
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 { throw(Value("jwt: invalid token")); return null }
+	sigInput := parts[0] + "." + parts[1]
+	expectedSig := jwtHmacHash(algo, []byte(secret), []byte(sigInput))
+	actualSig, err := jwtBase64Decode(parts[2])
+	if err != nil || !hmac.Equal(expectedSig, actualSig) { throw(Value("jwt: invalid signature")); return null }
+	payloadJSON, err := jwtBase64Decode(parts[1])
+	if err != nil { throw(Value("jwt: invalid payload")); return null }
+	var raw interface{}
+	if err := json.Unmarshal(payloadJSON, &raw); err != nil { throw(Value("jwt: invalid JSON")); return null }
+	payload := goToValue(raw)
+	// Check exp claim
+	if m, ok := payload.(map[string]Value); ok {
+		if exp, ok := m["exp"]; ok {
+			if toInt64(exp) > 0 && toInt64(exp) < time.Now().Unix() {
+				throw(Value("jwt: token expired"))
+			}
+		}
+	}
+	return payload
 }
 `)
 	}
@@ -2388,7 +2868,14 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"join": true, "upper": true, "lower": true, "replace": true,
 		"starts_with": true, "ends_with": true, "slice": true, "reverse": true,
 		"unique": true, "merge": true, "delete": true, "index_of": true,
-		"repeat": true, "flat": true,
+		"repeat": true, "flat": true, "sort": true, "sort_by": true,
+		"regex_match": true, "regex_replace": true, "rand": true,
+		"uuid": true, "cuid2": true, "abs": true, "ceil": true, "floor": true, "round": true,
+		"base64_encode": true, "base64_decode": true, "url_encode": true, "url_decode": true,
+		"hash": true, "hmac_hash": true, "log": true, "log_info": true, "log_warn": true, "log_error": true,
+		"map": true, "filter": true, "reduce": true,
+		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
+		"redirect": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -2494,6 +2981,14 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				switch dot.Field {
 				case "open":
 					return fmt.Sprintf("dslDBOpen(%s)", argStr)
+				}
+			case "jwt":
+				c.usedBuiltins["jwt"] = true
+				switch dot.Field {
+				case "sign":
+					return fmt.Sprintf("builtin_jwt_sign(%s)", argStr)
+				case "verify":
+					return fmt.Sprintf("builtin_jwt_verify(%s)", argStr)
 				}
 			case "store":
 				switch dot.Field {
@@ -2638,6 +3133,64 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_repeat(%s)", argStr)
 		case "flat":
 			return fmt.Sprintf("builtin_flat(%s)", argStr)
+		case "sort":
+			return fmt.Sprintf("builtin_sort(%s)", argStr)
+		case "sort_by":
+			return fmt.Sprintf("builtin_sort_by(%s)", argStr)
+		case "regex_match":
+			return fmt.Sprintf("builtin_regex_match(%s)", argStr)
+		case "regex_replace":
+			return fmt.Sprintf("builtin_regex_replace(%s)", argStr)
+		case "rand":
+			return fmt.Sprintf("builtin_rand(%s)", argStr)
+		case "uuid":
+			return fmt.Sprintf("builtin_uuid(%s)", argStr)
+		case "cuid2":
+			return fmt.Sprintf("builtin_cuid2(%s)", argStr)
+		case "abs":
+			return fmt.Sprintf("builtin_abs(%s)", argStr)
+		case "ceil":
+			return fmt.Sprintf("builtin_ceil(%s)", argStr)
+		case "floor":
+			return fmt.Sprintf("builtin_floor(%s)", argStr)
+		case "round":
+			return fmt.Sprintf("builtin_round(%s)", argStr)
+		case "base64_encode":
+			return fmt.Sprintf("builtin_base64_encode(%s)", argStr)
+		case "base64_decode":
+			return fmt.Sprintf("builtin_base64_decode(%s)", argStr)
+		case "url_encode":
+			return fmt.Sprintf("builtin_url_encode(%s)", argStr)
+		case "url_decode":
+			return fmt.Sprintf("builtin_url_decode(%s)", argStr)
+		case "hash":
+			return fmt.Sprintf("builtin_hash(%s)", argStr)
+		case "hmac_hash":
+			return fmt.Sprintf("builtin_hmac_hash(%s)", argStr)
+		case "log":
+			return fmt.Sprintf("builtin_log(%s)", argStr)
+		case "log_info":
+			return fmt.Sprintf("builtin_log_info(%s)", argStr)
+		case "log_warn":
+			return fmt.Sprintf("builtin_log_warn(%s)", argStr)
+		case "log_error":
+			return fmt.Sprintf("builtin_log_error(%s)", argStr)
+		case "map":
+			return fmt.Sprintf("builtin_map(%s)", argStr)
+		case "filter":
+			return fmt.Sprintf("builtin_filter(%s)", argStr)
+		case "reduce":
+			return fmt.Sprintf("builtin_reduce(%s)", argStr)
+		case "date":
+			return fmt.Sprintf("builtin_date(%s)", argStr)
+		case "date_format":
+			return fmt.Sprintf("builtin_date_format(%s)", argStr)
+		case "date_parse":
+			return fmt.Sprintf("builtin_date_parse(%s)", argStr)
+		case "strtotime":
+			return fmt.Sprintf("builtin_strtotime(%s)", argStr)
+		case "redirect":
+			return fmt.Sprintf("builtin_redirect(%s)", argStr)
 		}
 
 		// User-defined function
@@ -2664,7 +3217,7 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 func (c *NativeCompiler) dotExpr(e *DotExpression) string {
 	// json and store are handled at call sites
 	if ident, ok := e.Left.(*Identifier); ok {
-		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" {
+		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" || ident.Value == "jwt" {
 			// These are namespace objects; the actual call is handled in callExpr
 			return fmt.Sprintf("dotValue(%s, %q)", safeIdent(ident.Value), e.Field)
 		}
@@ -2685,11 +3238,29 @@ func (c *NativeCompiler) emitMain() {
 
 	c.lnf("addr := \":%d\"", c.port)
 	c.ln(`fmt.Printf("httpdsl native server on %s\n", addr)`)
-	c.ln("if err := http.ListenAndServe(addr, rt); err != nil {")
+	if c.corsOrigins != "" {
+		c.ln("var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
+		c.indent++
+		c.lnf("w.Header().Set(\"Access-Control-Allow-Origin\", %q)", c.corsOrigins)
+		methods := c.corsMethods
+		if methods == "" { methods = "GET, POST, PUT, PATCH, DELETE, OPTIONS" }
+		c.lnf("w.Header().Set(\"Access-Control-Allow-Methods\", %q)", methods)
+		headers := c.corsHeaders
+		if headers == "" { headers = "Content-Type, Authorization" }
+		c.lnf("w.Header().Set(\"Access-Control-Allow-Headers\", %q)", headers)
+		c.ln("if r.Method == \"OPTIONS\" { w.WriteHeader(204); return }")
+		c.ln("rt.ServeHTTP(w, r)")
+		c.indent--
+		c.ln("})")
+		c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
+	} else {
+		c.ln("if err := http.ListenAndServe(addr, rt); err != nil {")
+	}
 	c.indent++
 	c.ln(`fmt.Printf("Server error: %s\n", err)`)
 	c.indent--
 	c.ln("}")
+
 	c.indent--
 	c.ln("}")
 }
@@ -2757,6 +3328,21 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.lnf("rt.add(%q, %q, func(_w http.ResponseWriter, _r *http.Request) {", route.Method, route.Path)
 	c.indent++
 
+	// Handle redirects
+	c.ln("defer func() {")
+	c.indent++
+	c.ln("if _rv := recover(); _rv != nil {")
+	c.indent++
+	c.ln("if _rs, ok := _rv.(*redirectSignal); ok {")
+	c.indent++
+	c.ln("http.Redirect(_w, _r, _rs.url, _rs.status)")
+	c.indent--
+	c.ln("} else { panic(_rv) }")
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("}()")
+
 	// Read request basics
 	c.ln("_pathParams := getParams(_r)")
 	c.ln("_bodyBytes, _ := io.ReadAll(_r.Body)")
@@ -2780,11 +3366,12 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.ln("_reqHeaders := make(map[string]Value)")
 	c.ln("for _k, _v := range _r.Header {")
 	c.indent++
-	c.ln("if len(_v) == 1 { _reqHeaders[_k] = Value(_v[0]) } else {")
+	c.ln("_hk := strings.ToLower(_k)")
+	c.ln("if len(_v) == 1 { _reqHeaders[_hk] = Value(_v[0]) } else {")
 	c.indent++
 	c.ln("_arr := make([]Value, len(_v))")
 	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
-	c.ln("_reqHeaders[_k] = Value(_arr)")
+	c.ln("_reqHeaders[_hk] = Value(_arr)")
 	c.indent--
 	c.ln("}")
 	c.indent--
