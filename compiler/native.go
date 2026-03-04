@@ -595,21 +595,44 @@ func modValues(a, b Value) Value {
 }
 
 func valuesEqual(a, b Value) bool {
+	a = resolveValue(a)
+	b = resolveValue(b)
 	switch av := a.(type) {
 	case int64:
 		if bv, ok := b.(int64); ok { return av == bv }
 		if bv, ok := b.(float64); ok { return float64(av) == bv }
+		if bv, ok := b.(string); ok { return fmt.Sprintf("%d", av) == bv }
 	case float64:
 		if bv, ok := b.(float64); ok { return av == bv }
 		if bv, ok := b.(int64); ok { return av == float64(bv) }
 	case string:
 		if bv, ok := b.(string); ok { return av == bv }
+		if bv, ok := b.(int64); ok { return av == fmt.Sprintf("%d", bv) }
+		if bv, ok := b.(float64); ok { return av == fmt.Sprintf("%g", bv) }
 	case bool:
 		if bv, ok := b.(bool); ok { return av == bv }
 	case *nullType:
 		_, ok := b.(*nullType); return ok || b == nil
 	case nil:
+		if _, ok := b.(*nullType); ok { return true }
 		return b == nil
+	case []Value:
+		bv, ok := b.([]Value)
+		if !ok { return false }
+		if len(av) != len(bv) { return false }
+		for i := range av {
+			if !valuesEqual(av[i], bv[i]) { return false }
+		}
+		return true
+	case map[string]Value:
+		bv, ok := b.(map[string]Value)
+		if !ok { return false }
+		if len(av) != len(bv) { return false }
+		for k, v := range av {
+			bVal, exists := bv[k]
+			if !exists || !valuesEqual(v, bVal) { return false }
+		}
+		return true
 	}
 	return false
 }
@@ -1493,6 +1516,7 @@ func builtin_file_chmod(args ...Value) Value {
 		throw(Value("file.chmod: " + err.Error()))
 	}
 	return Value(true)
+}
 `)
 	}
 
@@ -2639,13 +2663,7 @@ func (c *NativeCompiler) emitTryCatch(s *TryCatchStatement, isRoute bool) {
 	c.indent--
 	c.ln("}")
 	c.lnf("_ = %s", errVar)
-	// Declare catch block vars
-	catchVars := c.collectVars(s.Catch)
-	for name := range catchVars {
-		if name != s.CatchVar {
-			c.lnf("var %s Value = null", safeIdent(name))
-		}
-	}
+	// Catch block vars are hoisted to enclosing scope, no need to declare here
 	c.emitBlock(s.Catch, isRoute)
 	c.indent--
 	c.ln("}")
@@ -3311,9 +3329,9 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 		vars[s.Name] = true
 		c.collectVarsFromBlock(s.Body, vars)
 	case *TryCatchStatement:
-		// Only collect try block vars (they need hoisting for outer access).
-		// Catch var and catch block vars stay inside the recover closure.
+		// Hoist both try and catch block vars so Go closures capture them.
 		c.collectVarsFromBlock(s.Try, vars)
+		c.collectVarsFromBlock(s.Catch, vars)
 	case *ObjectDestructureStatement:
 		for _, key := range s.Keys {
 			vars[key] = true
