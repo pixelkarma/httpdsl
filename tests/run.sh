@@ -103,6 +103,37 @@ run_redirect_test() {
     fi
 }
 
+run_raw_test() {
+    local display="$1"
+    local resp="$2"
+
+    if [[ -z "$resp" ]]; then
+        echo -e "  ${RED}FAIL${NC} $display (curl error)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+        return
+    fi
+
+    local pass
+    pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+    if [[ "$pass" == "true" ]]; then
+        local check_count
+        check_count=$(echo "$resp" | jq '.checks | length' 2>/dev/null)
+        echo -e "  ${GREEN}PASS${NC} $display ($check_count checks)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display"
+        echo "$resp" | jq -c '.checks[] | select(.pass == false)' 2>/dev/null | while read -r check; do
+            local tname=$(echo "$check" | jq -r '.test')
+            local expected=$(echo "$check" | jq -r '.expected')
+            local actual=$(echo "$check" | jq -r '.actual')
+            echo -e "         ${RED}✗${NC} $tname: expected=$expected actual=$actual"
+        done
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+
 run_cors_test() {
     local path="$1"
     local url="$BASE$path"
@@ -218,33 +249,37 @@ echo ""
 
 # Body parsing tests
 echo "Body parsing:"
-{
-    display="POST /test/body/json"
-    resp=$(curl -sf -X POST -H "Content-Type: application/json" -d '{"name":"Alice","age":30}' "$BASE/test/body/json" 2>/dev/null) || {
-        echo -e "  ${RED}FAIL${NC} $display (curl error)"
-        FAILED=$((FAILED + 1))
-        FAILURES="$FAILURES\n  $display"
-        resp=""
-    }
-    if [[ -n "$resp" ]]; then
-        pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
-        if [[ "$pass" == "true" ]]; then
-            check_count=$(echo "$resp" | jq '.checks | length' 2>/dev/null)
-            echo -e "  ${GREEN}PASS${NC} $display ($check_count checks)"
-            PASSED=$((PASSED + 1))
-        else
-            echo -e "  ${RED}FAIL${NC} $display"
-            echo "$resp" | jq -c '.checks[] | select(.pass == false)' 2>/dev/null | while read -r check; do
-                tname=$(echo "$check" | jq -r '.test')
-                expected=$(echo "$check" | jq -r '.expected')
-                actual=$(echo "$check" | jq -r '.actual')
-                echo -e "         ${RED}✗${NC} $tname: expected=$expected actual=$actual"
-            done
-            FAILED=$((FAILED + 1))
-            FAILURES="$FAILURES\n  $display"
-        fi
-    fi
-}
+run_raw_test "POST /test/body/json" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"name":"Alice","age":30}' "$BASE/test/body/json" 2>/dev/null)"
+
+run_raw_test "POST /test/body/form" \
+    "$(curl -sf -X POST -d 'username=alice&password=s3cret&remember=on' "$BASE/test/body/form" 2>/dev/null)"
+
+# Create a temp file for multipart upload
+TMP_FILE=$(mktemp /tmp/hello_XXXX.txt)
+echo "hello world" > "$TMP_FILE"
+
+run_raw_test "POST /test/body/multipart" \
+    "$(curl -sf -X POST \
+        -F 'username=bob' \
+        -F 'description=a test upload' \
+        -F "avatar=@${TMP_FILE};filename=hello.txt" \
+        "$BASE/test/body/multipart" 2>/dev/null)"
+
+# Create two temp files for multi-file upload
+TMP_FILE1=$(mktemp /tmp/f1_XXXX.txt)
+TMP_FILE2=$(mktemp /tmp/f2_XXXX.txt)
+echo "content1" > "$TMP_FILE1"
+echo "content2" > "$TMP_FILE2"
+
+run_raw_test "POST /test/body/multipart-multi" \
+    "$(curl -sf -X POST \
+        -F 'title=batch upload' \
+        -F "docs=@${TMP_FILE1};filename=file1.txt" \
+        -F "docs=@${TMP_FILE2};filename=file2.txt" \
+        "$BASE/test/body/multipart-multi" 2>/dev/null)"
+
+rm -f "$TMP_FILE" "$TMP_FILE1" "$TMP_FILE2"
 
 echo ""
 

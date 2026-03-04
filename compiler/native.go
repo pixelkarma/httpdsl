@@ -3430,6 +3430,7 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		c.indent--
 		c.ln("} else if strings.Contains(_contentType, \"multipart/form-data\") {")
 		c.indent++
+		c.ln("_r.Body = io.NopCloser(bytes.NewReader(_bodyBytes))")
 		c.ln("_reqData, _reqFiles = parseMultipartBody(_r)")
 		c.indent--
 		c.ln("} else if len(_bodyBytes) > 0 {")
@@ -3466,6 +3467,7 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 			c.indent--
 			c.ln("} else if strings.Contains(_contentType, \"multipart/form-data\") {")
 			c.indent++
+			c.ln("_r.Body = io.NopCloser(bytes.NewReader(_bodyBytes))")
 			c.ln("_reqData, _reqFiles = parseMultipartBody(_r)")
 			c.indent--
 			c.ln("} else {")

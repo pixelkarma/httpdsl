@@ -89,6 +89,9 @@ route GET "tests" {
         "/test/io/json-io",
         "/test/io/mkdir-list",
         "POST /test/body/json",
+        "POST /test/body/form",
+        "POST /test/body/multipart",
+        "POST /test/body/multipart-multi",
         "/test/async/basic",
         "/test/sqlite/crud",
         "/test/sqlite/types",
@@ -702,6 +705,54 @@ route POST "test/body/json" json {
 } else {
     response.status = 400
     response.body = { pass: false, test: "json body", error: error }
+}
+
+route POST "test/body/form" form {
+    response.body = results([
+        assert_eq(request.data.username, "alice", "form username"),
+        assert_eq(request.data.password, "s3cret", "form password"),
+        assert_eq(request.data.remember, "on", "form checkbox")
+    ])
+} else {
+    response.status = 400
+    response.body = { pass: false, test: "form body", error: error }
+}
+
+route POST "test/body/multipart" form {
+    // Fields
+    username = request.data.username
+    description = request.data.description
+
+    // Files
+    file_count = len(request.files)
+    first_file = request.files[0]
+
+    response.body = results([
+        assert_eq(username, "bob", "multipart field username"),
+        assert_eq(description, "a test upload", "multipart field description"),
+        assert_eq(file_count, 1, "multipart file count"),
+        assert_eq(first_file.field, "avatar", "multipart file field name"),
+        assert_eq(first_file.name, "hello.txt", "multipart file name"),
+        assert_true(first_file.size > 0, "multipart file size > 0"),
+        assert_eq(first_file.data, "hello world\n", "multipart file content")
+    ])
+} else {
+    response.status = 400
+    response.body = { pass: false, test: "multipart body", error: error }
+}
+
+route POST "test/body/multipart-multi" form {
+    file_count = len(request.files)
+    names = map(request.files, fn(f) { return f.name })
+
+    response.body = results([
+        assert_eq(request.data.title, "batch upload", "multi-file field"),
+        assert_eq(file_count, 2, "multi-file count"),
+        assert_eq(names, ["file1.txt", "file2.txt"], "multi-file names")
+    ])
+} else {
+    response.status = 400
+    response.body = { pass: false, test: "multipart multi", error: error }
 }
 
 // ===== Async tests =====
