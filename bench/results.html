@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html><head>
+<title>httpdsl vs Go — Benchmark Results</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 40px auto; background: #0d1117; color: #c9d1d9; padding: 0 20px; }
+  h1 { color: #58a6ff; font-size: 1.6em; }
+  h2 { color: #8b949e; font-size: 1.1em; font-weight: normal; margin-top: -10px; }
+  .chart { margin: 30px 0; background: #161b22; border-radius: 8px; padding: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+  th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: 600; font-size: 0.85em; text-transform: uppercase; }
+  td { font-size: 0.95em; }
+  .fast { color: #3fb950; }
+  .slow { color: #f85149; }
+  .note { color: #8b949e; font-size: 0.85em; margin-top: 30px; line-height: 1.6; }
+  .ratio { color: #d2a8ff; font-weight: 600; }
+</style>
+</head><body>
+<h1>⚡ httpdsl vs Native Go — Benchmark</h1>
+<h2>wrk: 4 threads, 50 connections, 10 seconds per test</h2>
+
+<div class="chart" id="chart"></div>
+
+<table>
+  <tr><th>Test</th><th>httpdsl (req/s)</th><th>Go (req/s)</th><th>Ratio</th><th>Verdict</th></tr>
+  <tr>
+    <td>Simple JSON</td>
+    <td>69,836</td>
+    <td class="fast">79,640</td>
+    <td class="ratio">0.88x</td>
+    <td>Nearly identical — both I/O bound</td>
+  </tr>
+  <tr>
+    <td>Path Params + String</td>
+    <td>67,819</td>
+    <td class="fast">77,305</td>
+    <td class="ratio">0.88x</td>
+    <td>Marginal overhead from AST walk</td>
+  </tr>
+  <tr>
+    <td>JSON Parse + Echo</td>
+    <td>57,310</td>
+    <td class="fast">65,883</td>
+    <td class="ratio">0.87x</td>
+    <td>Both bottlenecked on JSON serde</td>
+  </tr>
+  <tr>
+    <td>Fibonacci(20) sequence</td>
+    <td class="slow">9,780</td>
+    <td class="fast">71,399</td>
+    <td class="ratio">0.14x</td>
+    <td>~7x slower — interpreter loop overhead</td>
+  </tr>
+  <tr>
+    <td>100-element array build</td>
+    <td class="slow">5,033</td>
+    <td class="fast">71,639</td>
+    <td class="ratio">0.07x</td>
+    <td>~14x slower — append + scope alloc cost</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Analysis:</strong> For typical API work (route matching, JSON in/out, string ops), httpdsl achieves
+  <strong>85-90% of native Go throughput</strong> — the bottleneck is network I/O and JSON serialization, not the interpreter.
+  <br><br>
+  For computation-heavy routes (tight loops, recursive calls), the tree-walking interpreter pays 7-14x overhead
+  from AST node allocation, scope creation, interface boxing, and mutex acquisition per variable access.
+  <br><br>
+  <strong>Bottom line:</strong> If your routes do what APIs typically do (validate input, query a store, return JSON),
+  httpdsl is fast enough for production. If you need computation, do it in Go and call it as a builtin.
+</div>
+
+<script>
+const spec = {
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  background: "#161b22",
+  config: {
+    axis: { labelColor: "#8b949e", titleColor: "#8b949e", gridColor: "#21262d", domainColor: "#30363d" },
+    legend: { labelColor: "#c9d1d9", titleColor: "#8b949e" },
+    view: { stroke: "transparent" },
+    title: { color: "#c9d1d9" }
+  },
+  width: 800,
+  height: 320,
+  title: "Requests/second (higher is better)",
+  data: {
+    values: [
+      {test: "Simple JSON", lang: "httpdsl", rps: 69836},
+      {test: "Simple JSON", lang: "Go native", rps: 79640},
+      {test: "Path Params", lang: "httpdsl", rps: 67819},
+      {test: "Path Params", lang: "Go native", rps: 77305},
+      {test: "JSON Echo", lang: "httpdsl", rps: 57310},
+      {test: "JSON Echo", lang: "Go native", rps: 65883},
+      {test: "Fibonacci(20)", lang: "httpdsl", rps: 9780},
+      {test: "Fibonacci(20)", lang: "Go native", rps: 71399},
+      {test: "100-elem Array", lang: "httpdsl", rps: 5033},
+      {test: "100-elem Array", lang: "Go native", rps: 71639}
+    ]
+  },
+  mark: {type: "bar", cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4},
+  encoding: {
+    x: {field: "test", type: "nominal", sort: null, axis: {title: null, labelAngle: 0}},
+    y: {field: "rps", type: "quantitative", axis: {title: "Requests / sec", format: ","}},
+    xOffset: {field: "lang"},
+    color: {
+      field: "lang",
+      scale: {domain: ["httpdsl", "Go native"], range: ["#58a6ff", "#3fb950"]}
+    }
+  }
+};
+vegaEmbed('#chart', spec, {actions: false});
+</script>
+</body></html>
