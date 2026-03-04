@@ -1,0 +1,798 @@
+server {
+    port 9999
+    cors {
+        origins "*"
+    }
+}
+
+// ===== Test helpers =====
+fn assert_eq(actual, expected, name) {
+    if actual == expected {
+        return { pass: true, test: name }
+    }
+    return { pass: false, test: name, expected: expected, actual: actual }
+}
+
+fn assert_true(val, name) {
+    if val {
+        return { pass: true, test: name }
+    }
+    return { pass: false, test: name, expected: true, actual: val }
+}
+
+fn assert_false(val, name) {
+    if !val {
+        return { pass: true, test: name }
+    }
+    return { pass: false, test: name, expected: false, actual: val }
+}
+
+fn results(checks) {
+    all_pass = true
+    each check in checks {
+        if !check.pass {
+            all_pass = false
+        }
+    }
+    return { pass: all_pass, checks: checks }
+}
+
+// ===== Test listing =====
+route GET "tests" {
+    response.body = [
+        "/test/types/conversions",
+        "/test/types/int-base",
+        "/test/types/null",
+        "/test/math/abs",
+        "/test/math/ceil-floor",
+        "/test/math/round",
+        "/test/math/rand",
+        "/test/strings/basic",
+        "/test/strings/transform",
+        "/test/strings/search",
+        "/test/strings/template",
+        "/test/strings/regex",
+        "/test/collections/sort",
+        "/test/collections/sort-by",
+        "/test/collections/functional",
+        "/test/collections/array-ops",
+        "/test/collections/object-ops",
+        "/test/encoding/base64",
+        "/test/encoding/url",
+        "/test/encoding/json",
+        "/test/encoding/hash",
+        "/test/crypto/uuid",
+        "/test/crypto/cuid2",
+        "/test/crypto/hmac",
+        "/test/crypto/jwt",
+        "/test/datetime/date",
+        "/test/datetime/format",
+        "/test/datetime/strtotime",
+        "/test/language/closures",
+        "/test/language/destructure-obj",
+        "/test/language/destructure-arr",
+        "/test/language/shorthand",
+        "/test/language/try-catch",
+        "/test/language/if-else",
+        "/test/language/each",
+        "/test/language/while",
+        "/test/language/multi-return",
+        "/test/routing/params/hello",
+        "/test/routing/query?a=1&b=2",
+        "/test/routing/wildcard/a/b/c",
+        "/test/routing/cors",
+        "/test/routing/redirect",
+        "/test/store/crud",
+        "/test/store/incr",
+        "/test/io/readwrite",
+        "/test/io/exists-delete",
+        "/test/io/json-io",
+        "/test/io/mkdir-list",
+        "POST /test/body/json",
+        "/test/async/basic",
+        "/test/sqlite/crud",
+        "/test/sqlite/types",
+        "/test/sqlite/empty"
+    ]
+}
+
+// ===== Type tests =====
+group "/test/types" {
+    route GET "conversions" {
+        response.body = results([
+            assert_eq(int("42"), 42, "int from string"),
+            assert_eq(int(3.7), 3, "int from float"),
+            assert_eq(int(true), 1, "int from bool"),
+            assert_eq(float("3.14"), 3.14, "float from string"),
+            assert_eq(float(42), 42.0, "float from int"),
+            assert_eq(str(42), "42", "str from int"),
+            assert_eq(str(3.14), "3.14", "str from float"),
+            assert_eq(str(true), "true", "str from bool"),
+            assert_eq(str(null), "null", "str from null"),
+            assert_eq(bool(1), true, "bool from int"),
+            assert_eq(bool(0), false, "bool from zero"),
+            assert_eq(bool(""), false, "bool from empty string"),
+            assert_eq(bool("hi"), true, "bool from string"),
+            assert_eq(type(42), "int", "type int"),
+            assert_eq(type(3.14), "float", "type float"),
+            assert_eq(type("hi"), "string", "type string"),
+            assert_eq(type(true), "bool", "type bool"),
+            assert_eq(type([]), "array", "type array"),
+            assert_eq(type({}), "object", "type object")
+        ])
+    }
+
+    route GET "int-base" {
+        response.body = results([
+            assert_eq(int("ff", 16), 255, "hex ff"),
+            assert_eq(int("FF", 16), 255, "hex FF"),
+            assert_eq(int("1010", 2), 10, "binary 1010"),
+            assert_eq(int("77", 8), 63, "octal 77"),
+            assert_eq(int("0", 10), 0, "zero base 10")
+        ])
+    }
+
+    route GET "null" {
+        response.body = results([
+            assert_eq(type(null), "null", "type null"),
+            assert_false(null, "null is falsy"),
+            assert_true(null == null, "null == null")
+        ])
+    }
+}
+
+// ===== Math tests =====
+group "/test/math" {
+    route GET "abs" {
+        response.body = results([
+            assert_eq(abs(-5), 5, "abs negative int"),
+            assert_eq(abs(5), 5, "abs positive int"),
+            assert_eq(abs(0), 0, "abs zero"),
+            assert_eq(abs(-3.14), 3.14, "abs negative float")
+        ])
+    }
+
+    route GET "ceil-floor" {
+        response.body = results([
+            assert_eq(ceil(3.2), 4, "ceil 3.2"),
+            assert_eq(ceil(3.0), 3, "ceil 3.0"),
+            assert_eq(ceil(-1.2), -1, "ceil -1.2"),
+            assert_eq(floor(3.8), 3, "floor 3.8"),
+            assert_eq(floor(3.0), 3, "floor 3.0"),
+            assert_eq(floor(-1.8), -2, "floor -1.8")
+        ])
+    }
+
+    route GET "round" {
+        response.body = results([
+            assert_eq(round(3.5), 4, "round 3.5"),
+            assert_eq(round(3.4), 3, "round 3.4"),
+            assert_eq(round(3.14159, 2), 3.14, "round 2 decimals"),
+            assert_eq(round(3.14159, 4), 3.1416, "round 4 decimals")
+        ])
+    }
+
+    route GET "rand" {
+        r1 = rand()
+        r2 = rand(100)
+        r3 = rand(10, 20)
+        response.body = results([
+            assert_true(r1 >= 0.0, "rand() >= 0"),
+            assert_true(r1 < 1.0, "rand() < 1"),
+            assert_true(r2 >= 0, "rand(100) >= 0"),
+            assert_true(r2 < 100, "rand(100) < 100"),
+            assert_true(r3 >= 10, "rand(10,20) >= 10"),
+            assert_true(r3 < 20, "rand(10,20) < 20")
+        ])
+    }
+}
+
+// ===== String tests =====
+group "/test/strings" {
+    route GET "basic" {
+        response.body = results([
+            assert_eq(upper("hello"), "HELLO", "upper"),
+            assert_eq(lower("HELLO"), "hello", "lower"),
+            assert_eq(trim("  hi  "), "hi", "trim"),
+            assert_eq(len("hello"), 5, "len string"),
+            assert_true(contains("hello world", "world"), "contains true"),
+            assert_false(contains("hello", "xyz"), "contains false"),
+            assert_true(starts_with("hello", "hel"), "starts_with true"),
+            assert_false(starts_with("hello", "xyz"), "starts_with false"),
+            assert_true(ends_with("hello", "llo"), "ends_with true"),
+            assert_false(ends_with("hello", "xyz"), "ends_with false")
+        ])
+    }
+
+    route GET "transform" {
+        response.body = results([
+            assert_eq(replace("hello world", "world", "there"), "hello there", "replace"),
+            assert_eq(split("a,b,c", ","), ["a", "b", "c"], "split"),
+            assert_eq(join(["a", "b", "c"], "-"), "a-b-c", "join"),
+            assert_eq(repeat("ab", 3), "ababab", "repeat"),
+            assert_eq(reverse("hello"), "olleh", "reverse string"),
+            assert_eq(slice("hello", 1, 3), "el", "slice string")
+        ])
+    }
+
+    route GET "search" {
+        response.body = results([
+            assert_eq(index_of("hello world", "world"), 6, "index_of found"),
+            assert_eq(index_of("hello", "xyz"), -1, "index_of not found"),
+            assert_true(includes("hello world", "world"), "includes true"),
+            assert_false(includes("hello", "xyz"), "includes false")
+        ])
+    }
+
+    route GET "template" {
+        name = "world"
+        num = 42
+        response.body = results([
+            assert_eq(`hello ${name}`, "hello world", "basic interpolation"),
+            assert_eq(`${num} is the answer`, "42 is the answer", "number interpolation"),
+            assert_eq(`no interpolation`, "no interpolation", "plain backtick"),
+            assert_eq(`${1 + 2}`, "3", "expression interpolation")
+        ])
+    }
+
+    route GET "regex" {
+        input = "Hello 123 World 456"
+        response.body = results([
+            assert_eq(regex_match(input, "\\d+"), ["123", "456"], "regex_match digits"),
+            assert_eq(regex_match("hello", "\\d+"), null, "regex_match no match"),
+            assert_eq(regex_replace(input, "\\d+", "NUM"), "Hello NUM World NUM", "regex_replace")
+        ])
+    }
+}
+
+// ===== Collection tests =====
+group "/test/collections" {
+    route GET "sort" {
+        nums = [3, 1, 4, 1, 5]
+        response.body = results([
+            assert_eq(sort(nums), [1, 1, 3, 4, 5], "sort asc"),
+            assert_eq(sort(nums, "desc"), [5, 4, 3, 1, 1], "sort desc"),
+            assert_eq(sort([]), [], "sort empty")
+        ])
+    }
+
+    route GET "sort-by" {
+        users = [
+            { name: "Charlie", age: 30 },
+            { name: "Alice", age: 25 },
+            { name: "Bob", age: 35 }
+        ]
+        by_age = sort_by(users, "age")
+        by_age_desc = sort_by(users, "age", "desc")
+        response.body = results([
+            assert_eq(by_age[0].name, "Alice", "sort_by age asc first"),
+            assert_eq(by_age[2].name, "Bob", "sort_by age asc last"),
+            assert_eq(by_age_desc[0].name, "Bob", "sort_by age desc first")
+        ])
+    }
+
+    route GET "functional" {
+        nums = [1, 2, 3, 4, 5]
+        doubled = map(nums, fn(x) { return x * 2 })
+        evens = filter(nums, fn(x) { return x % 2 == 0 })
+        total = reduce(nums, fn(acc, x) { return acc + x }, 0)
+        response.body = results([
+            assert_eq(doubled, [2, 4, 6, 8, 10], "map double"),
+            assert_eq(evens, [2, 4], "filter evens"),
+            assert_eq(total, 15, "reduce sum")
+        ])
+    }
+
+    route GET "array-ops" {
+        arr = [1, 2, 3]
+        response.body = results([
+            assert_eq(len(arr), 3, "len array"),
+            assert_eq(append(arr, 4), [1, 2, 3, 4], "append"),
+            assert_eq(reverse([1, 2, 3]), [3, 2, 1], "reverse array"),
+            assert_eq(unique([1, 2, 2, 3, 3]), [1, 2, 3], "unique"),
+            assert_eq(flat([[1, 2], [3, 4]]), [1, 2, 3, 4], "flat"),
+            assert_eq(slice([1, 2, 3, 4, 5], 1, 3), [2, 3], "slice array")
+        ])
+    }
+
+    route GET "object-ops" {
+        obj = { a: 1, b: 2, c: 3 }
+        response.body = results([
+            assert_eq(len(keys(obj)), 3, "keys count"),
+            assert_eq(len(values(obj)), 3, "values count"),
+            assert_true(has(obj, "a"), "has existing key"),
+            assert_false(has(obj, "z"), "has missing key"),
+            assert_eq(merge({ a: 1 }, { b: 2 }), { a: 1, b: 2 }, "merge"),
+            assert_eq(len(keys(delete(obj, "a"))), 2, "delete key")
+        ])
+    }
+}
+
+// ===== Encoding tests =====
+group "/test/encoding" {
+    route GET "base64" {
+        encoded = base64_encode("Hello World")
+        response.body = results([
+            assert_eq(encoded, "SGVsbG8gV29ybGQ=", "base64 encode"),
+            assert_eq(base64_decode(encoded), "Hello World", "base64 decode"),
+            assert_eq(base64_decode(base64_encode("test 123")), "test 123", "base64 roundtrip")
+        ])
+    }
+
+    route GET "url" {
+        encoded = url_encode("hello world&foo=bar")
+        response.body = results([
+            assert_true(contains(encoded, "+") || contains(encoded, "%20"), "url encode spaces"),
+            assert_eq(url_decode(encoded), "hello world&foo=bar", "url decode roundtrip")
+        ])
+    }
+
+    route GET "json" {
+        obj = { name: "Alice", age: 30 }
+        encoded = json.stringify(obj)
+        decoded = json.parse(encoded)
+        response.body = results([
+            assert_eq(type(encoded), "string", "stringify returns string"),
+            assert_eq(decoded.name, "Alice", "parse name"),
+            assert_eq(decoded.age, 30, "parse age")
+        ])
+    }
+
+    route GET "hash" {
+        sha = hash("sha256", "hello")
+        md = hash("md5", "hello")
+        sha5 = hash("sha512", "hello")
+        response.body = results([
+            assert_eq(sha, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", "sha256"),
+            assert_eq(md, "5d41402abc4b2a76b9719d911017c592", "md5"),
+            assert_eq(len(sha5), 128, "sha512 length")
+        ])
+    }
+}
+
+// ===== Crypto tests =====
+group "/test/crypto" {
+    route GET "uuid" {
+        id = uuid()
+        response.body = results([
+            assert_eq(len(id), 36, "uuid length 36"),
+            assert_true(contains(id, "-"), "uuid has dashes")
+        ])
+    }
+
+    route GET "cuid2" {
+        id1 = cuid2()
+        id2 = cuid2(32)
+        first = slice(id1, 0, 1)
+        response.body = results([
+            assert_eq(len(id1), 24, "cuid2 default length 24"),
+            assert_eq(len(id2), 32, "cuid2 custom length 32"),
+            assert_true(first >= "a", "cuid2 starts with letter"),
+            assert_true(first <= "z", "cuid2 starts with lowercase")
+        ])
+    }
+
+    route GET "hmac" {
+        sig = hmac_hash("sha256", "secret", "hello")
+        response.body = results([
+            assert_eq(len(sig), 64, "hmac sha256 length"),
+            assert_eq(type(sig), "string", "hmac returns string")
+        ])
+    }
+
+    route GET "jwt" {
+        secret = "test-secret-key"
+        payload = { sub: "user123", role: "admin" }
+        token = jwt.sign(payload, secret)
+        verified = jwt.verify(token, secret)
+
+        // Test expired token
+        expired_caught = false
+        try {
+            expired_token = jwt.sign({ sub: "x", exp: 1000000000 }, secret)
+            jwt.verify(expired_token, secret)
+        } catch(err) {
+            expired_caught = true
+        }
+
+        // Test bad signature
+        bad_sig_caught = false
+        try {
+            jwt.verify(token + "tampered", secret)
+        } catch(err) {
+            bad_sig_caught = true
+        }
+
+        response.body = results([
+            assert_true(contains(token, "."), "jwt has dots"),
+            assert_eq(verified.sub, "user123", "jwt verify sub"),
+            assert_eq(verified.role, "admin", "jwt verify role"),
+            assert_true(expired_caught, "expired token throws"),
+            assert_true(bad_sig_caught, "bad signature throws")
+        ])
+    }
+}
+
+// ===== DateTime tests =====
+group "/test/datetime" {
+    route GET "date" {
+        d = date()
+        response.body = results([
+            assert_true(d.year >= 2024, "date year reasonable"),
+            assert_true(d.month >= 1, "date month >= 1"),
+            assert_true(d.month <= 12, "date month <= 12"),
+            assert_true(d.day >= 1, "date day >= 1"),
+            assert_true(d.unix > 1700000000, "date unix reasonable")
+        ])
+    }
+
+    route GET "format" {
+        // Use a known timestamp: 2024-01-15 12:30:00 UTC = 1705318200
+        ts = 1705318200
+        formatted = date_format(ts, "2006-01-02")
+        response.body = results([
+            assert_eq(formatted, "2024-01-15", "date_format YYYY-MM-DD")
+        ])
+    }
+
+    route GET "strtotime" {
+        now_ts = strtotime("now")
+        future = strtotime("now + 1 day")
+        past = strtotime("now - 1 hour")
+        from_ts = strtotime("1700000000 + 1 day")
+        response.body = results([
+            assert_true(now_ts > 1700000000, "strtotime now"),
+            assert_true(future > now_ts, "strtotime future > now"),
+            assert_true(past < now_ts, "strtotime past < now"),
+            assert_eq(from_ts, 1700086400, "strtotime from timestamp")
+        ])
+    }
+}
+
+// ===== Language tests =====
+group "/test/language" {
+    route GET "closures" {
+        count = 0
+        inc = fn() {
+            count += 1
+            return count
+        }
+        r1 = inc()
+        r2 = inc()
+        r3 = inc()
+        response.body = results([
+            assert_eq(r1, 1, "closure call 1"),
+            assert_eq(r2, 2, "closure call 2"),
+            assert_eq(r3, 3, "closure call 3"),
+            assert_eq(count, 3, "closure modifies outer")
+        ])
+    }
+
+    route GET "destructure-obj" {
+        obj = { name: "Alice", age: 30, city: "NYC" }
+        { name, age } = obj
+        response.body = results([
+            assert_eq(name, "Alice", "destructure name"),
+            assert_eq(age, 30, "destructure age")
+        ])
+    }
+
+    route GET "destructure-arr" {
+        arr = [10, 20, 30]
+        [first, second] = arr
+        response.body = results([
+            assert_eq(first, 10, "destructure first"),
+            assert_eq(second, 20, "destructure second")
+        ])
+    }
+
+    route GET "shorthand" {
+        name = "Bob"
+        age = 25
+        obj = { name, age }
+        response.body = results([
+            assert_eq(obj.name, "Bob", "shorthand name"),
+            assert_eq(obj.age, 25, "shorthand age")
+        ])
+    }
+
+    route GET "try-catch" {
+        caught = null
+        try {
+            throw "test error"
+        } catch(err) {
+            caught = err
+        }
+
+        nested_caught = null
+        try {
+            try {
+                throw "inner"
+            } catch(e) {
+                throw "rethrown: " + e
+            }
+        } catch(err) {
+            nested_caught = err
+        }
+
+        response.body = results([
+            assert_eq(caught, "test error", "catch gets error"),
+            assert_eq(nested_caught, "rethrown: inner", "nested try-catch")
+        ])
+    }
+
+    route GET "if-else" {
+        x = 15
+        result = "none"
+        if x > 20 {
+            result = "big"
+        } else if x > 10 {
+            result = "medium"
+        } else {
+            result = "small"
+        }
+        response.body = results([
+            assert_eq(result, "medium", "else if chain")
+        ])
+    }
+
+    route GET "each" {
+        arr = [10, 20, 30]
+        total = 0
+        indices = []
+        each val, idx in arr {
+            total += val
+            indices = append(indices, idx)
+        }
+        response.body = results([
+            assert_eq(total, 60, "each sum"),
+            assert_eq(indices, [0, 1, 2], "each indices")
+        ])
+    }
+
+    route GET "while" {
+        i = 0
+        total = 0
+        while(i < 5) {
+            total += i
+            i += 1
+        }
+        response.body = results([
+            assert_eq(total, 10, "while sum 0..4"),
+            assert_eq(i, 5, "while exit value")
+        ])
+    }
+
+    route GET "multi-return" {
+        result, status = calculate(10, 3)
+        response.body = results([
+            assert_eq(result, 3, "multi-return first"),
+            assert_eq(status, 1, "multi-return second")
+        ])
+    }
+}
+
+fn calculate(a, b) {
+    return a / b, a % b
+}
+
+// ===== Routing tests =====
+group "/test/routing" {
+    route GET "params/:name" {
+        response.body = results([
+            assert_eq(request.params.name, "hello", "path param extracted")
+        ])
+    }
+
+    route GET "query" {
+        response.body = results([
+            assert_eq(request.query.a, "1", "query param a"),
+            assert_eq(request.query.b, "2", "query param b")
+        ])
+    }
+
+    route GET "wildcard/*rest" {
+        response.body = results([
+            assert_eq(request.params.rest, "a/b/c", "wildcard captures rest")
+        ])
+    }
+
+    route GET "cors" {
+        // CORS headers are set by the middleware wrapper, not in the response
+        // We just verify the route works; the runner checks headers
+        response.body = results([
+            assert_true(true, "cors route accessible")
+        ])
+    }
+
+    route GET "redirect" {
+        redirect("/test/routing/cors", 301)
+    }
+}
+
+// ===== Store tests =====
+group "/test/store" {
+    route GET "crud" {
+        store.set("test_key", "test_value")
+        val = store.get("test_key")
+        exists = store.has("test_key")
+        store.delete("test_key")
+        gone = store.has("test_key")
+        default_val = store.get("nonexistent", "default")
+
+        response.body = results([
+            assert_eq(val, "test_value", "store get"),
+            assert_true(exists, "store has"),
+            assert_false(gone, "store delete"),
+            assert_eq(default_val, "default", "store get default")
+        ])
+    }
+
+    route GET "incr" {
+        store.delete("counter")
+        r1 = store.incr("counter", 1)
+        r2 = store.incr("counter", 5)
+        r3 = store.incr("counter", -2)
+        response.body = results([
+            assert_eq(r1, 1, "incr from 0"),
+            assert_eq(r2, 6, "incr +5"),
+            assert_eq(r3, 4, "incr -2")
+        ])
+    }
+}
+
+// ===== File I/O tests =====
+group "/test/io" {
+    route GET "readwrite" {
+        path = "/tmp/httpdsl-test-rw.txt"
+        file.write(path, "hello world")
+        content = file.read(path)
+        file.delete(path)
+        response.body = results([
+            assert_eq(content, "hello world", "write then read")
+        ])
+    }
+
+    route GET "exists-delete" {
+        path = "/tmp/httpdsl-test-exists.txt"
+        file.write(path, "temp")
+        e1 = file.exists(path)
+        file.delete(path)
+        e2 = file.exists(path)
+        response.body = results([
+            assert_true(e1, "file exists after write"),
+            assert_false(e2, "file gone after delete")
+        ])
+    }
+
+    route GET "json-io" {
+        path = "/tmp/httpdsl-test-json.json"
+        data = { name: "test", items: [1, 2, 3] }
+        file.write_json(path, data)
+        loaded = file.read_json(path)
+        file.delete(path)
+        response.body = results([
+            assert_eq(loaded.name, "test", "json name"),
+            assert_eq(loaded.items, [1, 2, 3], "json items")
+        ])
+    }
+
+    route GET "mkdir-list" {
+        dir = "/tmp/httpdsl-test-dir"
+        file.mkdir(dir)
+        file.write(dir + "/a.txt", "a")
+        file.write(dir + "/b.txt", "b")
+        files = file.list(dir)
+        // Cleanup
+        file.delete(dir + "/a.txt")
+        file.delete(dir + "/b.txt")
+        response.body = results([
+            assert_eq(len(files), 2, "list count"),
+            assert_true(contains(str(files), "a.txt"), "list has a.txt")
+        ])
+    }
+}
+
+// ===== Body parsing tests =====
+route POST "test/body/json" json {
+    response.body = results([
+        assert_eq(request.data.name, "Alice", "json body name"),
+        assert_eq(request.data.age, 30, "json body age")
+    ])
+} else {
+    response.status = 400
+    response.body = { pass: false, test: "json body", error: error }
+}
+
+// ===== Async tests =====
+route GET "test/async/basic" {
+    f1 = async 10 + 20
+    f2 = async 30 + 40
+    r1 = await(f1)
+    r2 = await(f2)
+    response.body = results([
+        assert_eq(r1, 30, "async await 1"),
+        assert_eq(r2, 70, "async await 2")
+    ])
+}
+
+// ===== SQLite tests =====
+group "/test/sqlite" {
+    route GET "crud" {
+        mydb = db.open("sqlite", ":memory:")
+        mydb.exec("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, age INTEGER)")
+
+        // Insert
+        r1 = mydb.exec("INSERT INTO users (name, age) VALUES (?, ?)", ["Alice", 30])
+        r2 = mydb.exec("INSERT INTO users (name, age) VALUES (?, ?)", ["Bob", 25])
+        r3 = mydb.exec("INSERT INTO users (name, age) VALUES (?, ?)", ["Charlie", 35])
+
+        // Query all
+        rows = mydb.query("SELECT name, age FROM users ORDER BY name")
+
+        // Query one
+        one = mydb.query_one("SELECT name, age FROM users WHERE name = ?", ["Bob"])
+
+        // Query value
+        count = mydb.query_value("SELECT COUNT(*) FROM users")
+
+        // Update
+        mydb.exec("UPDATE users SET age = 31 WHERE name = ?", ["Alice"])
+        updated = mydb.query_one("SELECT age FROM users WHERE name = ?", ["Alice"])
+
+        // Delete
+        mydb.exec("DELETE FROM users WHERE name = ?", ["Charlie"])
+        after_delete = mydb.query("SELECT name FROM users ORDER BY name")
+
+        mydb.close()
+
+        response.body = results([
+            assert_eq(r1.last_insert_id, 1, "insert first id"),
+            assert_eq(r2.last_insert_id, 2, "insert second id"),
+            assert_eq(r3.last_insert_id, 3, "insert third id"),
+            assert_eq(len(rows), 3, "query all count"),
+            assert_eq(rows[0].name, "Alice", "query first name"),
+            assert_eq(rows[1].name, "Bob", "query second name"),
+            assert_eq(rows[2].name, "Charlie", "query third name"),
+            assert_eq(one.name, "Bob", "query_one name"),
+            assert_eq(one.age, 25, "query_one age"),
+            assert_eq(count, 3, "query_value count"),
+            assert_eq(updated.age, 31, "update age"),
+            assert_eq(len(after_delete), 2, "delete count"),
+            assert_eq(after_delete[0].name, "Alice", "after delete first"),
+            assert_eq(after_delete[1].name, "Bob", "after delete second")
+        ])
+    }
+
+    route GET "types" {
+        mydb = db.open("sqlite", ":memory:")
+        mydb.exec("CREATE TABLE things (id INTEGER PRIMARY KEY, label TEXT, score REAL, active BOOLEAN)")
+        mydb.exec("INSERT INTO things (label, score, active) VALUES (?, ?, ?)", ["hello", 3.14, true])
+        mydb.exec("INSERT INTO things (label, score, active) VALUES (?, ?, ?)", [null, 0.0, false])
+
+        rows = mydb.query("SELECT label, score, active FROM things ORDER BY id")
+        mydb.close()
+
+        response.body = results([
+            assert_eq(rows[0].label, "hello", "string type"),
+            assert_eq(rows[0].score, 3.14, "float type"),
+            assert_eq(rows[1].score, 0.0, "zero float"),
+            assert_eq(len(rows), 2, "row count")
+        ])
+    }
+
+    route GET "empty" {
+        mydb = db.open("sqlite", ":memory:")
+        mydb.exec("CREATE TABLE empty_table (id INTEGER PRIMARY KEY, val TEXT)")
+
+        rows = mydb.query("SELECT * FROM empty_table")
+        one = mydb.query_one("SELECT * FROM empty_table")
+
+        mydb.close()
+
+        response.body = results([
+            assert_eq(len(rows), 0, "empty query returns empty array"),
+            assert_eq(one, null, "query_one on empty returns null")
+        ])
+    }
+}

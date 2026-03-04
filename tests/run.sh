@@ -253,6 +253,13 @@ echo "Async:"
 run_test GET /test/async/basic
 echo ""
 
+# SQLite tests
+echo "SQLite:"
+run_test GET /test/sqlite/crud
+run_test GET /test/sqlite/types
+run_test GET /test/sqlite/empty
+echo ""
+
 # Summary
 TOTAL=$((PASSED + FAILED + SKIPPED))
 echo "========================================"

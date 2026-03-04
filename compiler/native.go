@@ -308,6 +308,8 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 	case *RouteStatement:
 		c.detectDBInBlock(s.Body)
 		if s.ElseBlock != nil { c.detectDBInBlock(s.ElseBlock) }
+	case *GroupStatement:
+		for _, r := range s.Routes { c.detectDBInStmt(r) }
 	case *FnStatement:
 		c.detectDBInBlock(s.Body)
 	case *TryCatchStatement:
