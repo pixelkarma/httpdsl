@@ -334,3 +334,12 @@ type GroupStatement struct {
 
 func (s *GroupStatement) statementNode()       {}
 func (s *GroupStatement) TokenLiteral() string { return s.Token.Literal }
+
+type ErrorStatement struct {
+	Token      Token
+	StatusCode int
+	Body       *BlockStatement
+}
+
+func (s *ErrorStatement) statementNode()       {}
+func (s *ErrorStatement) TokenLiteral() string { return s.Token.Literal }

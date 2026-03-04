@@ -20,9 +20,10 @@ type NativeCompiler struct {
 	tmpCounter   int
 	typeEnv      *TypeEnv // current function's type info
 	fnTypes      map[string]*TypeEnv // per-function type info
-	corsOrigins  string // CORS: allowed origins ("*" or comma-separated)
-	corsMethods  string // CORS: allowed methods
-	corsHeaders  string // CORS: allowed headers
+	corsOrigins    string // CORS: allowed origins ("*" or comma-separated)
+	corsMethods    string // CORS: allowed methods
+	corsHeaders    string // CORS: allowed headers
+	errorHandlers  []*ErrorStatement
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -51,6 +52,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 			}
 		case *FnStatement:
 			c.functions = append(c.functions, s)
+			c.scanBlock(s.Body)
+		case *ErrorStatement:
+			c.errorHandlers = append(c.errorHandlers, s)
 			c.scanBlock(s.Body)
 		case *ServerStatement:
 			if pe, ok := s.Settings["port"]; ok {
@@ -730,7 +734,8 @@ type routeSeg struct {
 	wildcard string // *param — matches rest of path
 }
 type dslRouter struct {
-	routes []routeEntry
+	routes        []routeEntry
+	errorHandlers map[int]http.HandlerFunc
 }
 
 func (rt *dslRouter) add(method, pattern string, h http.HandlerFunc) {
@@ -776,6 +781,11 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		route.handler(w, r.WithContext(ctx))
 		return
 	}
+	if h, ok := rt.errorHandlers[404]; ok {
+		h(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 	w.Write([]byte("{\"error\":\"not found\"}"))
 }
@@ -3249,11 +3259,15 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("// ===== Main =====")
 	c.ln("func main() {")
 	c.indent++
-	c.ln("rt := &dslRouter{}")
+	c.ln("rt := &dslRouter{errorHandlers: make(map[int]http.HandlerFunc)}")
 	c.ln("")
 
 	for _, route := range c.routes {
 		c.emitRoute(route)
+	}
+
+	for _, eh := range c.errorHandlers {
+		c.emitErrorHandler(eh)
 	}
 
 	c.lnf("addr := \":%d\"", c.port)
@@ -3589,5 +3603,69 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 
 	c.indent--
 	c.ln("})")
+	c.ln("")
+}
+
+func (c *NativeCompiler) emitErrorHandler(eh *ErrorStatement) {
+	c.lnf("rt.errorHandlers[%d] = func(_w http.ResponseWriter, _r *http.Request) {", eh.StatusCode)
+	c.indent++
+
+	// Build minimal request object (no body parsing needed for error pages)
+	c.ln("_pathParams := make(map[string]Value)")
+	c.ln("_queryMap := make(map[string]Value)")
+	c.ln("for _k, _v := range _r.URL.Query() {")
+	c.indent++
+	c.ln("if len(_v) == 1 { _queryMap[_k] = Value(_v[0]) } else {")
+	c.indent++
+	c.ln("_arr := make([]Value, len(_v))")
+	c.ln("for _i, _s := range _v { _arr[_i] = Value(_s) }")
+	c.ln("_queryMap[_k] = Value(_arr)")
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("}")
+
+	c.ln("_reqHeaders := make(map[string]Value)")
+	c.ln("for _k, _v := range _r.Header { _reqHeaders[strings.ToLower(_k)] = Value(_v[0]) }")
+
+	c.ln("request := Value(map[string]Value{")
+	c.indent++
+	c.ln(`"method":  Value(_r.Method),`)
+	c.ln(`"path":    Value(_r.URL.Path),`)
+	c.ln(`"params":  Value(_pathParams),`)
+	c.ln(`"query":   Value(_queryMap),`)
+	c.ln(`"headers": Value(_reqHeaders),`)
+	c.indent--
+	c.ln("})")
+
+	// Build response object with the error status code as default
+	c.ln("response := Value(map[string]Value{")
+	c.indent++
+	c.lnf(`"status":  Value(int64(%d)),`, eh.StatusCode)
+	c.ln(`"type":    Value("json"),`)
+	c.ln(`"body":    Value(map[string]Value{}),`)
+	c.ln(`"headers": Value(map[string]Value{}),`)
+	c.ln(`"cookies": Value(map[string]Value{}),`)
+	c.indent--
+	c.ln("})")
+
+	// Declare variables
+	vars := c.collectVars(eh.Body)
+	for name := range vars {
+		if name != "request" && name != "response" {
+			c.lnf("var %s Value = null", safeIdent(name))
+		}
+	}
+
+	c.ln("_ = request")
+
+	// Emit body
+	c.emitBlock(eh.Body, true)
+
+	// Write response
+	c.ln("writeResponse(_w, response)")
+
+	c.indent--
+	c.ln("}")
 	c.ln("")
 }

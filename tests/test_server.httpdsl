@@ -5,6 +5,16 @@ server {
     }
 }
 
+// ===== Error handlers =====
+error 404 {
+    response.type = "json"
+    response.body = {
+        error: "not found",
+        path: request.path,
+        method: request.method
+    }
+}
+
 // ===== Test helpers =====
 fn assert_eq(actual, expected, name) {
     if actual == expected {
@@ -95,7 +105,8 @@ route GET "tests" {
         "/test/async/basic",
         "/test/sqlite/crud",
         "/test/sqlite/types",
-        "/test/sqlite/empty"
+        "/test/sqlite/empty",
+        "/test/error/404"
     ]
 }
 

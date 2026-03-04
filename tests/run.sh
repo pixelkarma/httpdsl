@@ -295,6 +295,29 @@ run_test GET /test/sqlite/types
 run_test GET /test/sqlite/empty
 echo ""
 
+# Error handler tests
+echo "Error handlers:"
+{
+    display="GET /nonexistent (custom 404)"
+    # Hit a route that doesn't exist — should get our custom error handler
+    status=$(curl -s -o /tmp/err404_resp.json -w "%{http_code}" "$BASE/this/does/not/exist" 2>/dev/null)
+    resp=$(cat /tmp/err404_resp.json 2>/dev/null)
+    err_msg=$(echo "$resp" | jq -r '.error' 2>/dev/null)
+    err_path=$(echo "$resp" | jq -r '.path' 2>/dev/null)
+    err_method=$(echo "$resp" | jq -r '.method' 2>/dev/null)
+
+    if [[ "$status" == "404" && "$err_msg" == "not found" && "$err_path" == "/this/does/not/exist" && "$err_method" == "GET" ]]; then
+        echo -e "  ${GREEN}PASS${NC} $display (3 checks)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (status=$status error=$err_msg path=$err_path method=$err_method)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+    rm -f /tmp/err404_resp.json
+}
+echo ""
+
 # Summary
 TOTAL=$((PASSED + FAILED + SKIPPED))
 echo "========================================"

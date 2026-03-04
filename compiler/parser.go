@@ -140,6 +140,10 @@ func (p *Parser) parseStatement() Statement {
 	case TOKEN_GROUP:
 		return p.parseGroupStatement()
 	case TOKEN_IDENT:
+		// error <status_code> { ... } — contextual keyword
+		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
+			return p.parseErrorStatement()
+		}
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
 	case TOKEN_LBRACE:
@@ -211,6 +215,32 @@ func (p *Parser) parseRouteStatement() Statement {
 		}
 		stmt.ElseBlock = p.parseBlockStatement()
 	}
+
+	return stmt
+}
+
+// error <status_code> { ... }
+func (p *Parser) parseErrorStatement() Statement {
+	stmt := &ErrorStatement{Token: p.curTok}
+	p.nextToken() // skip 'error'
+
+	if !p.curTokenIs(TOKEN_INT) {
+		p.addError("expected status code (integer), got %s", p.curTok.Type)
+		return nil
+	}
+	code, err := strconv.Atoi(p.curTok.Literal)
+	if err != nil {
+		p.addError("invalid status code: %s", p.curTok.Literal)
+		return nil
+	}
+	stmt.StatusCode = code
+	p.nextToken()
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{', got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
 
 	return stmt
 }
