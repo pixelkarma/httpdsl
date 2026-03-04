@@ -1,3 +1,5 @@
 httpdsl
+runtime.bin
+*-server
 *-native
 *.gen.go

@@ -1,13 +1,16 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"httpdsl/compiler"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+//go:embed runtime.bin
+var runtimeBin []byte
 
 func main() {
 	if len(os.Args) < 2 {
@@ -101,61 +104,39 @@ func doRun(program *compiler.Program) {
 }
 
 func doBuild(program *compiler.Program, target string) {
-	src, err := compiler.GenerateNativeCode(program)
+	// Serialize the program
+	programData, err := compiler.SerializeProgram(program)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Serialization error: %s\n", err)
 		os.Exit(1)
 	}
 
-	// Create temp build directory
-	buildDir, err := os.MkdirTemp("", "httpdsl-build-*")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating build dir: %s\n", err)
-		os.Exit(1)
-	}
-	defer os.RemoveAll(buildDir)
-
-	// Write generated source
-	srcPath := filepath.Join(buildDir, "main.go")
-	if err := os.WriteFile(srcPath, []byte(src), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing source: %s\n", err)
+	// Check that we have an embedded runtime
+	if len(runtimeBin) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: no embedded runtime. Build httpdsl with 'make' first.")
 		os.Exit(1)
 	}
 
-	// Write go.mod
-	goMod := "module httpdsl-native\n\ngo 1.24.0\n"
-	// Check if bcrypt is needed
-	if strings.Contains(src, "golang.org/x/crypto/bcrypt") {
-		goMod += "\nrequire golang.org/x/crypto v0.36.0\n"
-	}
-	if err := os.WriteFile(filepath.Join(buildDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing go.mod: %s\n", err)
-		os.Exit(1)
-	}
+	// Pack: runtime binary + serialized program
+	output := compiler.PackBinary(runtimeBin, programData)
 
 	// Determine output name
 	base := strings.TrimSuffix(filepath.Base(target), ".httpdsl")
 	if base == "" || base == "." {
 		base = "server"
 	}
-	// Output in current directory with -native suffix to avoid collisions
-	outputPath, _ := filepath.Abs(base + "-native")
+	outputPath, _ := filepath.Abs(base)
+	// Avoid collisions with existing directories
+	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
+		outputPath = outputPath + "-server"
+	}
 
-	// Save generated source for inspection next to the binary
-	debugSrc := outputPath + ".gen.go"
-	os.WriteFile(debugSrc, []byte(src), 0644)
-	fmt.Printf("Generated source: %s\n", debugSrc)
-
-	// Run go build
-	fmt.Printf("Building native binary...\n")
-	buildCmd := exec.Command("go", "build", "-o", outputPath, ".")
-	buildCmd.Dir = buildDir
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
-	if err := buildCmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "\nBuild failed. Generated source saved at: %s\n", debugSrc)
+	// Write the output binary
+	if err := os.WriteFile(outputPath, output, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing binary: %s\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Native binary: %s\n", outputPath)
+	fmt.Printf("Compiled %s → %s (%d bytes)\n", target, outputPath, len(output))
+	fmt.Printf("  Runtime: %d bytes, Program: %d bytes\n", len(runtimeBin), len(programData))
 }
