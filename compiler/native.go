@@ -2345,20 +2345,21 @@ func (c *NativeCompiler) expr(e Expression) string {
 		}
 		return fmt.Sprintf("Value(map[string]Value{%s})", strings.Join(pairs, ", "))
 	case *FunctionLiteral:
-		// Anonymous function
-		params := make([]string, len(ex.Params))
-		for i, p := range ex.Params {
-			params[i] = fmt.Sprintf("%s Value", safeIdent(p))
-		}
+		// Anonymous function — always variadic so callValue can invoke
 		var fb strings.Builder
 		old := c.b
 		c.b = fb
+		// Unpack args into named params
+		for i, p := range ex.Params {
+			c.lnf("var %s Value = null", safeIdent(p))
+			c.lnf("if len(_args) > %d { %s = _args[%d] }", i, safeIdent(p), i)
+		}
 		c.emitBlock(ex.Body, false)
 		c.b.WriteString(strings.Repeat("\t", c.indent+1))
 		c.b.WriteString("return null\n")
 		body := c.b.String()
 		c.b = old
-		return fmt.Sprintf("Value(func(%s) Value {\n%s%s})", strings.Join(params, ", "), body, strings.Repeat("\t", c.indent))
+		return fmt.Sprintf("Value(func(_args ...Value) Value {\n%s%s})", body, strings.Repeat("\t", c.indent))
 	case *AsyncExpression:
 		inner := c.expr(ex.Expression)
 		tmp := c.tmp()
