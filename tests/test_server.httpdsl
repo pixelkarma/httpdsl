@@ -19,7 +19,7 @@ init {
     app_config = { debug: true, max_items: 100 }
     app_items = ["alpha", "beta", "gamma"]
     test_db = db.open("sqlite", "/tmp/httpdsl_test_store.db")
-    store.sync(test_db, "test_state", 2)
+    store.sync("/tmp/httpdsl_test_store.json", 2)
     set_session_store(test_db, "test_sessions", 2)
 }
 
@@ -2110,11 +2110,14 @@ route GET "test/store-sync/write" {
     ])
 }
 
-route GET "test/store-sync/verify-db" {
-    // Called after flush interval — checks data reached the database
-    row = test_db.query_one("SELECT count(*) as cnt FROM test_state WHERE key = 'sync_name'")
+route GET "test/store-sync/verify-file" {
+    // Called after flush interval — checks data reached the JSON file
+    content = file.read("/tmp/httpdsl_test_store.json")
+    parsed = json.parse(content)
     response.body = results([
-        assert_eq(row.cnt, 1, "synced to database")
+        assert_eq(parsed.sync_name, "Alice", "synced to json file"),
+        assert_eq(parsed.sync_count, 42, "synced int to json file"),
+        assert_eq(parsed.sync_obj.color, "blue", "synced object to json file")
     ])
 }
 
@@ -2126,9 +2129,10 @@ route GET "test/store-sync/delete" {
 }
 
 route GET "test/store-sync/verify-delete" {
-    row = test_db.query_one("SELECT count(*) as cnt FROM test_state WHERE key = 'sync_obj'")
+    content = file.read("/tmp/httpdsl_test_store.json")
+    parsed = json.parse(content)
     response.body = results([
-        assert_eq(row.cnt, 0, "deleted from database")
+        assert_eq(parsed.sync_obj, null, "deleted from json file")
     ])
 }
 

@@ -808,11 +808,11 @@ fi
 rm -f /tmp/httpdsl_test_cookies.txt
 echo ""
 
-# Store sync tests
-echo "Store sync:"
+# Store sync tests (JSON file)
+echo "Store sync (JSON file):"
 run_test GET /test/store-sync/write
 sleep 3  # wait for flush
-run_test GET /test/store-sync/verify-db
+run_test GET /test/store-sync/verify-file
 run_test GET /test/store-sync/delete
 sleep 3  # wait for flush
 run_test GET /test/store-sync/verify-delete

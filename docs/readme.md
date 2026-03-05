@@ -173,6 +173,7 @@ This is the complete language reference.
   - `store.incr(key, amount)` / `store.incr(key, amount, ttl)` — atomic increment
   - `store.keys()` — list all keys
   - `store.clear()` — remove all
+  - `store.sync("file.json")` — persist to JSON file
   - `store.sync(db, table)` — persist to SQL database
   - TTL expiration and background sweeper
 
