@@ -573,6 +573,34 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Timeout tests
+echo "Timeout:"
+
+# Fast route with timeout should return 200
+display="GET /test/timeout/fast (within timeout → 200)"
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/test/timeout/fast")
+if [ "$status" = "200" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (status: $status)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+# Slow route with timeout should return 504
+display="GET /test/timeout/slow (exceeds timeout → 504)"
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/test/timeout/slow")
+if [ "$status" = "504" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (status: $status)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+echo ""
+
 # Middleware tests
 echo "Middleware:"
 run_test GET /test/middleware/global-before

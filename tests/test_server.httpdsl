@@ -1685,6 +1685,18 @@ group "/test/mysql" {
     }
 }
 
+// ===== Timeout tests =====
+route GET "/test/timeout/fast" {
+    timeout 2
+    response.body = {"ok": true}
+}
+
+route GET "/test/timeout/slow" {
+    timeout 1
+    sleep(2000)
+    response.body = {"ok": true}
+}
+
 // ===== Middleware tests =====
 // Global before — adds request_id to every request
 before {

@@ -27,6 +27,7 @@ type NativeCompiler struct {
 	errorHandlers  []*ErrorStatement
 	inRouteHandler bool // true when emitting code inside a route/error handler
 	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
+	defaultTimeout int  // server-level timeout in seconds; 0 = no timeout
 	globalBefore   []*BlockStatement
 	globalAfter    []*BlockStatement
 	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
@@ -94,6 +95,11 @@ func GenerateNativeCode(program *Program) (string, error) {
 			if te, ok := s.Settings["throttle_requests_per_second"]; ok {
 				if lit, ok := te.(*IntegerLiteral); ok {
 					c.throttleRPS = int(lit.Value)
+				}
+			}
+			if te, ok := s.Settings["timeout"]; ok {
+				if lit, ok := te.(*IntegerLiteral); ok {
+					c.defaultTimeout = int(lit.Value)
 				}
 			}
 			for _, sm := range s.StaticMounts {
@@ -880,25 +886,6 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("{\"error\":\"not found\"}"))
 }
 
-// noDirFS wraps http.Dir to prevent directory listings
-type noDirFS struct {
-	fs http.FileSystem
-}
-
-func (n noDirFS) Open(name string) (http.File, error) {
-	f, err := n.fs.Open(name)
-	if err != nil { return nil, err }
-	stat, err := f.Stat()
-	if err != nil { f.Close(); return nil, err }
-	if stat.IsDir() {
-		// Check for index.html inside directory
-		idx, err := n.fs.Open(filepath.Join(name, "index.html"))
-		if err != nil { f.Close(); return nil, os.ErrNotExist }
-		idx.Close()
-	}
-	return f, nil
-}
-
 // Per-IP rate limiter (token bucket)
 type ipBucket struct {
 	tokens float64
@@ -1151,6 +1138,29 @@ func storeIncr(key string, amount int64) int64 {
 	if ci, ok := cur.(int64); ok { n = ci + amount } else { n = amount }
 	globalStore.data[key] = n
 	return n
+}
+`)
+	}
+
+	// Static file serving runtime
+	if len(c.staticMounts) > 0 {
+		c.raw(`
+// noDirFS wraps http.Dir to prevent directory listings
+type noDirFS struct {
+	fs http.FileSystem
+}
+
+func (n noDirFS) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil { return nil, err }
+	stat, err := f.Stat()
+	if err != nil { f.Close(); return nil, err }
+	if stat.IsDir() {
+		idx, err := n.fs.Open(filepath.Join(name, "index.html"))
+		if err != nil { f.Close(); return nil, os.ErrNotExist }
+		idx.Close()
+	}
+	return f, nil
 }
 `)
 	}
@@ -3827,6 +3837,17 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.inRouteHandler = true
 	defer func() { c.inRouteHandler = false }()
 
+	// Request timeout
+	timeout := route.Timeout
+	if timeout == 0 {
+		timeout = c.defaultTimeout
+	}
+	if timeout > 0 {
+		c.lnf("_ctx, _cancel := context.WithTimeout(_r.Context(), %d*time.Second)", timeout)
+		c.ln("defer _cancel()")
+		c.ln("_r = _r.WithContext(_ctx)")
+	}
+
 	// Handle redirects
 	c.ln("defer func() {")
 	c.indent++
@@ -4093,7 +4114,22 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	}
 
 	// Auto-return response
-	c.ln("writeResponse(_w, response)")
+	timeoutActive := route.Timeout > 0 || c.defaultTimeout > 0
+	if timeoutActive {
+		c.ln("if _r.Context().Err() == context.DeadlineExceeded {")
+		c.indent++
+		c.ln(`_w.Header().Set("Content-Type", "application/json")`)
+		c.ln("_w.WriteHeader(504)")
+		c.ln(`_w.Write([]byte("{\"error\":\"request timeout\"}"))`)
+		c.indent--
+		c.ln("} else {")
+		c.indent++
+		c.ln("writeResponse(_w, response)")
+		c.indent--
+		c.ln("}")
+	} else {
+		c.ln("writeResponse(_w, response)")
+	}
 
 	// After blocks — fire and forget goroutine
 	if len(afterBlocks) > 0 {

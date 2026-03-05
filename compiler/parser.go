@@ -212,7 +212,32 @@ func (p *Parser) parseRouteStatement() Statement {
 		p.addError("expected '{', got %s", p.curTok.Type)
 		return nil
 	}
-	stmt.Body = p.parseBlockStatement()
+	p.nextToken() // skip '{'
+
+	// Optional: timeout N (must be first directive)
+	if p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "timeout" {
+		p.nextToken() // skip 'timeout'
+		if p.curTokenIs(TOKEN_INT) {
+			val, _ := strconv.Atoi(p.curTok.Literal)
+			stmt.Timeout = val
+			p.nextToken()
+		} else {
+			p.addError("expected integer after timeout, got %s", p.curTok.Type)
+		}
+	}
+
+	// Parse rest of body
+	block := &BlockStatement{Token: p.curTok}
+	for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {
+		s := p.parseStatement()
+		if s != nil {
+			block.Statements = append(block.Statements, s)
+		}
+	}
+	if p.curTokenIs(TOKEN_RBRACE) {
+		p.nextToken()
+	}
+	stmt.Body = block
 
 	// Optional else block
 	if p.curTokenIs(TOKEN_ELSE) {
