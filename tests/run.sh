@@ -719,6 +719,72 @@ else
 fi
 echo ""
 
+# Session tests
+echo "Sessions:"
+# Login — creates session, returns cookie
+resp=$(curl -sf -c /tmp/httpdsl_test_cookies.txt -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 42, "role": "admin"}' \
+  "$BASE/test/session/login" 2>/dev/null) || true
+pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+if [[ "$pass" == "true" ]]; then
+    echo -e "  ${GREEN}PASS${NC} POST /test/session/login (1 checks)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST /test/session/login"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  POST /test/session/login"
+fi
+# Check — reads session from cookie
+resp=$(curl -sf -b /tmp/httpdsl_test_cookies.txt "$BASE/test/session/check" 2>/dev/null) || true
+pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+if [[ "$pass" == "true" ]]; then
+    check_count=$(echo "$resp" | jq '.checks | length' 2>/dev/null)
+    echo -e "  ${GREEN}PASS${NC} GET /test/session/check ($check_count checks)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} GET /test/session/check"
+    echo "$resp" | jq -c '.checks[] | select(.pass == false)' 2>/dev/null | while read -r check; do
+        tname=$(echo "$check" | jq -r '.test')
+        expected=$(echo "$check" | jq -r '.expected')
+        actual=$(echo "$check" | jq -r '.actual')
+        echo -e "         ${RED}x${NC} $tname: expected=$expected actual=$actual"
+    done
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  GET /test/session/check"
+fi
+# Destroy
+resp=$(curl -sf -b /tmp/httpdsl_test_cookies.txt -X POST "$BASE/test/session/destroy" 2>/dev/null) || true
+pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+if [[ "$pass" == "true" ]]; then
+    echo -e "  ${GREEN}PASS${NC} POST /test/session/destroy (1 checks)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST /test/session/destroy"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  POST /test/session/destroy"
+fi
+# After destroy — session should be gone
+resp=$(curl -sf -b /tmp/httpdsl_test_cookies.txt "$BASE/test/session/after-destroy" 2>/dev/null) || true
+pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+if [[ "$pass" == "true" ]]; then
+    check_count=$(echo "$resp" | jq '.checks | length' 2>/dev/null)
+    echo -e "  ${GREEN}PASS${NC} GET /test/session/after-destroy ($check_count checks)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} GET /test/session/after-destroy"
+    echo "$resp" | jq -c '.checks[] | select(.pass == false)' 2>/dev/null | while read -r check; do
+        tname=$(echo "$check" | jq -r '.test')
+        expected=$(echo "$check" | jq -r '.expected')
+        actual=$(echo "$check" | jq -r '.actual')
+        echo -e "         ${RED}x${NC} $tname: expected=$expected actual=$actual"
+    done
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  GET /test/session/after-destroy"
+fi
+rm -f /tmp/httpdsl_test_cookies.txt
+echo ""
+
 # Store sync tests
 echo "Store sync:"
 run_test GET /test/store-sync/write

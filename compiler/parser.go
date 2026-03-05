@@ -685,6 +685,40 @@ func (p *Parser) parseServerStatement() Statement {
 				}
 				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
 				stmt.Settings["cors"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(corsMap)}
+			} else if key == "session" && p.curTokenIs(TOKEN_LBRACE) {
+				// session { cookie "sid" expires 24 h secret "..." }
+				p.nextToken() // skip '{'
+				sessionMap := make(map[string]Expression)
+				for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {
+					if p.curTokenIs(TOKEN_IDENT) {
+						sk := p.curTok.Literal
+						p.nextToken()
+						if sk == "expires" && p.curTokenIs(TOKEN_INT) {
+							// expires 24 h
+							val := p.curTok.Literal
+							p.nextToken()
+							unit := "s"
+							if p.curTokenIs(TOKEN_IDENT) {
+								unit = p.curTok.Literal
+								p.nextToken()
+							}
+							multiplier := int64(1)
+							switch unit {
+							case "m": multiplier = 60
+							case "h": multiplier = 3600
+							case "d": multiplier = 86400
+							}
+							n, _ := strconv.ParseInt(val, 10, 64)
+							sessionMap["expires"] = &IntegerLiteral{Value: n * multiplier}
+						} else {
+							sessionMap[sk] = p.parseExpression(PREC_LOWEST)
+						}
+					} else {
+						p.nextToken()
+					}
+				}
+				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
+				stmt.Settings["session"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(sessionMap)}
 			} else {
 				// Allow optional '=' for settings: both "port 8080" and "port = 8080"
 				if p.curTokenIs(TOKEN_ASSIGN) { p.nextToken() }

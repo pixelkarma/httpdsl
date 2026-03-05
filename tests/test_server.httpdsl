@@ -5,6 +5,11 @@ server {
     }
     static "/static" "./test_static"
     gzip true
+    session {
+        cookie "test_sid"
+        expires 1 h
+        secret "test-secret"
+    }
 }
 
 // ===== Init block =====
@@ -15,6 +20,7 @@ init {
     app_items = ["alpha", "beta", "gamma"]
     test_db = db.open("sqlite", "/tmp/httpdsl_test_store.db")
     store.sync(test_db, "test_state", 2)
+    set_session_store(test_db, "test_sessions", 2)
 }
 
 // ===== Shutdown block =====
@@ -2055,6 +2061,35 @@ route GET "test/init/mutate" {
 route GET "test/init/after-mutate" {
     response.body = results([
         assert_eq(app_name, "Mutated", "global mutation persists across requests")
+    ])
+}
+
+// ===== Session tests =====
+route POST "test/session/login" {
+    request.session.user_id = request.data.user_id
+    request.session.role = request.data.role
+    response.body = results([
+        assert_true(true, "session set")
+    ])
+}
+
+route GET "test/session/check" {
+    response.body = results([
+        assert_eq(request.session.user_id, 42, "session user_id persists"),
+        assert_eq(request.session.role, "admin", "session role persists")
+    ])
+}
+
+route POST "test/session/destroy" {
+    request.session.destroy()
+    response.body = results([
+        assert_true(true, "session destroyed")
+    ])
+}
+
+route GET "test/session/after-destroy" {
+    response.body = results([
+        assert_eq(request.session.user_id, null, "session gone after destroy")
     ])
 }
 

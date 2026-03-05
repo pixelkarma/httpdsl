@@ -39,6 +39,11 @@ type NativeCompiler struct {
 	initBlocks     []*BlockStatement
 	shutdownBlocks []*BlockStatement
 	globalVars     map[string]bool // variables declared in init blocks
+	sessionEnabled bool
+	sessionCookie  string // cookie name, default "sid"
+	sessionExpires int    // seconds, default 86400 (24h)
+	sessionSecret  string     // HMAC signing secret (literal)
+	sessionSecretExpr Expression // secret expression (e.g., env("..."))
 }
 
 type staticMount struct {
@@ -148,6 +153,30 @@ func GenerateNativeCode(program *Program) (string, error) {
 					}
 				}
 			}
+			// Session config
+			if sess, ok := s.Settings["session"]; ok {
+				c.sessionEnabled = true
+				c.sessionCookie = "sid"
+				c.sessionExpires = 86400 // 24h default
+				if h, ok := sess.(*HashLiteral); ok {
+					for _, p := range h.Pairs {
+						key := ""
+						if sl, ok := p.Key.(*StringLiteral); ok { key = sl.Value }
+						switch key {
+						case "cookie":
+							if sv, ok := p.Value.(*StringLiteral); ok { c.sessionCookie = sv.Value }
+						case "expires":
+							if iv, ok := p.Value.(*IntegerLiteral); ok { c.sessionExpires = int(iv.Value) }
+						case "secret":
+							if sv, ok := p.Value.(*StringLiteral); ok {
+								c.sessionSecret = sv.Value
+							} else {
+								c.sessionSecretExpr = p.Value
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	c.usedImports["context"] = true
@@ -237,7 +266,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["server_stats"] {
 		c.usedImports["runtime"] = true
 	}
-	if c.usedBuiltins["store"] || len(c.shutdownBlocks) > 0 {
+	if c.usedBuiltins["store"] || len(c.shutdownBlocks) > 0 || c.sessionEnabled {
 		c.usedImports["os/signal"] = true
 		c.usedImports["syscall"] = true
 	}
@@ -272,6 +301,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.emitRuntime()
 	c.emitBuiltinFuncs()
 	c.emitDBRuntime()
+	c.emitSessionRuntime()
 	c.emitUserFunctions()
 	c.emitMain()
 	return c.b.String(), nil
@@ -3209,6 +3239,252 @@ func dslMongoCount(args ...Value) Value {
 `)
 }
 
+func (c *NativeCompiler) emitSessionRuntime() {
+	if !c.sessionEnabled {
+		return
+	}
+	// Session secret expression
+	secretExpr := fmt.Sprintf("%q", c.sessionSecret)
+	if c.sessionSecretExpr != nil {
+		secretExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.sessionSecretExpr))
+	}
+	c.lnf("var _sessionSecret = %s", secretExpr)
+	c.lnf("var _sessionExpires = int64(%d)", c.sessionExpires)
+	c.lnf("var _sessionCookie = %q", c.sessionCookie)
+	c.raw(`
+// Session runtime
+type sessionStore struct {
+	mu          sync.RWMutex
+	data        map[string]sessionEntry
+	dirtyKeys   map[string]bool
+	deletedKeys map[string]bool
+	db          *dslDB
+	tableName   string
+}
+
+type sessionEntry struct {
+	data    map[string]Value
+	expires int64
+}
+
+var _sessions = &sessionStore{
+	data:        make(map[string]sessionEntry),
+	dirtyKeys:   make(map[string]bool),
+	deletedKeys: make(map[string]bool),
+}
+
+func sessionSign(id string) string {
+	mac := hmac.New(sha256.New, []byte(_sessionSecret))
+	mac.Write([]byte(id))
+	sig := hex.EncodeToString(mac.Sum(nil))[:16]
+	return id + "." + sig
+}
+
+func sessionVerify(cookie string) (string, bool) {
+	parts := strings.SplitN(cookie, ".", 2)
+	if len(parts) != 2 { return "", false }
+	id := parts[0]
+	expected := sessionSign(id)
+	if !hmac.Equal([]byte(cookie), []byte(expected)) { return "", false }
+	return id, true
+}
+
+func sessionLoad(r *http.Request) (string, map[string]Value, bool) {
+	c, err := r.Cookie(_sessionCookie)
+	if err != nil || c.Value == "" {
+		return "", make(map[string]Value), false
+	}
+	id, ok := sessionVerify(c.Value)
+	if !ok {
+		return "", make(map[string]Value), false
+	}
+	_sessions.mu.RLock()
+	entry, exists := _sessions.data[id]
+	_sessions.mu.RUnlock()
+	if !exists {
+		return "", make(map[string]Value), false
+	}
+	if entry.expires > 0 && entry.expires < time.Now().Unix() {
+		// Expired — clean up
+		_sessions.mu.Lock()
+		delete(_sessions.data, id)
+		_sessions.deletedKeys[id] = true
+		delete(_sessions.dirtyKeys, id)
+		_sessions.mu.Unlock()
+		return "", make(map[string]Value), false
+	}
+	// Return a copy
+	copy := make(map[string]Value, len(entry.data))
+	for k, v := range entry.data { copy[k] = v }
+	return id, copy, true
+}
+
+func sessionSave(w http.ResponseWriter, id string, data map[string]Value, destroyed bool) {
+	if destroyed {
+		if id != "" {
+			_sessions.mu.Lock()
+			delete(_sessions.data, id)
+			_sessions.deletedKeys[id] = true
+			delete(_sessions.dirtyKeys, id)
+			_sessions.mu.Unlock()
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     _sessionCookie,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		return
+	}
+	if len(data) == 0 { return }
+	// Generate new session ID if needed
+	if id == "" {
+		b := make([]byte, 24)
+		crand.Read(b)
+		id = hex.EncodeToString(b)
+	}
+	_sessions.mu.Lock()
+	_sessions.data[id] = sessionEntry{
+		data:    data,
+		expires: time.Now().Unix() + _sessionExpires,
+	}
+	_sessions.dirtyKeys[id] = true
+	delete(_sessions.deletedKeys, id)
+	_sessions.mu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name:     _sessionCookie,
+		Value:    sessionSign(id),
+		Path:     "/",
+		MaxAge:   int(_sessionExpires),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func sessionFlush() {
+	if _sessions.db == nil { return }
+	_sessions.mu.Lock()
+	if len(_sessions.dirtyKeys) == 0 && len(_sessions.deletedKeys) == 0 {
+		_sessions.mu.Unlock()
+		return
+	}
+	dirty := make(map[string]sessionEntry, len(_sessions.dirtyKeys))
+	for k := range _sessions.dirtyKeys {
+		if e, ok := _sessions.data[k]; ok { dirty[k] = e }
+	}
+	deleted := make(map[string]bool, len(_sessions.deletedKeys))
+	for k := range _sessions.deletedKeys { deleted[k] = true }
+	_sessions.dirtyKeys = make(map[string]bool)
+	_sessions.deletedKeys = make(map[string]bool)
+	_sessions.mu.Unlock()
+
+	tx, err := _sessions.db.db.Begin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "session flush error: %v\n", err)
+		_sessions.mu.Lock()
+		for k := range dirty { _sessions.dirtyKeys[k] = true }
+		for k := range deleted { _sessions.deletedKeys[k] = true }
+		_sessions.mu.Unlock()
+		return
+	}
+	for k, e := range dirty {
+		jBytes, _ := json.Marshal(valueToGo(Value(e.data)))
+		switch _sessions.db.driver {
+		case "postgres":
+			tx.Exec(fmt.Sprintf("INSERT INTO %s (id, data, expires) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, expires = $3", _sessions.tableName), k, string(jBytes), e.expires)
+		case "mysql":
+`)
+	// MySQL with backtick-quoted table reference
+	c.ln(`			tx.Exec("REPLACE INTO " + _sessions.tableName + " (id, data, expires) VALUES (?, ?, ?)", k, string(jBytes), e.expires)`)
+	c.raw(`		default:
+			tx.Exec(fmt.Sprintf("INSERT OR REPLACE INTO %s (id, data, expires) VALUES (?, ?, ?)", _sessions.tableName), k, string(jBytes), e.expires)
+		}
+	}
+	for k := range deleted {
+		switch _sessions.db.driver {
+		case "postgres":
+			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = $1", _sessions.tableName), k)
+		default:
+			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = ?", _sessions.tableName), k)
+		}
+	}
+	tx.Commit()
+}
+
+func set_session_store(args ...Value) Value {
+	if len(args) < 2 { throw(Value("set_session_store requires db and table name")); return null }
+	dbVal, ok := args[0].(*dslDB)
+	if !ok { throw(Value("set_session_store: first argument must be a database connection")); return null }
+	tableName := valueToString(args[1])
+
+	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL)", tableName)
+	if _, err := dbVal.db.Exec(createSQL); err != nil {
+		throw(Value("set_session_store: create table: " + err.Error())); return null
+	}
+
+	// Load existing sessions
+	rows, err := dbVal.db.Query(fmt.Sprintf("SELECT id, data, expires FROM %s", tableName))
+	if err != nil { throw(Value("set_session_store: load: " + err.Error())); return null }
+	defer rows.Close()
+	now := time.Now().Unix()
+	_sessions.mu.Lock()
+	for rows.Next() {
+		var id, data string
+		var expires int64
+		if err := rows.Scan(&id, &data, &expires); err != nil { continue }
+		if expires > 0 && expires < now { continue } // skip expired
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(data), &parsed); err != nil { continue }
+		if m, ok := goToValue(parsed).(map[string]Value); ok {
+			_sessions.data[id] = sessionEntry{data: m, expires: expires}
+		}
+	}
+	_sessions.db = dbVal
+	_sessions.tableName = tableName
+	_sessions.mu.Unlock()
+
+	// Flush goroutine
+	flushSec := int64(5)
+	if len(args) >= 3 { flushSec = toInt64(args[2]); if flushSec < 1 { flushSec = 1 } }
+	go func() {
+		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
+		defer ticker.Stop()
+		cleanupCounter := 0
+		for range ticker.C {
+			sessionFlush()
+			cleanupCounter++
+			if cleanupCounter >= 60 { // every ~5 minutes at 5s interval
+				cleanupCounter = 0
+				// Sweep expired sessions from memory
+				now := time.Now().Unix()
+				_sessions.mu.Lock()
+				for id, e := range _sessions.data {
+					if e.expires > 0 && e.expires < now {
+						delete(_sessions.data, id)
+						_sessions.deletedKeys[id] = true
+					}
+				}
+				_sessions.mu.Unlock()
+				// DB cleanup
+				if _sessions.db != nil {
+					switch _sessions.db.driver {
+					case "postgres":
+						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < $1", _sessions.tableName), now)
+					default:
+						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < ?", _sessions.tableName), now)
+					}
+				}
+			}
+		}
+	}()
+
+	return null
+}
+`)
+}
+
 func (c *NativeCompiler) emitUserFunctions() {
 	c.ln("// ===== User Functions =====")
 	for _, fn := range c.functions {
@@ -3889,6 +4165,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
 		"redirect": true,
 		"server_stats": true,
+		"set_session_store": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -3960,6 +4237,14 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 
 	// Handle dot-call patterns: json.parse, json.stringify, store.*
 	if dot, ok := e.Function.(*DotExpression); ok {
+		// Nested dot: request.session.destroy()
+		if c.sessionEnabled {
+			if outerDot, ok := dot.Left.(*DotExpression); ok {
+				if ident, ok := outerDot.Left.(*Identifier); ok && ident.Value == "request" && outerDot.Field == "session" && dot.Field == "destroy" {
+					return "(func() Value { _sessDestroyed = true; return null })()"
+				}
+			}
+		}
 		if ident, ok := dot.Left.(*Identifier); ok {
 			switch ident.Value {
 			case "json":
@@ -4094,6 +4379,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return "Value(time.Now().Unix())"
 		case "server_stats":
 			return "builtin_server_stats()"
+		case "set_session_store":
+			return fmt.Sprintf("set_session_store(%s)", argStr)
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":
@@ -4391,7 +4678,7 @@ func (c *NativeCompiler) emitMain() {
 	}
 
 	// Graceful shutdown handler
-	if len(c.shutdownBlocks) > 0 || c.usedBuiltins["store"] {
+	if len(c.shutdownBlocks) > 0 || c.usedBuiltins["store"] || c.sessionEnabled {
 		c.ln("// Graceful shutdown")
 		c.ln("go func() {")
 		c.indent++
@@ -4412,6 +4699,9 @@ func (c *NativeCompiler) emitMain() {
 			}
 		}
 		// Flush store if synced
+		if c.sessionEnabled {
+			c.ln("sessionFlush()")
+		}
 		if c.usedBuiltins["store"] {
 			c.ln("if _storeFlush != nil { _storeFlush() }")
 		}
@@ -4728,6 +5018,12 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		}
 	}
 
+	// Session loading
+	if c.sessionEnabled {
+		c.ln("_sessID, _sessData, _ := sessionLoad(_r)")
+		c.ln("_sessDestroyed := false")
+	}
+
 	// Build request object
 	c.ln("request := Value(map[string]Value{")
 	c.indent++
@@ -4741,6 +5037,9 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.ln("\"cookies\": Value(_reqCookies),")
 	c.ln("\"ip\":      Value(_clientIP),")
 	c.ln("\"files\":   _reqFiles,")
+	if c.sessionEnabled {
+		c.ln("\"session\": Value(_sessData),")
+	}
 	c.indent--
 	c.ln("})")
 
@@ -4861,6 +5160,24 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	if hasBefore {
 		c.indent--
 		c.ln("}()")
+	}
+
+	// Session save
+	if c.sessionEnabled {
+		c.ln("// Save session")
+		c.ln("if _rm, ok := request.(map[string]Value); ok {")
+		c.indent++
+		c.ln("if _sd, ok := _rm[\"session\"].(map[string]Value); ok {")
+		c.indent++
+		c.ln("sessionSave(_w, _sessID, _sd, _sessDestroyed)")
+		c.indent--
+		c.ln("} else if _rm[\"session\"] == null || _rm[\"session\"] == nil {")
+		c.indent++
+		c.ln("sessionSave(_w, _sessID, nil, true)")
+		c.indent--
+		c.ln("}")
+		c.indent--
+		c.ln("}")
 	}
 
 	// Auto-return response
