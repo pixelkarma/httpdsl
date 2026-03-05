@@ -719,10 +719,10 @@ group "/test/datetime" {
 // ===== Language tests =====
 group "/test/language" {
     route GET "closures" {
-        count = 0
+        counter = 0
         inc = fn() {
-            count += 1
-            return count
+            counter += 1
+            return counter
         }
         r1 = inc()
         r2 = inc()
@@ -731,7 +731,7 @@ group "/test/language" {
             assert_eq(r1, 1, "closure call 1"),
             assert_eq(r2, 2, "closure call 2"),
             assert_eq(r3, 3, "closure call 3"),
-            assert_eq(count, 3, "closure modifies outer")
+            assert_eq(counter, 3, "closure modifies outer")
         ])
     }
 
@@ -1049,7 +1049,7 @@ group "/test/sqlite" {
         one = mydb.query_one("SELECT name, age FROM users WHERE name = ?", ["Bob"])
 
         // Query value
-        count = mydb.query_value("SELECT COUNT(*) FROM users")
+        row_count = mydb.query_value("SELECT COUNT(*) FROM users")
 
         // Update
         mydb.exec("UPDATE users SET age = 31 WHERE name = ?", ["Alice"])
@@ -1071,7 +1071,7 @@ group "/test/sqlite" {
             assert_eq(rows[2].name, "Charlie", "query third name"),
             assert_eq(one.name, "Bob", "query_one name"),
             assert_eq(one.age, 25, "query_one age"),
-            assert_eq(count, 3, "query_value count"),
+            assert_eq(row_count, 3, "query_value count"),
             assert_eq(updated.age, 31, "update age"),
             assert_eq(len(after_delete), 2, "delete count"),
             assert_eq(after_delete[0].name, "Alice", "after delete first"),
@@ -1128,10 +1128,10 @@ group "/test/builtins" {
 
     route GET "reduce" {
         nums = [1, 2, 3, 4, 5]
-        sum = reduce(nums, fn(acc, x) { return acc + x }, 0)
+        total = reduce(nums, fn(acc, x) { return acc + x }, 0)
         product = reduce(nums, fn(acc, x) { return acc * x }, 1)
         response.body = results([
-            assert_eq(sum, 15, "reduce sum"),
+            assert_eq(total, 15, "reduce sum"),
             assert_eq(product, 120, "reduce product")
         ])
     }
@@ -1597,7 +1597,7 @@ group "/test/postgres" {
 
         rows = mydb.query("SELECT name, age FROM pg_users ORDER BY name")
         one = mydb.query_one("SELECT name, age FROM pg_users WHERE name = $1", ["Bob"])
-        count = mydb.query_value("SELECT COUNT(*) FROM pg_users")
+        row_count = mydb.query_value("SELECT COUNT(*) FROM pg_users")
 
         mydb.exec("UPDATE pg_users SET age = 31 WHERE name = $1", ["Alice"])
         updated = mydb.query_one("SELECT age FROM pg_users WHERE name = $1", ["Alice"])
@@ -1614,7 +1614,7 @@ group "/test/postgres" {
             assert_eq(rows[1].name, "Bob", "pg second name"),
             assert_eq(one.name, "Bob", "pg query_one name"),
             assert_eq(one.age, 25, "pg query_one age"),
-            assert_eq(count, 2, "pg count"),
+            assert_eq(row_count, 2, "pg count"),
             assert_eq(updated.age, 31, "pg update"),
             assert_eq(len(after), 1, "pg delete count")
         ])
@@ -1650,7 +1650,7 @@ group "/test/mysql" {
 
         rows = mydb.query("SELECT name, age FROM my_users ORDER BY name")
         one = mydb.query_one("SELECT name, age FROM my_users WHERE name = ?", ["Bob"])
-        count = mydb.query_value("SELECT COUNT(*) FROM my_users")
+        row_count = mydb.query_value("SELECT COUNT(*) FROM my_users")
 
         mydb.exec("UPDATE my_users SET age = 31 WHERE name = ?", ["Alice"])
         updated = mydb.query_one("SELECT age FROM my_users WHERE name = ?", ["Alice"])
@@ -1667,7 +1667,7 @@ group "/test/mysql" {
             assert_eq(rows[1].name, "Bob", "mysql second name"),
             assert_eq(one.name, "Bob", "mysql query_one name"),
             assert_eq(one.age, 25, "mysql query_one age"),
-            assert_eq(count, 2, "mysql count"),
+            assert_eq(row_count, 2, "mysql count"),
             assert_eq(updated.age, 31, "mysql update"),
             assert_eq(len(after), 1, "mysql delete count")
         ])
@@ -1687,6 +1687,83 @@ group "/test/mysql" {
         response.body = results([
             assert_eq(rows[0].label, "hello", "mysql string type"),
             assert_eq(len(rows), 2, "mysql row count")
+        ])
+    }
+}
+
+// ===== Builtin function tests =====
+group "/test/builtins" {
+    route GET "find-some-every" {
+        nums = [1, 2, 3, 4, 5]
+        found = find(nums, fn(n) { return n > 3 })
+        not_found = find(nums, fn(n) { return n > 10 })
+        has_even = some(nums, fn(n) { return n % 2 == 0 })
+        all_pos = every(nums, fn(n) { return n > 0 })
+        all_even = every(nums, fn(n) { return n % 2 == 0 })
+        n_even = count(nums, fn(n) { return n % 2 == 0 })
+        response.body = results([
+            assert_eq(found, 4, "find first > 3"),
+            assert_eq(not_found, null, "find returns null on miss"),
+            assert_true(has_even, "some even"),
+            assert_true(all_pos, "every positive"),
+            assert_false(all_even, "not every even"),
+            assert_eq(n_even, 2, "count even")
+        ])
+    }
+
+    route GET "pluck-group" {
+        users = [
+            {name: "Alice", role: "admin"},
+            {name: "Bob", role: "user"},
+            {name: "Charlie", role: "admin"}
+        ]
+        names = pluck(users, "name")
+        grouped = group_by(users, "role")
+        response.body = results([
+            assert_eq(names, ["Alice", "Bob", "Charlie"], "pluck names"),
+            assert_eq(len(grouped.admin), 2, "group_by admin count"),
+            assert_eq(len(grouped.user), 1, "group_by user count")
+        ])
+    }
+
+    route GET "sum-min-max" {
+        nums = [10, 5, 20, 3, 15]
+        response.body = results([
+            assert_eq(sum(nums), 53, "sum array"),
+            assert_eq(min(nums), 3, "min array"),
+            assert_eq(max(nums), 20, "max array"),
+            assert_eq(min(3, 7), 3, "min two args"),
+            assert_eq(max(3, 7), 7, "max two args"),
+            assert_eq(clamp(150, 0, 100), 100, "clamp high"),
+            assert_eq(clamp(-5, 0, 100), 0, "clamp low"),
+            assert_eq(clamp(50, 0, 100), 50, "clamp in range")
+        ])
+    }
+
+    route GET "chunk-range" {
+        chunked = chunk([1,2,3,4,5], 2)
+        r1 = range(5)
+        r2 = range(1, 4)
+        r3 = range(0, 10, 3)
+        response.body = results([
+            assert_eq(len(chunked), 3, "chunk count"),
+            assert_eq(chunked[0], [1, 2], "chunk first"),
+            assert_eq(chunked[2], [5], "chunk last"),
+            assert_eq(r1, [0, 1, 2, 3, 4], "range(5)"),
+            assert_eq(r2, [1, 2, 3], "range(1,4)"),
+            assert_eq(r3, [0, 3, 6, 9], "range with step")
+        ])
+    }
+
+    route GET "string-helpers" {
+        response.body = results([
+            assert_eq(pad_left("42", 5, "0"), "00042", "pad_left zeros"),
+            assert_eq(pad_right("hi", 5, "."), "hi...", "pad_right dots"),
+            assert_eq(truncate("Hello World", 8), "Hello...", "truncate with ellipsis"),
+            assert_eq(truncate("Hi", 8), "Hi", "truncate short no-op"),
+            assert_eq(truncate("Hello World", 8, "~"), "Hello W~", "truncate custom suffix"),
+            assert_eq(capitalize("hello"), "Hello", "capitalize"),
+            assert_eq(capitalize(""), "", "capitalize empty")
         ])
     }
 }

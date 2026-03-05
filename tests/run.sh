@@ -573,6 +573,15 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Builtin functions
+echo "Builtins:"
+run_test GET /test/builtins/find-some-every
+run_test GET /test/builtins/pluck-group
+run_test GET /test/builtins/sum-min-max
+run_test GET /test/builtins/chunk-range
+run_test GET /test/builtins/string-helpers
+echo ""
+
 # Scheduled tasks
 echo "Scheduled tasks:"
 sleep 2  # wait for at least 1 tick

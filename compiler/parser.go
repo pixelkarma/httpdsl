@@ -145,8 +145,7 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseGroupStatement()
 	case TOKEN_SWITCH:
 		return p.parseSwitchStatement()
-	case TOKEN_EVERY:
-		return p.parseEveryStatement()
+
 	case TOKEN_IDENT:
 		// error <status_code> { ... } — contextual keyword
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
@@ -159,6 +158,10 @@ func (p *Parser) parseStatement() Statement {
 		// after { ... } — contextual keyword
 		if p.curTok.Literal == "after" && p.peekTokenIs(TOKEN_LBRACE) {
 			return p.parseAfterStatement()
+		}
+		// every <int> <unit> { ... } — contextual keyword
+		if p.curTok.Literal == "every" && p.peekTokenIs(TOKEN_INT) {
+			return p.parseEveryStatement()
 		}
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()

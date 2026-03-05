@@ -2045,6 +2045,223 @@ func builtin_reduce(args ...Value) Value {
 	return acc
 }
 
+func builtin_find(args ...Value) Value {
+	if len(args) < 2 { return null }
+	arr, ok := args[0].([]Value)
+	if !ok { return null }
+	fn := resolveValue(args[1])
+	if f, ok := fn.(func(...Value) Value); ok {
+		for _, v := range arr {
+			if isTruthy(f(v)) { return v }
+		}
+	}
+	return null
+}
+
+func builtin_some(args ...Value) Value {
+	if len(args) < 2 { return Value(false) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value(false) }
+	fn := resolveValue(args[1])
+	if f, ok := fn.(func(...Value) Value); ok {
+		for _, v := range arr {
+			if isTruthy(f(v)) { return Value(true) }
+		}
+	}
+	return Value(false)
+}
+
+func builtin_every(args ...Value) Value {
+	if len(args) < 2 { return Value(true) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value(false) }
+	if len(arr) == 0 { return Value(true) }
+	fn := resolveValue(args[1])
+	if f, ok := fn.(func(...Value) Value); ok {
+		for _, v := range arr {
+			if !isTruthy(f(v)) { return Value(false) }
+		}
+	}
+	return Value(true)
+}
+
+func builtin_count(args ...Value) Value {
+	if len(args) < 2 { return Value(int64(0)) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value(int64(0)) }
+	fn := resolveValue(args[1])
+	var n int64
+	if f, ok := fn.(func(...Value) Value); ok {
+		for _, v := range arr {
+			if isTruthy(f(v)) { n++ }
+		}
+	}
+	return Value(n)
+}
+
+func builtin_pluck(args ...Value) Value {
+	if len(args) < 2 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value([]Value{}) }
+	key := valueToString(args[1])
+	result := make([]Value, len(arr))
+	for i, v := range arr {
+		if m, ok := v.(map[string]Value); ok {
+			result[i] = m[key]
+			if result[i] == nil { result[i] = null }
+		} else { result[i] = null }
+	}
+	return Value(result)
+}
+
+func builtin_group_by(args ...Value) Value {
+	if len(args) < 2 { return Value(map[string]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value(map[string]Value{}) }
+	result := make(map[string]Value)
+	key := valueToString(args[1])
+	for _, v := range arr {
+		var gk string
+		if m, ok := v.(map[string]Value); ok {
+			gk = valueToString(m[key])
+		}
+		if existing, ok := result[gk]; ok {
+			result[gk] = Value(append(existing.([]Value), v))
+		} else {
+			result[gk] = Value([]Value{v})
+		}
+	}
+	return Value(result)
+}
+
+func builtin_sum(args ...Value) Value {
+	if len(args) == 0 { return Value(int64(0)) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value(int64(0)) }
+	var total float64
+	isFloat := false
+	for _, v := range arr {
+		switch n := v.(type) {
+		case int64: total += float64(n)
+		case float64: total += n; isFloat = true
+		}
+	}
+	if isFloat { return Value(total) }
+	return Value(int64(total))
+}
+
+func builtin_min(args ...Value) Value {
+	if len(args) >= 2 {
+		if compareLess(args[0], args[1]) { return args[0] }
+		return args[1]
+	}
+	if len(args) == 1 {
+		arr, ok := args[0].([]Value)
+		if !ok || len(arr) == 0 { return null }
+		min := arr[0]
+		for _, v := range arr[1:] { if compareLess(v, min) { min = v } }
+		return min
+	}
+	return null
+}
+
+func builtin_max(args ...Value) Value {
+	if len(args) >= 2 {
+		if compareLess(args[1], args[0]) { return args[0] }
+		return args[1]
+	}
+	if len(args) == 1 {
+		arr, ok := args[0].([]Value)
+		if !ok || len(arr) == 0 { return null }
+		max := arr[0]
+		for _, v := range arr[1:] { if compareLess(max, v) { max = v } }
+		return max
+	}
+	return null
+}
+
+func builtin_clamp(args ...Value) Value {
+	if len(args) < 3 { return null }
+	v := args[0]; lo := args[1]; hi := args[2]
+	if compareLess(v, lo) { return lo }
+	if compareLess(hi, v) { return hi }
+	return v
+}
+
+func builtin_chunk(args ...Value) Value {
+	if len(args) < 2 { return Value([]Value{}) }
+	arr, ok := args[0].([]Value)
+	if !ok { return Value([]Value{}) }
+	size := int(toInt64(args[1]))
+	if size <= 0 { return Value([]Value{}) }
+	var result []Value
+	for i := 0; i < len(arr); i += size {
+		end := i + size
+		if end > len(arr) { end = len(arr) }
+		result = append(result, Value(arr[i:end]))
+	}
+	return Value(result)
+}
+
+func builtin_range(args ...Value) Value {
+	if len(args) == 0 { return Value([]Value{}) }
+	var start, end int64
+	if len(args) == 1 {
+		end = toInt64(args[0])
+	} else {
+		start = toInt64(args[0])
+		end = toInt64(args[1])
+	}
+	step := int64(1)
+	if len(args) >= 3 { step = toInt64(args[2]) }
+	if step == 0 { return Value([]Value{}) }
+	var result []Value
+	if step > 0 {
+		for i := start; i < end; i += step { result = append(result, Value(i)) }
+	} else {
+		for i := start; i > end; i += step { result = append(result, Value(i)) }
+	}
+	return Value(result)
+}
+
+func builtin_pad_left(args ...Value) Value {
+	if len(args) < 2 { return Value("") }
+	s := valueToString(args[0])
+	width := int(toInt64(args[1]))
+	pad := " "
+	if len(args) >= 3 { pad = valueToString(args[2]) }
+	for len(s) < width { s = pad + s }
+	return Value(s[:width])
+}
+
+func builtin_pad_right(args ...Value) Value {
+	if len(args) < 2 { return Value("") }
+	s := valueToString(args[0])
+	width := int(toInt64(args[1]))
+	pad := " "
+	if len(args) >= 3 { pad = valueToString(args[2]) }
+	for len(s) < width { s = s + pad }
+	return Value(s[:width])
+}
+
+func builtin_truncate(args ...Value) Value {
+	if len(args) < 2 { return Value("") }
+	s := valueToString(args[0])
+	maxLen := int(toInt64(args[1]))
+	suffix := "..."
+	if len(args) >= 3 { suffix = valueToString(args[2]) }
+	if len(s) <= maxLen { return Value(s) }
+	if maxLen <= len(suffix) { return Value(suffix[:maxLen]) }
+	return Value(s[:maxLen-len(suffix)] + suffix)
+}
+
+func builtin_capitalize(args ...Value) Value {
+	if len(args) == 0 { return Value("") }
+	s := valueToString(args[0])
+	if len(s) == 0 { return Value(s) }
+	return Value(strings.ToUpper(s[:1]) + s[1:])
+}
+
 func builtin_date(args ...Value) Value {
 	var t time.Time
 	if len(args) > 0 { t = time.Unix(toInt64(args[0]), 0) } else { t = time.Now() }
@@ -3459,6 +3676,10 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"validate": true, "is_email": true, "is_url": true, "is_uuid": true, "is_numeric": true,
 		"log": true, "log_info": true, "log_warn": true, "log_error": true,
 		"map": true, "filter": true, "reduce": true,
+		"find": true, "some": true, "every": true, "count": true,
+		"pluck": true, "group_by": true, "chunk": true, "range": true,
+		"sum": true, "min": true, "max": true, "clamp": true,
+		"pad_left": true, "pad_right": true, "truncate": true, "capitalize": true,
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
 		"redirect": true,
 	}
@@ -3794,6 +4015,38 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_filter(%s)", argStr)
 		case "reduce":
 			return fmt.Sprintf("builtin_reduce(%s)", argStr)
+		case "find":
+			return fmt.Sprintf("builtin_find(%s)", argStr)
+		case "some":
+			return fmt.Sprintf("builtin_some(%s)", argStr)
+		case "every":
+			return fmt.Sprintf("builtin_every(%s)", argStr)
+		case "count":
+			return fmt.Sprintf("builtin_count(%s)", argStr)
+		case "pluck":
+			return fmt.Sprintf("builtin_pluck(%s)", argStr)
+		case "group_by":
+			return fmt.Sprintf("builtin_group_by(%s)", argStr)
+		case "chunk":
+			return fmt.Sprintf("builtin_chunk(%s)", argStr)
+		case "range":
+			return fmt.Sprintf("builtin_range(%s)", argStr)
+		case "sum":
+			return fmt.Sprintf("builtin_sum(%s)", argStr)
+		case "min":
+			return fmt.Sprintf("builtin_min(%s)", argStr)
+		case "max":
+			return fmt.Sprintf("builtin_max(%s)", argStr)
+		case "clamp":
+			return fmt.Sprintf("builtin_clamp(%s)", argStr)
+		case "pad_left":
+			return fmt.Sprintf("builtin_pad_left(%s)", argStr)
+		case "pad_right":
+			return fmt.Sprintf("builtin_pad_right(%s)", argStr)
+		case "truncate":
+			return fmt.Sprintf("builtin_truncate(%s)", argStr)
+		case "capitalize":
+			return fmt.Sprintf("builtin_capitalize(%s)", argStr)
 		case "date":
 			return fmt.Sprintf("builtin_date(%s)", argStr)
 		case "date_format":

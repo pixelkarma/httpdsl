@@ -106,7 +106,7 @@ var keywords = map[string]TokenType{
 	"switch":   TOKEN_SWITCH,
 	"case":     TOKEN_CASE,
 	"default":  TOKEN_DEFAULT,
-	"every":    TOKEN_EVERY,
+
 }
 
 type Token struct {
