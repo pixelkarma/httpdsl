@@ -573,6 +573,15 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Switch tests
+echo "Switch:"
+run_test GET /test/switch/basic/a
+run_test GET /test/switch/multi
+run_test GET /test/switch/default
+run_test GET /test/switch/int
+run_test GET /test/switch/no-default
+echo ""
+
 # Timeout tests
 echo "Timeout:"
 

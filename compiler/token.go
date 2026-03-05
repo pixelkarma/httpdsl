@@ -69,6 +69,9 @@ const (
 	TOKEN_ASYNC
 	TOKEN_GROUP
 	TOKEN_JWT
+	TOKEN_SWITCH
+	TOKEN_CASE
+	TOKEN_DEFAULT
 )
 
 var keywords = map[string]TokenType{
@@ -97,6 +100,9 @@ var keywords = map[string]TokenType{
 	"async":    TOKEN_ASYNC,
 	"group":    TOKEN_GROUP,
 	"jwt":      TOKEN_JWT,
+	"switch":   TOKEN_SWITCH,
+	"case":     TOKEN_CASE,
+	"default":  TOKEN_DEFAULT,
 }
 
 type Token struct {
@@ -225,6 +231,12 @@ func (t TokenType) String() string {
 		return "THROW"
 	case TOKEN_ASYNC:
 		return "ASYNC"
+	case TOKEN_SWITCH:
+		return "SWITCH"
+	case TOKEN_CASE:
+		return "CASE"
+	case TOKEN_DEFAULT:
+		return "DEFAULT"
 	case TOKEN_TEMPLATE_STRING:
 		return "TEMPLATE_STRING"
 	case TOKEN_GROUP:

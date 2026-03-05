@@ -281,6 +281,13 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 			case *IfStatement: c.scanStmt(alt)
 			}
 		}
+	case *SwitchStatement:
+		c.scanExpr(s.Subject)
+		for _, cs := range s.Cases {
+			for _, v := range cs.Values { c.scanExpr(v) }
+			c.scanBlock(cs.Body)
+		}
+		if s.Default != nil { c.scanBlock(s.Default) }
 	case *WhileStatement:
 		c.scanExpr(s.Condition); c.scanBlock(s.Body)
 	case *EachStatement:
@@ -359,6 +366,9 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		c.detectDBInBlock(s.Consequence)
 		if alt, ok := s.Alternative.(*BlockStatement); ok { c.detectDBInBlock(alt) }
 		if alt, ok := s.Alternative.(*IfStatement); ok { c.detectDBInStmt(alt) }
+	case *SwitchStatement:
+		for _, cs := range s.Cases { c.detectDBInBlock(cs.Body) }
+		if s.Default != nil { c.detectDBInBlock(s.Default) }
 	case *WhileStatement:
 		c.detectDBInBlock(s.Body)
 	case *EachStatement:
@@ -2872,6 +2882,8 @@ func (c *NativeCompiler) emitTypedStmt(stmt Statement) {
 			}
 		}
 		c.ln("}")
+	case *SwitchStatement:
+		c.emitSwitchTyped(s)
 	case *WhileStatement:
 		c.lnf("for %s {", c.typedBoolExpr(s.Condition))
 		c.indent++
@@ -2885,6 +2897,10 @@ func (c *NativeCompiler) emitTypedStmt(stmt Statement) {
 	case *ExpressionStatement:
 		c.lnf("_ = %s", c.typedExpr(s.Expression))
 	}
+}
+
+func (c *NativeCompiler) emitSwitchTyped(s *SwitchStatement) {
+	c.emitSwitch(s)
 }
 
 // typedExpr returns a Go expression with concrete types (no Value)
@@ -3053,6 +3069,8 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 		c.emitWhile(s, isRoute)
 	case *EachStatement:
 		c.emitEach(s, isRoute)
+	case *SwitchStatement:
+		c.emitSwitch(s)
 	case *BreakStatement:
 		c.ln("break")
 	case *ContinueStatement:
@@ -3156,6 +3174,36 @@ func (c *NativeCompiler) emitCompoundAssign(s *CompoundAssignStatement) {
 		c.lnf("%s = subtractValues(%s, %s)", name, name, c.expr(s.Value))
 	default:
 		c.lnf("%s = addValues(%s, %s)", name, name, c.expr(s.Value))
+	}
+}
+
+func (c *NativeCompiler) emitSwitch(s *SwitchStatement) {
+	subj := c.tmp()
+	c.lnf("%s := %s", subj, c.expr(s.Subject))
+	for i, cs := range s.Cases {
+		kw := "if"
+		if i > 0 { kw = "} else if" }
+		conds := make([]string, len(cs.Values))
+		for j, v := range cs.Values {
+			conds[j] = fmt.Sprintf("valuesEqual(%s, %s)", subj, c.expr(v))
+		}
+		c.lnf("%s %s {", kw, strings.Join(conds, " || "))
+		c.indent++
+		c.emitBlock(cs.Body, true)
+		c.indent--
+	}
+	if s.Default != nil {
+		if len(s.Cases) > 0 {
+			c.ln("} else {")
+		} else {
+			c.ln("{")
+		}
+		c.indent++
+		c.emitBlock(s.Default, true)
+		c.indent--
+	}
+	if len(s.Cases) > 0 || s.Default != nil {
+		c.ln("}")
 	}
 }
 
@@ -3810,6 +3858,9 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 				c.collectVarsFromStmt(alt, vars)
 			}
 		}
+	case *SwitchStatement:
+		for _, cs := range s.Cases { c.collectVarsFromBlock(cs.Body, vars) }
+		if s.Default != nil { c.collectVarsFromBlock(s.Default, vars) }
 	case *WhileStatement:
 		c.collectVarsFromBlock(s.Body, vars)
 	case *BlockStatement:

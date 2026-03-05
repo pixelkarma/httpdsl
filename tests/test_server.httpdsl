@@ -1685,6 +1685,92 @@ group "/test/mysql" {
     }
 }
 
+// ===== Switch tests =====
+group "/test/switch" {
+    route GET "basic/:val" {
+        val = request.params.val
+        result = ""
+        switch val {
+            case "a" {
+                result = "alpha"
+            }
+            case "b", "c" {
+                result = "bravo-charlie"
+            }
+            default {
+                result = "other"
+            }
+        }
+        response.body = results([
+            assert_eq(result, "alpha", "switch matched a")
+        ])
+    }
+
+    route GET "multi" {
+        val = "c"
+        result = ""
+        switch val {
+            case "a", "b", "c" {
+                result = "abc"
+            }
+            default {
+                result = "other"
+            }
+        }
+        response.body = results([
+            assert_eq(result, "abc", "switch multi-value case")
+        ])
+    }
+
+    route GET "default" {
+        val = "z"
+        result = ""
+        switch val {
+            case "a" {
+                result = "alpha"
+            }
+            default {
+                result = "fallback"
+            }
+        }
+        response.body = results([
+            assert_eq(result, "fallback", "switch default")
+        ])
+    }
+
+    route GET "int" {
+        code = 502
+        msg = ""
+        switch code {
+            case 200 {
+                msg = "ok"
+            }
+            case 500, 502, 503 {
+                msg = "server error"
+            }
+            default {
+                msg = "other"
+            }
+        }
+        response.body = results([
+            assert_eq(msg, "server error", "switch int multi-match")
+        ])
+    }
+
+    route GET "no-default" {
+        val = "z"
+        result = "untouched"
+        switch val {
+            case "a" {
+                result = "matched"
+            }
+        }
+        response.body = results([
+            assert_eq(result, "untouched", "switch no default no match")
+        ])
+    }
+}
+
 // ===== Timeout tests =====
 route GET "/test/timeout/fast" {
     timeout 2

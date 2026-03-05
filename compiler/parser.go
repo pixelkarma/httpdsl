@@ -139,6 +139,8 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseThrowStatement()
 	case TOKEN_GROUP:
 		return p.parseGroupStatement()
+	case TOKEN_SWITCH:
+		return p.parseSwitchStatement()
 	case TOKEN_IDENT:
 		// error <status_code> { ... } — contextual keyword
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
@@ -420,6 +422,51 @@ func (p *Parser) parseThrowStatement() Statement {
 	stmt := &ThrowStatement{Token: p.curTok}
 	p.nextToken() // skip 'throw'
 	stmt.Value = p.parseExpression(PREC_LOWEST)
+	return stmt
+}
+
+func (p *Parser) parseSwitchStatement() Statement {
+	stmt := &SwitchStatement{Token: p.curTok}
+	p.nextToken() // skip 'switch'
+
+	stmt.Subject = p.parseExpression(PREC_LOWEST)
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after switch expression, got %s", p.curTok.Type)
+		return nil
+	}
+	p.nextToken() // skip '{'
+
+	for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {
+		if p.curTokenIs(TOKEN_CASE) {
+			p.nextToken() // skip 'case'
+			var values []Expression
+			values = append(values, p.parseExpression(PREC_LOWEST))
+			for p.curTokenIs(TOKEN_COMMA) {
+				p.nextToken() // skip ','
+				values = append(values, p.parseExpression(PREC_LOWEST))
+			}
+			if !p.curTokenIs(TOKEN_LBRACE) {
+				p.addError("expected '{' after case values, got %s", p.curTok.Type)
+				return nil
+			}
+			body := p.parseBlockStatement()
+			stmt.Cases = append(stmt.Cases, CaseClause{Values: values, Body: body})
+		} else if p.curTokenIs(TOKEN_DEFAULT) {
+			p.nextToken() // skip 'default'
+			if !p.curTokenIs(TOKEN_LBRACE) {
+				p.addError("expected '{' after default, got %s", p.curTok.Type)
+				return nil
+			}
+			stmt.Default = p.parseBlockStatement()
+		} else {
+			p.addError("expected 'case' or 'default' in switch, got %s", p.curTok.Type)
+			p.nextToken()
+		}
+	}
+	if p.curTokenIs(TOKEN_RBRACE) {
+		p.nextToken() // skip '}'
+	}
 	return stmt
 }
 

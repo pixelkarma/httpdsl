@@ -118,6 +118,21 @@ type IfStatement struct {
 func (s *IfStatement) statementNode()       {}
 func (s *IfStatement) TokenLiteral() string { return s.Token.Literal }
 
+type SwitchStatement struct {
+	Token   Token
+	Subject Expression
+	Cases   []CaseClause
+	Default *BlockStatement
+}
+
+type CaseClause struct {
+	Values []Expression
+	Body   *BlockStatement
+}
+
+func (s *SwitchStatement) statementNode()       {}
+func (s *SwitchStatement) TokenLiteral() string { return s.Token.Literal }
+
 type WhileStatement struct {
 	Token     Token
 	Condition Expression
