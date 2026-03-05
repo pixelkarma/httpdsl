@@ -13,6 +13,8 @@ init {
     app_version = 42
     app_config = { debug: true, max_items: 100 }
     app_items = ["alpha", "beta", "gamma"]
+    test_db = db.open("sqlite", "/tmp/httpdsl_test_store.db")
+    store.sync(test_db, "test_state", 2)
 }
 
 // ===== Scheduled tasks =====
@@ -2048,6 +2050,40 @@ route GET "test/init/mutate" {
 route GET "test/init/after-mutate" {
     response.body = results([
         assert_eq(app_name, "Mutated", "global mutation persists across requests")
+    ])
+}
+
+// ===== Store sync tests =====
+route GET "test/store-sync/write" {
+    store.set("sync_name", "Alice")
+    store.set("sync_count", 42)
+    store.set("sync_obj", { color: "blue" })
+    response.body = results([
+        assert_eq(store.get("sync_name"), "Alice", "store.set string"),
+        assert_eq(store.get("sync_count"), 42, "store.set int"),
+        assert_eq(store.get("sync_obj").color, "blue", "store.set object")
+    ])
+}
+
+route GET "test/store-sync/verify-db" {
+    // Called after flush interval — checks data reached the database
+    row = test_db.query_one("SELECT count(*) as cnt FROM test_state WHERE key = 'sync_name'")
+    response.body = results([
+        assert_eq(row.cnt, 1, "synced to database")
+    ])
+}
+
+route GET "test/store-sync/delete" {
+    store.delete("sync_obj")
+    response.body = results([
+        assert_false(store.has("sync_obj"), "deleted from memory")
+    ])
+}
+
+route GET "test/store-sync/verify-delete" {
+    row = test_db.query_one("SELECT count(*) as cnt FROM test_state WHERE key = 'sync_obj'")
+    response.body = results([
+        assert_eq(row.cnt, 0, "deleted from database")
     ])
 }
 

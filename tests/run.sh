@@ -18,6 +18,9 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
+# Cleanup
+rm -f /tmp/httpdsl_test_store.db
+
 # Build
 echo "Building test server..."
 cd ..
@@ -713,6 +716,16 @@ else
     FAILED=$((FAILED + 1))
     FAILURES="$FAILURES\n  $display"
 fi
+echo ""
+
+# Store sync tests
+echo "Store sync:"
+run_test GET /test/store-sync/write
+sleep 3  # wait for flush
+run_test GET /test/store-sync/verify-db
+run_test GET /test/store-sync/delete
+sleep 3  # wait for flush
+run_test GET /test/store-sync/verify-delete
 echo ""
 
 # Server stats test

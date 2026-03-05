@@ -233,6 +233,10 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["server_stats"] {
 		c.usedImports["runtime"] = true
 	}
+	if c.usedBuiltins["store"] {
+		c.usedImports["os/signal"] = true
+		c.usedImports["syscall"] = true
+	}
 	if c.usedBuiltins["strtotime"] {
 		c.usedImports["strconv"] = true
 	}
@@ -479,7 +483,7 @@ func (c *NativeCompiler) emitHeader() {
 	stdlib := []string{"bytes", "compress/gzip", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
-		"os", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "time"}
+		"os", "os/signal", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "syscall", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
 			switch imp {
@@ -524,6 +528,114 @@ func (c *NativeCompiler) emitHeader() {
 		c.ln("var _ = bson.M{}")
 	}
 	c.ln("")
+}
+
+func (c *NativeCompiler) emitStoreSync() {
+	c.raw(`
+func storeSync(args ...Value) Value {
+	if len(args) < 2 { throw(Value("store.sync requires db and table name")); return null }
+	dbVal, ok := args[0].(*dslDB)
+	if !ok { throw(Value("store.sync: first argument must be a database connection")); return null }
+	tableName := valueToString(args[1])
+	flushSec := int64(5)
+	if len(args) >= 3 { flushSec = toInt64(args[2]); if flushSec < 1 { flushSec = 1 } }
+
+	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (key TEXT PRIMARY KEY, value TEXT NOT NULL)", tableName)
+	if _, err := dbVal.db.Exec(createSQL); err != nil {
+		throw(Value("store.sync: create table: " + err.Error())); return null
+	}
+
+	rows, err := dbVal.db.Query(fmt.Sprintf("SELECT key, value FROM %s", tableName))
+	if err != nil { throw(Value("store.sync: load: " + err.Error())); return null }
+	defer rows.Close()
+	globalStore.mu.Lock()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil { continue }
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			globalStore.data[k] = goToValue(parsed)
+		} else {
+			globalStore.data[k] = Value(v)
+		}
+	}
+	globalStore.synced = true
+	globalStore.mu.Unlock()
+
+	var upsertSQL string
+	switch dbVal.driver {
+	case "postgres":
+		upsertSQL = fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2", tableName)
+	case "mysql":
+`)
+	// MySQL backtick-quoted columns emitted outside raw string
+	c.ln(`		upsertSQL = fmt.Sprintf("REPLACE INTO %s (` + "`" + `key` + "`" + `, ` + "`" + `value` + "`" + `) VALUES (?, ?)", tableName)`)
+	c.raw(`	default:
+		upsertSQL = fmt.Sprintf("INSERT OR REPLACE INTO %s (key, value) VALUES (?, ?)", tableName)
+	}
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE key = ?", tableName)
+	if dbVal.driver == "postgres" {
+		deleteSQL = fmt.Sprintf("DELETE FROM %s WHERE key = $1", tableName)
+	}
+
+	flush := func() {
+		globalStore.mu.Lock()
+		if len(globalStore.dirtyKeys) == 0 && len(globalStore.deletedKeys) == 0 {
+			globalStore.mu.Unlock()
+			return
+		}
+		dirty := make(map[string]Value, len(globalStore.dirtyKeys))
+		for k := range globalStore.dirtyKeys {
+			if v, ok := globalStore.data[k]; ok { dirty[k] = v }
+		}
+		deleted := make(map[string]bool, len(globalStore.deletedKeys))
+		for k := range globalStore.deletedKeys { deleted[k] = true }
+		globalStore.dirtyKeys = make(map[string]bool)
+		globalStore.deletedKeys = make(map[string]bool)
+		globalStore.mu.Unlock()
+
+		tx, err := dbVal.db.Begin()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "store.sync flush error: %v\n", err)
+			globalStore.mu.Lock()
+			for k := range dirty { globalStore.dirtyKeys[k] = true }
+			for k := range deleted { globalStore.deletedKeys[k] = true }
+			globalStore.mu.Unlock()
+			return
+		}
+		for k, v := range dirty {
+			jBytes, _ := json.Marshal(valueToGo(v))
+			if _, err := tx.Exec(upsertSQL, k, string(jBytes)); err != nil {
+				fmt.Fprintf(os.Stderr, "store.sync upsert error [%s]: %v\n", k, err)
+			}
+		}
+		for k := range deleted {
+			if _, err := tx.Exec(deleteSQL, k); err != nil {
+				fmt.Fprintf(os.Stderr, "store.sync delete error [%s]: %v\n", k, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			fmt.Fprintf(os.Stderr, "store.sync commit error: %v\n", err)
+		}
+	}
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
+		defer ticker.Stop()
+		for range ticker.C { flush() }
+	}()
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		<-sigCh
+		flush()
+		os.Exit(0)
+	}()
+
+	return null
+}
+`)
 }
 
 func (c *NativeCompiler) emitGlobalVars() {
@@ -1184,12 +1296,19 @@ var _ = context.Background
 	// emit store if needed
 	if c.usedBuiltins["store"] {
 		c.raw(`
-// Concurrent store
+// Concurrent store with optional persistence
 type concurrentStore struct {
-	mu   sync.RWMutex
-	data map[string]Value
+	mu          sync.RWMutex
+	data        map[string]Value
+	dirtyKeys   map[string]bool
+	deletedKeys map[string]bool
+	synced      bool
 }
-var globalStore = &concurrentStore{data: make(map[string]Value)}
+var globalStore = &concurrentStore{
+	data:        make(map[string]Value),
+	dirtyKeys:   make(map[string]bool),
+	deletedKeys: make(map[string]bool),
+}
 
 func storeGet(key string, def Value) Value {
 	globalStore.mu.RLock()
@@ -1201,12 +1320,18 @@ func storeGet(key string, def Value) Value {
 func storeSet(key string, val Value) Value {
 	globalStore.mu.Lock()
 	globalStore.data[key] = val
+	globalStore.dirtyKeys[key] = true
+	delete(globalStore.deletedKeys, key)
 	globalStore.mu.Unlock()
 	return val
 }
 func storeDelete(key string) {
 	globalStore.mu.Lock()
 	delete(globalStore.data, key)
+	delete(globalStore.dirtyKeys, key)
+	if globalStore.synced {
+		globalStore.deletedKeys[key] = true
+	}
 	globalStore.mu.Unlock()
 }
 func storeHas(key string) bool {
@@ -1229,9 +1354,14 @@ func storeIncr(key string, amount int64) int64 {
 	var n int64
 	if ci, ok := cur.(int64); ok { n = ci + amount } else { n = amount }
 	globalStore.data[key] = n
+	globalStore.dirtyKeys[key] = true
+	delete(globalStore.deletedKeys, key)
 	return n
 }
 `)
+		if len(c.dbDrivers) > 0 {
+			c.emitStoreSync()
+		}
 	}
 
 	// Static file serving runtime
@@ -3906,6 +4036,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 						return fmt.Sprintf("Value(storeIncr(valueToString(%s), 1))", args[0])
 					}
 					return "Value(int64(0))"
+				case "sync":
+					return fmt.Sprintf("storeSync(%s)", argStr)
 				}
 			}
 		}
