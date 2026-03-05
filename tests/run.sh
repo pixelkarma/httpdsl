@@ -868,6 +868,11 @@ check_pass "$RESP" "GET /test/auth/basic"
 run_test GET /test/auth/basic-empty
 echo ""
 
+# Cron scheduling
+echo "Cron:"
+run_test GET /test/cron/status
+echo ""
+
 # Shutdown test — kill server gracefully and check proof file
 echo "Shutdown:"
 kill -TERM $SRV_PID 2>/dev/null

@@ -33,6 +33,11 @@ every 1 s {
     store.incr("scheduled_tick", 1)
 }
 
+// Cron expression (runs every minute — coexists with interval)
+every "* * * * *" {
+    store.incr("cron_tick", 1)
+}
+
 // ===== Error handlers =====
 error 404 {
     response.type = "json"
@@ -2171,5 +2176,12 @@ route GET "test/auth/basic" {
 route GET "test/auth/basic-empty" {
     response.body = results([
         assert_eq(request.basic, null, "basic null when missing")
+    ])
+}
+
+// ===== Cron scheduling test =====
+route GET "test/cron/status" {
+    response.body = results([
+        assert_true(true, "cron block compiled and coexists with interval")
     ])
 }

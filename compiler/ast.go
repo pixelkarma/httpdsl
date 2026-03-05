@@ -121,7 +121,8 @@ func (s *IfStatement) TokenLiteral() string { return s.Token.Literal }
 
 type EveryStatement struct {
 	Token    Token
-	Interval int    // interval in seconds
+	Interval int    // interval in seconds (0 if cron)
+	CronExpr string // cron expression (empty if interval)
 	Body     *BlockStatement
 }
 

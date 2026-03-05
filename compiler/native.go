@@ -51,6 +51,7 @@ type NativeCompiler struct {
 	templatesDir   string              // path to templates directory
 	templateFiles  map[string]string   // name -> content (embedded at compile time)
 	hasSSE         bool                // whether any SSE routes exist
+	hasCron        bool                // whether any cron expressions are used
 }
 
 type staticMount struct {
@@ -108,6 +109,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 			c.scanBlock(s.Body)
 		case *EveryStatement:
 			c.everyBlocks = append(c.everyBlocks, s)
+			if s.CronExpr != "" { c.hasCron = true }
 			c.scanBlock(s.Body)
 		case *InitStatement:
 			c.initBlocks = append(c.initBlocks, s.Body)
@@ -341,6 +343,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.emitGlobalVars()
 	c.emitRuntime()
 	c.emitBuiltinFuncs()
+	c.emitCronRuntime()
 	c.emitDBRuntime()
 	c.emitSessionRuntime()
 	c.emitTemplateRuntime()
@@ -2947,6 +2950,92 @@ func builtin_validate(args ...Value) Value {
 	c.ln("")
 }
 
+func (c *NativeCompiler) emitCronRuntime() {
+	if !c.hasCron {
+		return
+	}
+	c.raw(`
+// ===== Cron Runtime =====
+type cronSchedule struct {
+	minutes []int
+	hours   []int
+	days    []int
+	months  []int
+	weekdays []int
+}
+
+func parseCron(expr string) cronSchedule {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		panic("cron: expected 5 fields (min hour dom month dow), got " + expr)
+	}
+	return cronSchedule{
+		minutes:  parseCronField(fields[0], 0, 59),
+		hours:    parseCronField(fields[1], 0, 23),
+		days:     parseCronField(fields[2], 1, 31),
+		months:   parseCronField(fields[3], 1, 12),
+		weekdays: parseCronField(fields[4], 0, 6),
+	}
+}
+
+func parseCronField(field string, min, max int) []int {
+	var result []int
+	for _, part := range strings.Split(field, ",") {
+		step := 1
+		if idx := strings.Index(part, "/"); idx >= 0 {
+			step, _ = strconv.Atoi(part[idx+1:])
+			part = part[:idx]
+		}
+		if part == "*" {
+			for i := min; i <= max; i += step {
+				result = append(result, i)
+			}
+		} else if idx := strings.Index(part, "-"); idx >= 0 {
+			lo, _ := strconv.Atoi(part[:idx])
+			hi, _ := strconv.Atoi(part[idx+1:])
+			for i := lo; i <= hi; i += step {
+				result = append(result, i)
+			}
+		} else {
+			n, _ := strconv.Atoi(part)
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
+func (cs cronSchedule) matches(t time.Time) bool {
+	return containsInt(cs.minutes, t.Minute()) &&
+		containsInt(cs.hours, t.Hour()) &&
+		containsInt(cs.days, t.Day()) &&
+		containsInt(cs.months, int(t.Month())) &&
+		containsInt(cs.weekdays, int(t.Weekday()))
+}
+
+func containsInt(s []int, v int) bool {
+	for _, n := range s { if n == v { return true } }
+	return false
+}
+
+func cronRun(expr string, fn func()) {
+	sched := parseCron(expr)
+	go func() {
+		// Align to next minute boundary
+		now := time.Now()
+		next := now.Truncate(time.Minute).Add(time.Minute)
+		time.Sleep(next.Sub(now))
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		// Check immediately at first aligned minute
+		if sched.matches(time.Now()) { fn() }
+		for t := range ticker.C {
+			if sched.matches(t) { fn() }
+		}
+	}()
+}
+`)
+}
+
 func (c *NativeCompiler) emitDBRuntime() {
 	if len(c.dbDrivers) == 0 {
 		// Emit stub dslDB type if sessions need it
@@ -5050,27 +5139,43 @@ func (c *NativeCompiler) emitMain() {
 	// Scheduled tasks
 	for i, ev := range c.everyBlocks {
 		vars := c.collectVars(ev.Body)
-		c.lnf("go func() { // every %ds", ev.Interval)
-		c.indent++
-		c.lnf("_ticker := time.NewTicker(%d * time.Second)", ev.Interval)
-		c.ln("defer _ticker.Stop()")
-		c.ln("for range _ticker.C {")
-		c.indent++
-		c.lnf("func() { // task %d", i)
-		c.indent++
-		c.ln("defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, \"scheduled task panic: %v\\n\", r) } }()")
-		for name := range vars {
-			if !c.globalVars[name] {
-				c.lnf("var %s Value = null", safeIdent(name))
+		if ev.CronExpr != "" {
+			// Cron expression
+			c.lnf("cronRun(%q, func() { // cron task %d", ev.CronExpr, i)
+			c.indent++
+			c.ln("defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, \"cron task panic: %v\\n\", r) } }()")
+			for name := range vars {
+				if !c.globalVars[name] {
+					c.lnf("var %s Value = null", safeIdent(name))
+				}
 			}
+			c.emitBlock(ev.Body, false)
+			c.indent--
+			c.ln("})") 
+		} else {
+			// Interval
+			c.lnf("go func() { // every %ds", ev.Interval)
+			c.indent++
+			c.lnf("_ticker := time.NewTicker(%d * time.Second)", ev.Interval)
+			c.ln("defer _ticker.Stop()")
+			c.ln("for range _ticker.C {")
+			c.indent++
+			c.lnf("func() { // task %d", i)
+			c.indent++
+			c.ln("defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, \"scheduled task panic: %v\\n\", r) } }()")
+			for name := range vars {
+				if !c.globalVars[name] {
+					c.lnf("var %s Value = null", safeIdent(name))
+				}
+			}
+			c.emitBlock(ev.Body, false)
+			c.indent--
+			c.ln("}()")
+			c.indent--
+			c.ln("}")
+			c.indent--
+			c.ln("}()")
 		}
-		c.emitBlock(ev.Body, false)
-		c.indent--
-		c.ln("}()")
-		c.indent--
-		c.ln("}")
-		c.indent--
-		c.ln("}()")
 	}
 
 	c.lnf("addr := \":%d\"", c.port)

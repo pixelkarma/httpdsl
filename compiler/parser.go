@@ -167,8 +167,8 @@ func (p *Parser) parseStatement() Statement {
 		if p.curTok.Literal == "after" && p.peekTokenIs(TOKEN_LBRACE) {
 			return p.parseAfterStatement()
 		}
-		// every <int> <unit> { ... } — contextual keyword
-		if p.curTok.Literal == "every" && p.peekTokenIs(TOKEN_INT) {
+		// every <int> <unit> { ... } or every "cron" { ... } — contextual keyword
+		if p.curTok.Literal == "every" && (p.peekTokenIs(TOKEN_INT) || p.peekTokenIs(TOKEN_STRING)) {
 			return p.parseEveryStatement()
 		}
 		// Could be assignment (x = ...) or expression statement (fn call)
@@ -489,8 +489,21 @@ func (p *Parser) parseEveryStatement() Statement {
 	stmt := &EveryStatement{Token: p.curTok}
 	p.nextToken() // skip 'every'
 
+	// Cron expression: every "0 3 * * *" { ... }
+	if p.curTokenIs(TOKEN_STRING) {
+		stmt.CronExpr = p.curTok.Literal
+		p.nextToken()
+		if !p.curTokenIs(TOKEN_LBRACE) {
+			p.addError("expected '{' after cron expression, got %s", p.curTok.Type)
+			return nil
+		}
+		stmt.Body = p.parseBlockStatement()
+		return stmt
+	}
+
+	// Interval: every 30 s { ... }
 	if !p.curTokenIs(TOKEN_INT) {
-		p.addError("expected integer after 'every', got %s", p.curTok.Type)
+		p.addError("expected integer or cron string after 'every', got %s", p.curTok.Type)
 		return nil
 	}
 	val, _ := strconv.Atoi(p.curTok.Literal)
