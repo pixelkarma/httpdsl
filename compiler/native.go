@@ -52,6 +52,7 @@ type NativeCompiler struct {
 	templateFiles  map[string]string   // name -> content (embedded at compile time)
 	hasSSE         bool                // whether any SSE routes exist
 	hasCron        bool                // whether any cron expressions are used
+	hasExec        bool                // whether exec() builtin is used
 }
 
 type staticMount struct {
@@ -313,6 +314,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 		c.usedImports["encoding/base64"] = true
 		c.usedImports["hash"] = true
 	}
+	if c.hasExec {
+		c.usedImports["os/exec"] = true
+	}
 
 	// Detect database drivers from db.open() calls
 	c.detectDBDrivers(program)
@@ -421,6 +425,10 @@ func (c *NativeCompiler) scanExpr(expr Expression) {
 	case *CallExpression:
 		c.scanExpr(e.Function)
 		for _, a := range e.Arguments { c.scanExpr(a) }
+		// Track exec() as top-level call (not db.exec())
+		if id, ok := e.Function.(*Identifier); ok && id.Value == "exec" {
+			c.hasExec = true
+		}
 	case *InfixExpression:
 		c.scanExpr(e.Left); c.scanExpr(e.Right)
 	case *TernaryExpression:
@@ -566,7 +574,7 @@ func (c *NativeCompiler) emitHeader() {
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"html/template",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
-		"os", "os/signal", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "syscall", "time"}
+		"os", "os/exec", "os/signal", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "syscall", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
 			switch imp {
@@ -574,6 +582,8 @@ func (c *NativeCompiler) emitHeader() {
 				c.lnf("mrand %q", imp)
 			case "crypto/rand":
 				c.lnf("crand %q", imp)
+			case "os/exec":
+				c.lnf("osexec %q", imp)
 			default:
 				c.lnf("%q", imp)
 			}
@@ -3005,6 +3015,45 @@ func builtin_validate(args ...Value) Value {
 `)
 	}
 
+	// exec() — shell command execution
+	if c.hasExec {
+		c.raw(`
+func builtin_exec(args ...Value) Value {
+	if len(args) == 0 { throw(Value("exec requires a command string")); return null }
+	cmdStr := valueToString(args[0])
+	timeoutSec := int64(30)
+	if len(args) >= 2 { timeoutSec = toInt64(args[1]); if timeoutSec < 1 { timeoutSec = 1 } }
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	cmd := osexec.CommandContext(ctx, "sh", "-c", cmdStr)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	status := int64(0)
+	if err != nil {
+		if exitErr, ok := err.(*osexec.ExitError); ok {
+			status = int64(exitErr.ExitCode())
+		} else if ctx.Err() == context.DeadlineExceeded {
+			status = int64(-1)
+		} else {
+			status = int64(-1)
+		}
+	}
+
+	return Value(map[string]Value{
+		"stdout": Value(stdout.String()),
+		"stderr": Value(stderr.String()),
+		"status": Value(status),
+		"ok":     Value(status == 0),
+	})
+}
+`)
+	}
+
 	c.ln("")
 }
 
@@ -4692,6 +4741,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"csrf_field": true,
 		"render": true,
 		"broadcast": true,
+		"exec": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -4943,6 +4993,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("_render(valueToString(%s), %s, request)", nameExpr, pageExpr)
 		case "broadcast":
 			return fmt.Sprintf("builtin_broadcast(%s)", argStr)
+		case "exec":
+			return fmt.Sprintf("builtin_exec(%s)", argStr)
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":

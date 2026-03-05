@@ -2198,6 +2198,34 @@ route GET "test/store/ttl-expired" {
     ])
 }
 
+// ===== Exec tests =====
+route GET "test/exec/basic" {
+    result = exec("echo hello")
+    response.body = results([
+        assert_eq(trim(result.stdout), "hello", "exec stdout"),
+        assert_eq(result.status, 0, "exec status 0"),
+        assert_eq(result.ok, true, "exec ok")
+    ])
+}
+
+route GET "test/exec/status" {
+    result = exec("exit 1", 5)
+    response.body = results([
+        assert_eq(result.status, 1, "exec exit code"),
+        assert_eq(result.ok, false, "exec not ok")
+    ])
+}
+
+route GET "test/exec/async" {
+    t1 = async exec("echo one")
+    t2 = async exec("echo two")
+    r1, r2 = await(t1, t2)
+    response.body = results([
+        assert_eq(trim(r1.stdout), "one", "async exec 1"),
+        assert_eq(trim(r2.stdout), "two", "async exec 2")
+    ])
+}
+
 // ===== Cron scheduling test =====
 route GET "test/cron/status" {
     response.body = results([
