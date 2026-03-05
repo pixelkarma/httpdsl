@@ -163,6 +163,10 @@ route GET "tests" {
         "/test/postgres/types",
         "/test/mysql/crud",
         "/test/mysql/types",
+        "GET /test/middleware/global-before",
+        "GET /test/middleware/auth/profile",
+        "GET /test/middleware/after/trigger",
+        "GET /test/middleware/after/verify",
         "GET /test/cors/details"
     ]
 }
@@ -1491,6 +1495,67 @@ group "/test/mysql" {
         response.body = results([
             assert_eq(rows[0].label, "hello", "mysql string type"),
             assert_eq(len(rows), 2, "mysql row count")
+        ])
+    }
+}
+
+// ===== Middleware tests =====
+// Global before — adds request_id to every request
+before {
+    request.request_id = "req-" + uuid()
+}
+
+// Test global before
+route GET "test/middleware/global-before" {
+    rid = request.request_id
+    response.body = results([
+        assert_true(starts_with(rid, "req-"), "global before set request_id")
+    ])
+}
+
+group "/test/middleware/auth" {
+    before {
+        token = request.headers["authorization"]
+        if token != "Bearer secret123" {
+            response.status = 401
+            response.body = { error: "unauthorized" }
+            return
+        }
+        request.user = "authenticated-user"
+    }
+
+    route GET "profile" {
+        response.body = results([
+            assert_eq(request.user, "authenticated-user", "before set user"),
+            assert_true(starts_with(request.request_id, "req-"), "global before also ran")
+        ])
+    }
+}
+
+group "/test/middleware/after" {
+    after {
+        // This runs in a goroutine after response is sent.
+        // We prove it ran by writing a file.
+        file.write("/tmp/httpdsl_after_proof.txt", "after-ran")
+    }
+
+    route GET "trigger" {
+        // Clean up any old proof file first
+        if file.exists("/tmp/httpdsl_after_proof.txt") {
+            file.delete("/tmp/httpdsl_after_proof.txt")
+        }
+        response.body = { ok: true }
+    }
+
+    route GET "verify" {
+        // Called after a short delay to let the goroutine finish
+        content = ""
+        if file.exists("/tmp/httpdsl_after_proof.txt") {
+            content = file.read("/tmp/httpdsl_after_proof.txt")
+            file.delete("/tmp/httpdsl_after_proof.txt")
+        }
+        response.body = results([
+            assert_eq(content, "after-ran", "after block executed")
         ])
     }
 }

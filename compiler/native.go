@@ -26,6 +26,10 @@ type NativeCompiler struct {
 	errorHandlers  []*ErrorStatement
 	inRouteHandler bool // true when emitting code inside a route/error handler
 	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
+	globalBefore   []*BlockStatement
+	globalAfter    []*BlockStatement
+	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
+	routeAfterMap  map[*RouteStatement][]*BlockStatement // group after blocks per route
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -37,10 +41,12 @@ func DetectDBDrivers(program *Program) map[string]bool {
 
 func GenerateNativeCode(program *Program) (string, error) {
 	c := &NativeCompiler{
-		port:         8080,
-		usedBuiltins: make(map[string]bool),
-		usedImports:  make(map[string]bool),
-		dbDrivers:    make(map[string]bool),
+		port:           8080,
+		usedBuiltins:   make(map[string]bool),
+		usedImports:    make(map[string]bool),
+		dbDrivers:      make(map[string]bool),
+		routeBeforeMap: make(map[*RouteStatement][]*BlockStatement),
+		routeAfterMap:  make(map[*RouteStatement][]*BlockStatement),
 	}
 	for _, stmt := range program.Statements {
 		switch s := stmt.(type) {
@@ -48,12 +54,26 @@ func GenerateNativeCode(program *Program) (string, error) {
 			c.routes = append(c.routes, s)
 			c.scanBlock(s.Body)
 		case *GroupStatement:
+			for _, b := range s.Before { c.scanBlock(b) }
+			for _, a := range s.After { c.scanBlock(a) }
 			for _, route := range s.Routes {
 				c.routes = append(c.routes, route)
 				c.scanBlock(route.Body)
+				if len(s.Before) > 0 {
+					c.routeBeforeMap[route] = s.Before
+				}
+				if len(s.After) > 0 {
+					c.routeAfterMap[route] = s.After
+				}
 			}
 		case *FnStatement:
 			c.functions = append(c.functions, s)
+			c.scanBlock(s.Body)
+		case *BeforeStatement:
+			c.globalBefore = append(c.globalBefore, s.Body)
+			c.scanBlock(s.Body)
+		case *AfterStatement:
+			c.globalAfter = append(c.globalAfter, s.Body)
 			c.scanBlock(s.Body)
 		case *ErrorStatement:
 			c.errorHandlers = append(c.errorHandlers, s)
@@ -318,6 +338,12 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		if s.ElseBlock != nil { c.detectDBInBlock(s.ElseBlock) }
 	case *GroupStatement:
 		for _, r := range s.Routes { c.detectDBInStmt(r) }
+		for _, b := range s.Before { c.detectDBInBlock(b) }
+		for _, a := range s.After { c.detectDBInBlock(a) }
+	case *BeforeStatement:
+		c.detectDBInBlock(s.Body)
+	case *AfterStatement:
+		c.detectDBInBlock(s.Body)
 	case *FnStatement:
 		c.detectDBInBlock(s.Body)
 	case *TryCatchStatement:
@@ -3643,8 +3669,22 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		}
 	}
 
-	// Declare route body variables
+	// Collect all before/after blocks for this route
+	var beforeBlocks []*BlockStatement
+	beforeBlocks = append(beforeBlocks, c.globalBefore...)
+	beforeBlocks = append(beforeBlocks, c.routeBeforeMap[route]...)
+	var afterBlocks []*BlockStatement
+	afterBlocks = append(afterBlocks, c.globalAfter...)
+	afterBlocks = append(afterBlocks, c.routeAfterMap[route]...)
+
+	// Declare all variables (before + body + after)
 	vars := c.collectVars(route.Body)
+	for _, bb := range beforeBlocks {
+		for k, v := range c.collectVars(bb) { vars[k] = v }
+	}
+	for _, ab := range afterBlocks {
+		for k, v := range c.collectVars(ab) { vars[k] = v }
+	}
 	for name := range vars {
 		if name != "request" && name != "response" {
 			c.lnf("var %s Value = null", safeIdent(name))
@@ -3653,6 +3693,16 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.ln("_ = request")
 	c.ln("_ = response")
 	c.ln("")
+
+	// Wrap before + body in func so return in before skips body
+	hasBefore := len(beforeBlocks) > 0
+	if hasBefore {
+		c.ln("func() {")
+		c.indent++
+		for _, bb := range beforeBlocks {
+			c.emitBlock(bb, true)
+		}
+	}
 
 	// Wrap route body in recover for throw — catch goes to else block
 	if route.ElseBlock != nil {
@@ -3689,8 +3739,30 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		c.ln("}()")
 	}
 
+	if hasBefore {
+		c.indent--
+		c.ln("}()")
+	}
+
 	// Auto-return response
 	c.ln("writeResponse(_w, response)")
+
+	// After blocks — fire and forget goroutine
+	if len(afterBlocks) > 0 {
+		c.ln("go func(_afterReq, _afterResp Value) {")
+		c.indent++
+		c.ln("defer func() { recover() }() // never crash from after block")
+		// Shadow request/response with copies
+		c.ln("request := _afterReq")
+		c.ln("response := _afterResp")
+		c.ln("_ = request")
+		c.ln("_ = response")
+		for _, ab := range afterBlocks {
+			c.emitBlock(ab, true)
+		}
+		c.indent--
+		c.ln("}(request, response)")
+	}
 
 	c.indent--
 	c.ln("})")

@@ -144,6 +144,14 @@ func (p *Parser) parseStatement() Statement {
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
 			return p.parseErrorStatement()
 		}
+		// before { ... } — contextual keyword
+		if p.curTok.Literal == "before" && p.peekTokenIs(TOKEN_LBRACE) {
+			return p.parseBeforeStatement()
+		}
+		// after { ... } — contextual keyword
+		if p.curTok.Literal == "after" && p.peekTokenIs(TOKEN_LBRACE) {
+			return p.parseAfterStatement()
+		}
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
 	case TOKEN_LBRACE:
@@ -242,6 +250,30 @@ func (p *Parser) parseErrorStatement() Statement {
 	}
 	stmt.Body = p.parseBlockStatement()
 
+	return stmt
+}
+
+// before { ... }
+func (p *Parser) parseBeforeStatement() Statement {
+	stmt := &BeforeStatement{Token: p.curTok}
+	p.nextToken() // skip 'before'
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after before, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
+	return stmt
+}
+
+// after { ... }
+func (p *Parser) parseAfterStatement() Statement {
+	stmt := &AfterStatement{Token: p.curTok}
+	p.nextToken() // skip 'after'
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after after, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
 	return stmt
 }
 
@@ -534,8 +566,18 @@ func (p *Parser) parseGroupStatement() Statement {
 				}
 				stmt.Routes = append(stmt.Routes, rs)
 			}
+		} else if p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "before" && p.peekTokenIs(TOKEN_LBRACE) {
+			bs := p.parseBeforeStatement()
+			if b, ok := bs.(*BeforeStatement); ok {
+				stmt.Before = append(stmt.Before, b.Body)
+			}
+		} else if p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "after" && p.peekTokenIs(TOKEN_LBRACE) {
+			as := p.parseAfterStatement()
+			if a, ok := as.(*AfterStatement); ok {
+				stmt.After = append(stmt.After, a.Body)
+			}
 		} else {
-			p.addError("expected 'route' inside group block")
+			p.addError("expected 'route', 'before', or 'after' inside group block")
 			p.nextToken()
 		}
 	}

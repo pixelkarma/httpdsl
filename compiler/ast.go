@@ -330,10 +330,28 @@ type GroupStatement struct {
 	Token  Token
 	Prefix string
 	Routes []*RouteStatement
+	Before []*BlockStatement
+	After  []*BlockStatement
 }
 
 func (s *GroupStatement) statementNode()       {}
 func (s *GroupStatement) TokenLiteral() string { return s.Token.Literal }
+
+type BeforeStatement struct {
+	Token Token
+	Body  *BlockStatement
+}
+
+func (s *BeforeStatement) statementNode()       {}
+func (s *BeforeStatement) TokenLiteral() string { return s.Token.Literal }
+
+type AfterStatement struct {
+	Token Token
+	Body  *BlockStatement
+}
+
+func (s *AfterStatement) statementNode()       {}
+func (s *AfterStatement) TokenLiteral() string { return s.Token.Literal }
 
 type ErrorStatement struct {
 	Token      Token

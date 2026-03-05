@@ -473,6 +473,34 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Middleware tests
+echo "Middleware:"
+run_test GET /test/middleware/global-before
+
+# Auth before — with valid token
+run_raw_test "GET /test/middleware/auth/profile (authed)" \
+    "$(curl -sf -H 'Authorization: Bearer secret123' "$BASE/test/middleware/auth/profile" 2>/dev/null)"
+
+# Auth before — without token (should 401)
+{
+    display="GET /test/middleware/auth/profile (no auth → 401)"
+    status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/test/middleware/auth/profile" 2>/dev/null)
+    if [[ "$status" == "401" ]]; then
+        echo -e "  ${GREEN}PASS${NC} $display"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (expected 401, got $status)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+
+# After block test — trigger then verify
+curl -sf "$BASE/test/middleware/after/trigger" > /dev/null 2>&1
+sleep 0.3  # let goroutine finish
+run_test GET /test/middleware/after/verify
+echo ""
+
 # CORS detail test
 echo "CORS details:"
 {
