@@ -159,6 +159,10 @@ route GET "tests" {
         "GET /test/log/all-levels",
         "GET /test/fetch/error",
         "GET /test/fetch/headers",
+        "/test/postgres/crud",
+        "/test/postgres/types",
+        "/test/mysql/crud",
+        "/test/mysql/types",
         "GET /test/cors/details"
     ]
 }
@@ -1383,6 +1387,112 @@ route GET "test/fetch/headers" {
         assert_eq(resp.status, 200, "fetch headers status"),
         assert_eq(resp.headers["x-custom"], "test-value", "fetch response header")
     ])
+}
+
+// ===== PostgreSQL tests =====
+group "/test/postgres" {
+    route GET "crud" {
+        mydb = db.open("postgres", env("PG_URL", "postgres://postgres:testpass@localhost:5432/testdb?sslmode=disable"))
+        mydb.exec("DROP TABLE IF EXISTS pg_users")
+        mydb.exec("CREATE TABLE pg_users (id SERIAL PRIMARY KEY, name TEXT, age INT)")
+
+        mydb.exec("INSERT INTO pg_users (name, age) VALUES ($1, $2)", ["Alice", 30])
+        mydb.exec("INSERT INTO pg_users (name, age) VALUES ($1, $2)", ["Bob", 25])
+
+        rows = mydb.query("SELECT name, age FROM pg_users ORDER BY name")
+        one = mydb.query_one("SELECT name, age FROM pg_users WHERE name = $1", ["Bob"])
+        count = mydb.query_value("SELECT COUNT(*) FROM pg_users")
+
+        mydb.exec("UPDATE pg_users SET age = 31 WHERE name = $1", ["Alice"])
+        updated = mydb.query_one("SELECT age FROM pg_users WHERE name = $1", ["Alice"])
+
+        mydb.exec("DELETE FROM pg_users WHERE name = $1", ["Bob"])
+        after = mydb.query("SELECT name FROM pg_users")
+
+        mydb.exec("DROP TABLE pg_users")
+        mydb.close()
+
+        response.body = results([
+            assert_eq(len(rows), 2, "pg query count"),
+            assert_eq(rows[0].name, "Alice", "pg first name"),
+            assert_eq(rows[1].name, "Bob", "pg second name"),
+            assert_eq(one.name, "Bob", "pg query_one name"),
+            assert_eq(one.age, 25, "pg query_one age"),
+            assert_eq(count, 2, "pg count"),
+            assert_eq(updated.age, 31, "pg update"),
+            assert_eq(len(after), 1, "pg delete count")
+        ])
+    }
+
+    route GET "types" {
+        mydb = db.open("postgres", env("PG_URL", "postgres://postgres:testpass@localhost:5432/testdb?sslmode=disable"))
+        mydb.exec("DROP TABLE IF EXISTS pg_types")
+        mydb.exec("CREATE TABLE pg_types (id SERIAL, label TEXT, score REAL, active BOOLEAN)")
+        mydb.exec("INSERT INTO pg_types (label, score, active) VALUES ($1, $2, $3)", ["hello", 3.14, true])
+        mydb.exec("INSERT INTO pg_types (label, score, active) VALUES ($1, $2, $3)", [null, 0.0, false])
+
+        rows = mydb.query("SELECT label, score, active FROM pg_types ORDER BY id")
+        mydb.exec("DROP TABLE pg_types")
+        mydb.close()
+
+        response.body = results([
+            assert_eq(rows[0].label, "hello", "pg string type"),
+            assert_eq(len(rows), 2, "pg row count")
+        ])
+    }
+}
+
+// ===== MySQL tests =====
+group "/test/mysql" {
+    route GET "crud" {
+        mydb = db.open("mysql", env("MYSQL_URL", "root:testpass@tcp(localhost:3306)/testdb"))
+        mydb.exec("DROP TABLE IF EXISTS my_users")
+        mydb.exec("CREATE TABLE my_users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), age INT)")
+
+        mydb.exec("INSERT INTO my_users (name, age) VALUES (?, ?)", ["Alice", 30])
+        mydb.exec("INSERT INTO my_users (name, age) VALUES (?, ?)", ["Bob", 25])
+
+        rows = mydb.query("SELECT name, age FROM my_users ORDER BY name")
+        one = mydb.query_one("SELECT name, age FROM my_users WHERE name = ?", ["Bob"])
+        count = mydb.query_value("SELECT COUNT(*) FROM my_users")
+
+        mydb.exec("UPDATE my_users SET age = 31 WHERE name = ?", ["Alice"])
+        updated = mydb.query_one("SELECT age FROM my_users WHERE name = ?", ["Alice"])
+
+        mydb.exec("DELETE FROM my_users WHERE name = ?", ["Bob"])
+        after = mydb.query("SELECT name FROM my_users")
+
+        mydb.exec("DROP TABLE my_users")
+        mydb.close()
+
+        response.body = results([
+            assert_eq(len(rows), 2, "mysql query count"),
+            assert_eq(rows[0].name, "Alice", "mysql first name"),
+            assert_eq(rows[1].name, "Bob", "mysql second name"),
+            assert_eq(one.name, "Bob", "mysql query_one name"),
+            assert_eq(one.age, 25, "mysql query_one age"),
+            assert_eq(count, 2, "mysql count"),
+            assert_eq(updated.age, 31, "mysql update"),
+            assert_eq(len(after), 1, "mysql delete count")
+        ])
+    }
+
+    route GET "types" {
+        mydb = db.open("mysql", env("MYSQL_URL", "root:testpass@tcp(localhost:3306)/testdb"))
+        mydb.exec("DROP TABLE IF EXISTS my_types")
+        mydb.exec("CREATE TABLE my_types (id INT AUTO_INCREMENT PRIMARY KEY, label VARCHAR(255), score DOUBLE, active BOOLEAN)")
+        mydb.exec("INSERT INTO my_types (label, score, active) VALUES (?, ?, ?)", ["hello", 3.14, true])
+        mydb.exec("INSERT INTO my_types (label, score, active) VALUES (?, ?, ?)", [null, 0.0, false])
+
+        rows = mydb.query("SELECT label, score, active FROM my_types ORDER BY id")
+        mydb.exec("DROP TABLE my_types")
+        mydb.close()
+
+        response.body = results([
+            assert_eq(rows[0].label, "hello", "mysql string type"),
+            assert_eq(len(rows), 2, "mysql row count")
+        ])
+    }
 }
 
 // ===== CORS detail test =====

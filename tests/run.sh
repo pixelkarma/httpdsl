@@ -461,6 +461,18 @@ run_test GET /test/fetch/error
 run_test GET /test/fetch/headers
 echo ""
 
+# PostgreSQL tests
+echo "PostgreSQL:"
+run_test GET /test/postgres/crud
+run_test GET /test/postgres/types
+echo ""
+
+# MySQL tests
+echo "MySQL:"
+run_test GET /test/mysql/crud
+run_test GET /test/mysql/types
+echo ""
+
 # CORS detail test
 echo "CORS details:"
 {
