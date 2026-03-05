@@ -207,6 +207,37 @@ run_test GET /test/crypto/hash-password/bcrypt-cost
 run_test GET /test/crypto/hash-password/argon2
 run_test GET /test/crypto/hash-password/argon2-opts
 run_test GET /test/crypto/hash-password/cross-verify
+
+echo ""
+echo "Validation:"
+run_test GET /test/validation/helpers
+
+run_raw_test "POST /test/validation/schema/valid" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"name":"Alice","email":"alice@test.com","age":25}' "$BASE/test/validation/schema/valid" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/required" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"name":"Alice"}' "$BASE/test/validation/schema/required" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/types" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"str_field":"hello","int_field":42,"num_field":3.14,"bool_field":true,"arr_field":[1,2],"obj_field":{"k":"v"}}' "$BASE/test/validation/schema/types" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/type-fail" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"count":"not_int","flag":"not_bool"}' "$BASE/test/validation/schema/type-fail" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/min-max" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"name":"AB","score":200}' "$BASE/test/validation/schema/min-max" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/in-regex" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"role":"admin","code":"ABC123"}' "$BASE/test/validation/schema/in-regex" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/in-regex-fail" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"role":"hacker","code":"bad"}' "$BASE/test/validation/schema/in-regex-fail" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/optional" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/test/validation/schema/optional" 2>/dev/null)"
+
+run_raw_test "POST /test/validation/schema/email-url-uuid" \
+    "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"email":"a@b.com","website":"https://x.com","id":"550e8400-e29b-41d4-a716-446655440000"}' "$BASE/test/validation/schema/email-url-uuid" 2>/dev/null)"
 echo ""
 
 # DateTime tests

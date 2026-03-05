@@ -545,6 +545,134 @@ group "/test/crypto" {
     }
 }
 
+// ===== Validation tests =====
+group "/test/validation" {
+    route GET "helpers" {
+        response.body = results([
+            assert_true(is_email("user@example.com"), "is_email valid"),
+            assert_false(is_email("notanemail"), "is_email invalid"),
+            assert_false(is_email(""), "is_email empty"),
+            assert_true(is_url("https://example.com"), "is_url https"),
+            assert_true(is_url("http://localhost"), "is_url http"),
+            assert_false(is_url("ftp://nope"), "is_url ftp invalid"),
+            assert_true(is_uuid("550e8400-e29b-41d4-a716-446655440000"), "is_uuid valid"),
+            assert_false(is_uuid("not-a-uuid"), "is_uuid invalid"),
+            assert_true(is_numeric("42"), "is_numeric int"),
+            assert_true(is_numeric("3.14"), "is_numeric float"),
+            assert_true(is_numeric("-7"), "is_numeric negative"),
+            assert_false(is_numeric("abc"), "is_numeric letters")
+        ])
+    }
+
+    route POST "schema/valid" json {
+        schema = {
+            name: "required|string|min:2|max:50",
+            email: "required|email",
+            age: "required|int|min:18|max:120"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors, null, "valid data returns null")
+        ])
+    }
+
+    route POST "schema/required" json {
+        schema = {
+            name: "required",
+            email: "required"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors.name, null, "present field ok"),
+            assert_eq(errors.email, "required", "missing field fails")
+        ])
+    }
+
+    route POST "schema/types" json {
+        schema = {
+            str_field: "string",
+            int_field: "int",
+            num_field: "number",
+            bool_field: "bool",
+            arr_field: "array",
+            obj_field: "object"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors, null, "correct types pass")
+        ])
+    }
+
+    route POST "schema/type-fail" json {
+        schema = {
+            count: "int",
+            flag: "bool"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors.count, "int", "string fails int check"),
+            assert_eq(errors.flag, "bool", "string fails bool check")
+        ])
+    }
+
+    route POST "schema/min-max" json {
+        schema = {
+            name: "string|min:3|max:5",
+            score: "number|between:1,100"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors.name, "min:3", "short string fails min"),
+            assert_eq(errors.score, "between:1,100", "out of range fails between")
+        ])
+    }
+
+    route POST "schema/in-regex" json {
+        schema = {
+            role: "string|in:admin,user,mod",
+            code: "string|regex:^[A-Z]{3}[0-9]{3}$"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors, null, "in and regex pass")
+        ])
+    }
+
+    route POST "schema/in-regex-fail" json {
+        schema = {
+            role: "string|in:admin,user,mod",
+            code: "string|regex:^[A-Z]{3}[0-9]{3}$"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors.role, "in:admin,user,mod", "invalid option fails in"),
+            assert_eq(errors.code, "regex:^[A-Z]{3}[0-9]{3}$", "bad format fails regex")
+        ])
+    }
+
+    route POST "schema/optional" json {
+        schema = {
+            nickname: "string|max:20"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors, null, "missing optional field is ok")
+        ])
+    }
+
+    route POST "schema/email-url-uuid" json {
+        schema = {
+            email: "required|email",
+            website: "required|url",
+            id: "required|uuid"
+        }
+        errors = validate(request.data, schema)
+        response.body = results([
+            assert_eq(errors, null, "email url uuid all valid")
+        ])
+    }
+}
+
 // ===== DateTime tests =====
 group "/test/datetime" {
     route GET "date" {

@@ -183,6 +183,11 @@ func GenerateNativeCode(program *Program) (string, error) {
 		c.usedImports["strconv"] = true
 		c.usedImports["fmt"] = true
 	}
+	if c.usedBuiltins["validate"] || c.usedBuiltins["is_email"] || c.usedBuiltins["is_url"] || c.usedBuiltins["is_uuid"] || c.usedBuiltins["is_numeric"] {
+		c.usedImports["regexp"] = true
+		c.usedImports["strconv"] = true
+		c.usedImports["strings"] = true
+	}
 
 	if c.usedBuiltins["file"] {
 		c.usedImports["os"] = true
@@ -2135,6 +2140,188 @@ func builtin_verify_password(args ...Value) Value {
 }
 `)
 	}
+
+	// Validation
+	if c.usedBuiltins["validate"] || c.usedBuiltins["is_email"] || c.usedBuiltins["is_url"] || c.usedBuiltins["is_uuid"] || c.usedBuiltins["is_numeric"] {
+		c.raw(`
+var reEmail = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+var reUUID = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+func builtin_is_email(args ...Value) Value {
+	if len(args) == 0 { return Value(false) }
+	return Value(reEmail.MatchString(valueToString(args[0])))
+}
+
+func builtin_is_url(args ...Value) Value {
+	if len(args) == 0 { return Value(false) }
+	s := valueToString(args[0])
+	return Value(strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://"))
+}
+
+func builtin_is_uuid(args ...Value) Value {
+	if len(args) == 0 { return Value(false) }
+	return Value(reUUID.MatchString(valueToString(args[0])))
+}
+
+func builtin_is_numeric(args ...Value) Value {
+	if len(args) == 0 { return Value(false) }
+	s := valueToString(args[0])
+	_, errI := strconv.ParseInt(s, 10, 64)
+	if errI == nil { return Value(true) }
+	_, errF := strconv.ParseFloat(s, 64)
+	return Value(errF == nil)
+}
+
+func builtin_validate(args ...Value) Value {
+	if len(args) < 2 { throw(Value("validate requires data and schema")) }
+	data, ok := args[0].(map[string]Value)
+	if !ok { throw(Value("validate: first argument must be an object")) }
+	schema, ok := args[1].(map[string]Value)
+	if !ok { throw(Value("validate: second argument must be a schema object")) }
+
+	errs := make(map[string]Value)
+	for field, rulesVal := range schema {
+		rulesStr := valueToString(rulesVal)
+		rules := strings.Split(rulesStr, "|")
+		val, exists := data[field]
+
+		for _, rule := range rules {
+			rule = strings.TrimSpace(rule)
+			if rule == "" { continue }
+
+			// Parse rule:param
+			ruleName := rule
+			ruleParam := ""
+			if idx := strings.Index(rule, ":"); idx >= 0 {
+				ruleName = rule[:idx]
+				ruleParam = rule[idx+1:]
+			}
+
+			failed := ""
+			switch ruleName {
+			case "required":
+				if !exists || val == nil || val == Value("") {
+					failed = "required"
+				}
+			case "string":
+				if exists && val != nil {
+					if _, ok := val.(string); !ok {
+						failed = "string"
+					}
+				}
+			case "int":
+				if exists && val != nil {
+					if _, ok := val.(int64); !ok {
+						if _, ok := val.(float64); ok {
+							v := val.(float64)
+							if v != float64(int64(v)) { failed = "int" }
+						} else { failed = "int" }
+					}
+				}
+			case "number":
+				if exists && val != nil {
+					switch val.(type) {
+					case int64, float64:
+					default: failed = "number"
+					}
+				}
+			case "bool":
+				if exists && val != nil {
+					if _, ok := val.(bool); !ok { failed = "bool" }
+				}
+			case "array":
+				if exists && val != nil {
+					if _, ok := val.([]Value); !ok { failed = "array" }
+				}
+			case "object":
+				if exists && val != nil {
+					if _, ok := val.(map[string]Value); !ok { failed = "object" }
+				}
+			case "email":
+				if exists && val != nil {
+					if !reEmail.MatchString(valueToString(val)) { failed = "email" }
+				}
+			case "url":
+				if exists && val != nil {
+					s := valueToString(val)
+					if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") { failed = "url" }
+				}
+			case "uuid":
+				if exists && val != nil {
+					if !reUUID.MatchString(valueToString(val)) { failed = "uuid" }
+				}
+			case "min":
+				if exists && val != nil && ruleParam != "" {
+					n, _ := strconv.ParseFloat(ruleParam, 64)
+					switch v := val.(type) {
+					case string:
+						if float64(len(v)) < n { failed = rule }
+					case int64:
+						if float64(v) < n { failed = rule }
+					case float64:
+						if v < n { failed = rule }
+					case []Value:
+						if float64(len(v)) < n { failed = rule }
+					}
+				}
+			case "max":
+				if exists && val != nil && ruleParam != "" {
+					n, _ := strconv.ParseFloat(ruleParam, 64)
+					switch v := val.(type) {
+					case string:
+						if float64(len(v)) > n { failed = rule }
+					case int64:
+						if float64(v) > n { failed = rule }
+					case float64:
+						if v > n { failed = rule }
+					case []Value:
+						if float64(len(v)) > n { failed = rule }
+					}
+				}
+			case "between":
+				if exists && val != nil && ruleParam != "" {
+					parts := strings.SplitN(ruleParam, ",", 2)
+					if len(parts) == 2 {
+						lo, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+						hi, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+						var fv float64
+						switch v := val.(type) {
+						case string: fv = float64(len(v))
+						case int64: fv = float64(v)
+						case float64: fv = v
+						case []Value: fv = float64(len(v))
+						}
+						if fv < lo || fv > hi { failed = rule }
+					}
+				}
+			case "in":
+				if exists && val != nil && ruleParam != "" {
+					opts := strings.Split(ruleParam, ",")
+					sv := valueToString(val)
+					found := false
+					for _, o := range opts {
+						if strings.TrimSpace(o) == sv { found = true; break }
+					}
+					if !found { failed = rule }
+				}
+			case "regex":
+				if exists && val != nil && ruleParam != "" {
+					re, err := regexp.Compile(ruleParam)
+					if err == nil && !re.MatchString(valueToString(val)) { failed = rule }
+				}
+			}
+
+			if failed != "" {
+				errs[field] = Value(failed)
+				break
+			}
+		}
+	}
+	if len(errs) == 0 { return null }
+	return Value(errs)
+}
+`)
+	}
 	c.ln("")
 }
 
@@ -3094,6 +3281,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"uuid": true, "cuid2": true, "abs": true, "ceil": true, "floor": true, "round": true,
 		"base64_encode": true, "base64_decode": true, "url_encode": true, "url_decode": true,
 		"hash": true, "hmac_hash": true, "hash_password": true, "verify_password": true,
+		"validate": true, "is_email": true, "is_url": true, "is_uuid": true, "is_numeric": true,
 		"log": true, "log_info": true, "log_warn": true, "log_error": true,
 		"map": true, "filter": true, "reduce": true,
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
@@ -3393,6 +3581,16 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_hash_password(%s)", argStr)
 		case "verify_password":
 			return fmt.Sprintf("builtin_verify_password(%s)", argStr)
+		case "validate":
+			return fmt.Sprintf("builtin_validate(%s)", argStr)
+		case "is_email":
+			return fmt.Sprintf("builtin_is_email(%s)", argStr)
+		case "is_url":
+			return fmt.Sprintf("builtin_is_url(%s)", argStr)
+		case "is_uuid":
+			return fmt.Sprintf("builtin_is_uuid(%s)", argStr)
+		case "is_numeric":
+			return fmt.Sprintf("builtin_is_numeric(%s)", argStr)
 		case "log":
 			if c.inRouteHandler {
 				return fmt.Sprintf("dslLog(\"\", _r, %s)", argStr)
