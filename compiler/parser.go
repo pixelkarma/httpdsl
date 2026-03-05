@@ -151,6 +151,10 @@ func (p *Parser) parseStatement() Statement {
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
 			return p.parseErrorStatement()
 		}
+		// init { ... } — contextual keyword
+		if p.curTok.Literal == "init" && p.peekTokenIs(TOKEN_LBRACE) {
+			return p.parseInitStatement()
+		}
 		// before { ... } — contextual keyword
 		if p.curTok.Literal == "before" && p.peekTokenIs(TOKEN_LBRACE) {
 			return p.parseBeforeStatement()
@@ -165,6 +169,18 @@ func (p *Parser) parseStatement() Statement {
 		}
 		// Could be assignment (x = ...) or expression statement (fn call)
 		return p.parseIdentStartStatement()
+	case TOKEN_DB, TOKEN_JWT, TOKEN_JSON, TOKEN_TEXT, TOKEN_FILE:
+		// These keywords can also be variable names (e.g., db = db.open(...))
+		if p.peekTokenIs(TOKEN_ASSIGN) {
+			firstIdent := p.curTok
+			p.nextToken() // move to =
+			p.nextToken() // skip =
+			stmt := &AssignStatement{Token: firstIdent}
+			stmt.Names = []string{firstIdent.Literal}
+			stmt.Values = append(stmt.Values, p.parseExpression(PREC_LOWEST))
+			return stmt
+		}
+		return p.parseExpressionStatement()
 	case TOKEN_LBRACE:
 		// Could be object destructuring: { a, b } = expr
 		return p.parseExpressionStatement()
@@ -290,6 +306,17 @@ func (p *Parser) parseErrorStatement() Statement {
 }
 
 // before { ... }
+func (p *Parser) parseInitStatement() Statement {
+	stmt := &InitStatement{Token: p.curTok}
+	p.nextToken() // skip 'init'
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after init, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
+	return stmt
+}
+
 func (p *Parser) parseBeforeStatement() Statement {
 	stmt := &BeforeStatement{Token: p.curTok}
 	p.nextToken() // skip 'before'

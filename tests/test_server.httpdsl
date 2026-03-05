@@ -7,6 +7,14 @@ server {
     gzip true
 }
 
+// ===== Init block =====
+init {
+    app_name = "TestApp"
+    app_version = 42
+    app_config = { debug: true, max_items: 100 }
+    app_items = ["alpha", "beta", "gamma"]
+}
+
 // ===== Scheduled tasks =====
 every 1 s {
     store.incr("scheduled_tick", 1)
@@ -841,6 +849,18 @@ group "/test/language" {
 
 fn calculate(a, b) {
     return a / b, a % b
+}
+
+fn get_app_name() {
+    return app_name
+}
+
+fn get_config_debug() {
+    return app_config.debug
+}
+
+fn get_item_count() {
+    return len(app_items)
 }
 
 // ===== Routing tests =====
@@ -1996,6 +2016,39 @@ group "/test/middleware/after" {
             assert_eq(content, "after-ran", "after block executed")
         ])
     }
+}
+
+// ===== Init block tests =====
+route GET "test/init/basic" {
+    response.body = results([
+        assert_eq(app_name, "TestApp", "init global string"),
+        assert_eq(app_version, 42, "init global int"),
+        assert_eq(app_config.debug, true, "init global object field"),
+        assert_eq(app_config.max_items, 100, "init global object nested"),
+        assert_eq(len(app_items), 3, "init global array length"),
+        assert_eq(app_items[0], "alpha", "init global array access")
+    ])
+}
+
+route GET "test/init/functions" {
+    response.body = results([
+        assert_eq(get_app_name(), "TestApp", "function reads global string"),
+        assert_eq(get_config_debug(), true, "function reads global object"),
+        assert_eq(get_item_count(), 3, "function reads global array")
+    ])
+}
+
+route GET "test/init/mutate" {
+    app_name = "Mutated"
+    response.body = results([
+        assert_eq(app_name, "Mutated", "global mutation in route")
+    ])
+}
+
+route GET "test/init/after-mutate" {
+    response.body = results([
+        assert_eq(app_name, "Mutated", "global mutation persists across requests")
+    ])
 }
 
 // ===== CORS detail test =====

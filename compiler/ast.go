@@ -394,6 +394,14 @@ type AfterStatement struct {
 func (s *AfterStatement) statementNode()       {}
 func (s *AfterStatement) TokenLiteral() string { return s.Token.Literal }
 
+type InitStatement struct {
+	Token Token
+	Body  *BlockStatement
+}
+
+func (s *InitStatement) statementNode()       {}
+func (s *InitStatement) TokenLiteral() string { return s.Token.Literal }
+
 type ErrorStatement struct {
 	Token      Token
 	StatusCode int

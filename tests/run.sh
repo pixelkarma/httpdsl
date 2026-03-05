@@ -245,7 +245,7 @@ echo "Static files:"
 
 # Test: static file served
 display="GET /static/style.css (static file)"
-result=$(curl -sf "$BASE/static/style.css" 2>/dev/null)
+result=$(curl -sf "$BASE/static/style.css" 2>/dev/null) || true
 if [ "$result" = "body{color:red}" ]; then
     echo -e "  ${GREEN}PASS${NC} $display"
     PASSED=$((PASSED + 1))
@@ -257,7 +257,7 @@ fi
 
 # Test: index.html served for directory
 display="GET /static/ (index.html)"
-result=$(curl -sf "$BASE/static/" 2>/dev/null)
+result=$(curl -sf "$BASE/static/" 2>/dev/null) || true
 if echo "$result" | grep -q '<h1>Hello</h1>'; then
     echo -e "  ${GREEN}PASS${NC} $display"
     PASSED=$((PASSED + 1))
@@ -269,7 +269,7 @@ fi
 
 # Test: nested static file
 display="GET /static/sub/data.json (nested)"
-result=$(curl -sf "$BASE/static/sub/data.json" 2>/dev/null)
+result=$(curl -sf "$BASE/static/sub/data.json" 2>/dev/null) || true
 if echo "$result" | jq -e '.data == "test"' > /dev/null 2>&1; then
     echo -e "  ${GREEN}PASS${NC} $display"
     PASSED=$((PASSED + 1))
@@ -713,6 +713,14 @@ else
     FAILED=$((FAILED + 1))
     FAILURES="$FAILURES\n  $display"
 fi
+echo ""
+
+# Init block tests
+echo "Init blocks:"
+run_test GET /test/init/basic
+run_test GET /test/init/functions
+run_test GET /test/init/mutate
+run_test GET /test/init/after-mutate
 echo ""
 
 # Error handler tests

@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -35,6 +36,8 @@ type NativeCompiler struct {
 	routeAfterMap  map[*RouteStatement][]*BlockStatement // group after blocks per route
 	staticMounts   []staticMount // static file serving
 	everyBlocks    []*EveryStatement
+	initBlocks     []*BlockStatement
+	globalVars     map[string]bool // variables declared in init blocks
 }
 
 type staticMount struct {
@@ -57,6 +60,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 		dbDrivers:      make(map[string]bool),
 		routeBeforeMap: make(map[*RouteStatement][]*BlockStatement),
 		routeAfterMap:  make(map[*RouteStatement][]*BlockStatement),
+		globalVars:     make(map[string]bool),
 	}
 	for _, stmt := range program.Statements {
 		switch s := stmt.(type) {
@@ -91,6 +95,13 @@ func GenerateNativeCode(program *Program) (string, error) {
 		case *EveryStatement:
 			c.everyBlocks = append(c.everyBlocks, s)
 			c.scanBlock(s.Body)
+		case *InitStatement:
+			c.initBlocks = append(c.initBlocks, s.Body)
+			c.scanBlock(s.Body)
+			// Collect variable names assigned in init → package-level globals
+			for name := range c.collectVars(s.Body) {
+				c.globalVars[name] = true
+			}
 		case *ServerStatement:
 			if pe, ok := s.Settings["port"]; ok {
 				if lit, ok := pe.(*IntegerLiteral); ok {
@@ -246,6 +257,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	}
 
 	c.emitHeader()
+	c.emitGlobalVars()
 	c.emitRuntime()
 	c.emitBuiltinFuncs()
 	c.emitDBRuntime()
@@ -401,6 +413,8 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		c.detectDBInBlock(s.Body)
 	case *EveryStatement:
 		c.detectDBInBlock(s.Body)
+	case *InitStatement:
+		c.detectDBInBlock(s.Body)
 	case *FnStatement:
 		c.detectDBInBlock(s.Body)
 	case *TryCatchStatement:
@@ -505,6 +519,23 @@ func (c *NativeCompiler) emitHeader() {
 	if c.dbDrivers["mongo"] {
 		c.ln("")
 		c.ln("var _ = bson.M{}")
+	}
+	c.ln("")
+}
+
+func (c *NativeCompiler) emitGlobalVars() {
+	if len(c.globalVars) == 0 {
+		return
+	}
+	c.ln("// ===== Global Variables (from init blocks) =====")
+	// Sort for deterministic output
+	names := make([]string, 0, len(c.globalVars))
+	for name := range c.globalVars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		c.lnf("var %s Value = null", safeIdent(name))
 	}
 	c.ln("")
 }
@@ -3046,6 +3077,16 @@ func (c *NativeCompiler) emitFnDef(fn *FnStatement) {
 			}
 		}
 	}
+	if allTyped {
+		// If function references any global vars, force untyped (globals are Value)
+		refs := c.collectRefs(fn.Body)
+		for name := range refs {
+			if c.globalVars[name] {
+				allTyped = false
+				break
+			}
+		}
+	}
 
 	if allTyped {
 		c.emitTypedFn(fn, tenv)
@@ -3068,7 +3109,7 @@ func (c *NativeCompiler) emitTypedFn(fn *FnStatement, tenv *TypeEnv) {
 	c.indent++
 	vars := c.collectVars(fn.Body)
 	for name := range vars {
-		if !paramSet[name] {
+		if !paramSet[name] && !c.globalVars[name] {
 			t := tenv.Get(name)
 			switch t {
 			case TypeInt:
@@ -3286,7 +3327,7 @@ func (c *NativeCompiler) emitUntypedFn(fn *FnStatement, tenv *TypeEnv) {
 	c.indent++
 	vars := c.collectVars(fn.Body)
 	for name := range vars {
-		if !paramSet[name] {
+		if !paramSet[name] && !c.globalVars[name] {
 			c.lnf("var %s Value = null", safeIdent(name))
 		}
 	}
@@ -4095,6 +4136,15 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("// ===== Main =====")
 	c.ln("func main() {")
 	c.indent++
+	// Run init blocks
+	if len(c.initBlocks) > 0 {
+		c.ln("// init blocks")
+		for _, block := range c.initBlocks {
+			c.emitBlock(block, false)
+		}
+		c.ln("")
+	}
+
 	c.ln("rt := &dslRouter{errorHandlers: make(map[int]http.HandlerFunc)}")
 	if c.throttleRPS > 0 {
 		c.lnf("rt.limiter = newRateLimiter(%d)", c.throttleRPS)
@@ -4134,7 +4184,9 @@ func (c *NativeCompiler) emitMain() {
 		c.indent++
 		c.ln("defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, \"scheduled task panic: %v\\n\", r) } }()")
 		for name := range vars {
-			c.lnf("var %s Value = null", safeIdent(name))
+			if !c.globalVars[name] {
+				c.lnf("var %s Value = null", safeIdent(name))
+			}
 		}
 		c.emitBlock(ev.Body, false)
 		c.indent--
@@ -4184,6 +4236,93 @@ func (c *NativeCompiler) collectVars(block *BlockStatement) map[string]bool {
 	vars := make(map[string]bool)
 	c.collectVarsFromBlock(block, vars)
 	return vars
+}
+
+// collectRefs finds all identifier names referenced (read) in a block
+func (c *NativeCompiler) collectRefs(block *BlockStatement) map[string]bool {
+	refs := make(map[string]bool)
+	c.collectRefsFromBlock(block, refs)
+	return refs
+}
+
+func (c *NativeCompiler) collectRefsFromBlock(block *BlockStatement, refs map[string]bool) {
+	if block == nil { return }
+	for _, stmt := range block.Statements {
+		c.collectRefsFromStmt(stmt, refs)
+	}
+}
+
+func (c *NativeCompiler) collectRefsFromStmt(stmt Statement, refs map[string]bool) {
+	if stmt == nil { return }
+	switch s := stmt.(type) {
+	case *AssignStatement:
+		for _, v := range s.Values { c.collectRefsFromExpr(v, refs) }
+	case *CompoundAssignStatement:
+		refs[s.Name] = true
+		c.collectRefsFromExpr(s.Value, refs)
+	case *ExpressionStatement:
+		c.collectRefsFromExpr(s.Expression, refs)
+	case *ReturnStatement:
+		for _, v := range s.Values { c.collectRefsFromExpr(v, refs) }
+	case *IfStatement:
+		c.collectRefsFromExpr(s.Condition, refs)
+		c.collectRefsFromBlock(s.Consequence, refs)
+		if alt, ok := s.Alternative.(*BlockStatement); ok { c.collectRefsFromBlock(alt, refs) }
+		if alt, ok := s.Alternative.(*IfStatement); ok { c.collectRefsFromStmt(alt, refs) }
+	case *WhileStatement:
+		c.collectRefsFromExpr(s.Condition, refs)
+		c.collectRefsFromBlock(s.Body, refs)
+	case *EachStatement:
+		c.collectRefsFromExpr(s.Iterable, refs)
+		c.collectRefsFromBlock(s.Body, refs)
+	case *SwitchStatement:
+		c.collectRefsFromExpr(s.Subject, refs)
+		for _, cs := range s.Cases { c.collectRefsFromBlock(cs.Body, refs) }
+		if s.Default != nil { c.collectRefsFromBlock(s.Default, refs) }
+	case *BlockStatement:
+		c.collectRefsFromBlock(s, refs)
+	case *TryCatchStatement:
+		c.collectRefsFromBlock(s.Try, refs)
+		c.collectRefsFromBlock(s.Catch, refs)
+	case *ThrowStatement:
+		c.collectRefsFromExpr(s.Value, refs)
+	case *IndexAssignStatement:
+		c.collectRefsFromExpr(s.Left, refs)
+		c.collectRefsFromExpr(s.Index, refs)
+		c.collectRefsFromExpr(s.Value, refs)
+	}
+}
+
+func (c *NativeCompiler) collectRefsFromExpr(expr Expression, refs map[string]bool) {
+	if expr == nil { return }
+	switch e := expr.(type) {
+	case *Identifier:
+		refs[e.Value] = true
+	case *InfixExpression:
+		c.collectRefsFromExpr(e.Left, refs)
+		c.collectRefsFromExpr(e.Right, refs)
+	case *PrefixExpression:
+		c.collectRefsFromExpr(e.Right, refs)
+	case *CallExpression:
+		c.collectRefsFromExpr(e.Function, refs)
+		for _, a := range e.Arguments { c.collectRefsFromExpr(a, refs) }
+	case *DotExpression:
+		c.collectRefsFromExpr(e.Left, refs)
+	case *IndexExpression:
+		c.collectRefsFromExpr(e.Left, refs)
+		c.collectRefsFromExpr(e.Index, refs)
+	case *ArrayLiteral:
+		for _, el := range e.Elements { c.collectRefsFromExpr(el, refs) }
+	case *HashLiteral:
+		for _, p := range e.Pairs {
+			c.collectRefsFromExpr(p.Key, refs)
+			c.collectRefsFromExpr(p.Value, refs)
+		}
+	case *TernaryExpression:
+		c.collectRefsFromExpr(e.Condition, refs)
+		c.collectRefsFromExpr(e.Consequence, refs)
+		c.collectRefsFromExpr(e.Alternative, refs)
+	}
 }
 
 func (c *NativeCompiler) collectVarsFromBlock(block *BlockStatement, vars map[string]bool) {
@@ -4426,7 +4565,7 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 
 			elseVars := c.collectVars(route.ElseBlock)
 			for name := range elseVars {
-				if name != "request" && name != "response" && name != "error" {
+				if name != "request" && name != "response" && name != "error" && !c.globalVars[name] {
 					c.lnf("var %s Value = null", safeIdent(name))
 				}
 			}
@@ -4464,7 +4603,7 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		for k, v := range c.collectVars(ab) { vars[k] = v }
 	}
 	for name := range vars {
-		if name != "request" && name != "response" {
+		if name != "request" && name != "response" && !c.globalVars[name] {
 			c.lnf("var %s Value = null", safeIdent(name))
 		}
 	}
@@ -4496,7 +4635,7 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		c.ln("_ = error")
 		elseVars := c.collectVars(route.ElseBlock)
 		for name := range elseVars {
-			if name != "request" && name != "response" && name != "error" {
+			if name != "request" && name != "response" && name != "error" && !c.globalVars[name] {
 				c.lnf("var %s Value = null", safeIdent(name))
 			}
 		}
@@ -4610,7 +4749,7 @@ func (c *NativeCompiler) emitErrorHandler(eh *ErrorStatement) {
 	// Declare variables
 	vars := c.collectVars(eh.Body)
 	for name := range vars {
-		if name != "request" && name != "response" {
+		if name != "request" && name != "response" && !c.globalVars[name] {
 			c.lnf("var %s Value = null", safeIdent(name))
 		}
 	}
