@@ -31,6 +31,12 @@ type NativeCompiler struct {
 	globalAfter    []*BlockStatement
 	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
 	routeAfterMap  map[*RouteStatement][]*BlockStatement // group after blocks per route
+	staticMounts   []staticMount // static file serving
+}
+
+type staticMount struct {
+	Prefix string // URL prefix, e.g. "/assets"
+	Dir    string // filesystem directory, e.g. "./public"
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -89,6 +95,10 @@ func GenerateNativeCode(program *Program) (string, error) {
 				if lit, ok := te.(*IntegerLiteral); ok {
 					c.throttleRPS = int(lit.Value)
 				}
+			}
+			for _, sm := range s.StaticMounts {
+				c.staticMounts = append(c.staticMounts, staticMount{Prefix: sm.Prefix, Dir: sm.Dir})
+				c.usedImports["path/filepath"] = true
 			}
 			// CORS config
 			if cors, ok := s.Settings["cors"]; ok {
@@ -419,7 +429,7 @@ func (c *NativeCompiler) emitHeader() {
 	stdlib := []string{"bytes", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
-		"os", "regexp", "sort", "strconv", "strings", "sync", "time"}
+		"os", "path/filepath", "regexp", "sort", "strconv", "strings", "sync", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
 			switch imp {
@@ -784,10 +794,16 @@ type routeSeg struct {
 	param    string
 	wildcard string // *param — matches rest of path
 }
+type staticMountEntry struct {
+	prefix  string
+	handler http.Handler
+}
+
 type dslRouter struct {
 	routes        []routeEntry
 	errorHandlers map[int]http.HandlerFunc
 	limiter       *rateLimiter
+	statics       []staticMountEntry
 }
 
 func (rt *dslRouter) add(method, pattern string, h http.HandlerFunc) {
@@ -848,6 +864,13 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		route.handler(w, r.WithContext(ctx))
 		return
 	}
+	// Static file mounts
+	for _, s := range rt.statics {
+		if strings.HasPrefix(r.URL.Path, s.prefix) {
+			s.handler.ServeHTTP(w, r)
+			return
+		}
+	}
 	if h, ok := rt.errorHandlers[404]; ok {
 		h(w, r)
 		return
@@ -855,6 +878,25 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 	w.Write([]byte("{\"error\":\"not found\"}"))
+}
+
+// noDirFS wraps http.Dir to prevent directory listings
+type noDirFS struct {
+	fs http.FileSystem
+}
+
+func (n noDirFS) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil { return nil, err }
+	stat, err := f.Stat()
+	if err != nil { f.Close(); return nil, err }
+	if stat.IsDir() {
+		// Check for index.html inside directory
+		idx, err := n.fs.Open(filepath.Join(name, "index.html"))
+		if err != nil { f.Close(); return nil, os.ErrNotExist }
+		idx.Close()
+	}
+	return f, nil
 }
 
 // Per-IP rate limiter (token bucket)
@@ -3668,6 +3710,18 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("rt := &dslRouter{errorHandlers: make(map[int]http.HandlerFunc)}")
 	if c.throttleRPS > 0 {
 		c.lnf("rt.limiter = newRateLimiter(%d)", c.throttleRPS)
+	}
+	for _, sm := range c.staticMounts {
+		prefix := sm.Prefix
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		c.lnf("rt.statics = append(rt.statics, staticMountEntry{")
+		c.indent++
+		c.lnf("prefix: %q,", prefix)
+		c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(%q))})),", prefix, sm.Dir)
+		c.indent--
+		c.ln("})") 
 	}
 	c.ln("")
 

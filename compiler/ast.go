@@ -138,8 +138,14 @@ func (s *EachStatement) statementNode()       {}
 func (s *EachStatement) TokenLiteral() string { return s.Token.Literal }
 
 type ServerStatement struct {
-	Token    Token
-	Settings map[string]Expression
+	Token        Token
+	Settings     map[string]Expression
+	StaticMounts []StaticMountDef
+}
+
+type StaticMountDef struct {
+	Prefix string
+	Dir    string
 }
 
 func (s *ServerStatement) statementNode()       {}

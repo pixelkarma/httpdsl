@@ -3,6 +3,7 @@ server {
     cors {
         origins "*"
     }
+    static "/static" "./test_static"
 }
 
 // ===== Error handlers =====

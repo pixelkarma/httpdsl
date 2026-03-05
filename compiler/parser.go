@@ -498,7 +498,17 @@ func (p *Parser) parseServerStatement() Statement {
 		if p.curTokenIs(TOKEN_IDENT) {
 			key := p.curTok.Literal
 			p.nextToken()
-			if key == "cors" && p.curTokenIs(TOKEN_LBRACE) {
+			if key == "static" && p.curTokenIs(TOKEN_STRING) {
+				prefix := p.curTok.Literal
+				p.nextToken()
+				if !p.curTokenIs(TOKEN_STRING) {
+					p.addError("expected directory string after static prefix")
+					continue
+				}
+				dir := p.curTok.Literal
+				p.nextToken()
+				stmt.StaticMounts = append(stmt.StaticMounts, StaticMountDef{Prefix: prefix, Dir: dir})
+			} else if key == "cors" && p.curTokenIs(TOKEN_LBRACE) {
 				// cors { origins "*" methods "GET,POST" headers "Content-Type" }
 				p.nextToken() // skip '{'
 				corsMap := make(map[string]Expression)

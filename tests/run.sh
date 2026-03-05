@@ -240,6 +240,70 @@ run_raw_test "POST /test/validation/schema/email-url-uuid" \
     "$(curl -sf -X POST -H 'Content-Type: application/json' -d '{"email":"a@b.com","website":"https://x.com","id":"550e8400-e29b-41d4-a716-446655440000"}' "$BASE/test/validation/schema/email-url-uuid" 2>/dev/null)"
 echo ""
 
+# Static file tests
+echo "Static files:"
+
+# Test: static file served
+display="GET /static/style.css (static file)"
+result=$(curl -sf "$BASE/static/style.css" 2>/dev/null)
+if [ "$result" = "body{color:red}" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (got: $result)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+# Test: index.html served for directory
+display="GET /static/ (index.html)"
+result=$(curl -sf "$BASE/static/" 2>/dev/null)
+if echo "$result" | grep -q '<h1>Hello</h1>'; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (got: $result)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+# Test: nested static file
+display="GET /static/sub/data.json (nested)"
+result=$(curl -sf "$BASE/static/sub/data.json" 2>/dev/null)
+if echo "$result" | jq -e '.data == "test"' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (got: $result)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+# Test: directory listing disabled (no index.html in sub/)
+display="GET /static/sub/ (no dir listing → 404)"
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/static/sub/")
+if [ "$status" = "404" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (status: $status)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+# Test: missing static file
+display="GET /static/nope.txt (missing → 404)"
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/static/nope.txt")
+if [ "$status" = "404" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (status: $status)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+echo ""
+
 # DateTime tests
 echo "DateTime:"
 run_test GET /test/datetime/date
