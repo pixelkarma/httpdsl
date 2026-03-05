@@ -573,6 +573,12 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Scheduled tasks
+echo "Scheduled tasks:"
+sleep 2  # wait for at least 1 tick
+run_test GET /test/scheduled/ticks
+echo ""
+
 # Expression tests
 echo "Expressions:"
 run_test GET /test/expressions/ternary

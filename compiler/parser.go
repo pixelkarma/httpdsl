@@ -145,6 +145,8 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseGroupStatement()
 	case TOKEN_SWITCH:
 		return p.parseSwitchStatement()
+	case TOKEN_EVERY:
+		return p.parseEveryStatement()
 	case TOKEN_IDENT:
 		// error <status_code> { ... } — contextual keyword
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
@@ -426,6 +428,45 @@ func (p *Parser) parseThrowStatement() Statement {
 	stmt := &ThrowStatement{Token: p.curTok}
 	p.nextToken() // skip 'throw'
 	stmt.Value = p.parseExpression(PREC_LOWEST)
+	return stmt
+}
+
+func (p *Parser) parseEveryStatement() Statement {
+	stmt := &EveryStatement{Token: p.curTok}
+	p.nextToken() // skip 'every'
+
+	if !p.curTokenIs(TOKEN_INT) {
+		p.addError("expected integer after 'every', got %s", p.curTok.Type)
+		return nil
+	}
+	val, _ := strconv.Atoi(p.curTok.Literal)
+	p.nextToken()
+
+	// Parse unit: s, m, h
+	if !p.curTokenIs(TOKEN_IDENT) {
+		p.addError("expected time unit (s, m, h) after number, got %s", p.curTok.Type)
+		return nil
+	}
+	unit := p.curTok.Literal
+	p.nextToken()
+
+	switch unit {
+	case "s":
+		stmt.Interval = val
+	case "m":
+		stmt.Interval = val * 60
+	case "h":
+		stmt.Interval = val * 3600
+	default:
+		p.addError("unknown time unit %q (use s, m, or h)", unit)
+		return nil
+	}
+
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after every interval, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
 	return stmt
 }
 

@@ -118,6 +118,15 @@ type IfStatement struct {
 func (s *IfStatement) statementNode()       {}
 func (s *IfStatement) TokenLiteral() string { return s.Token.Literal }
 
+type EveryStatement struct {
+	Token    Token
+	Interval int    // interval in seconds
+	Body     *BlockStatement
+}
+
+func (s *EveryStatement) statementNode()       {}
+func (s *EveryStatement) TokenLiteral() string { return s.Token.Literal }
+
 type SwitchStatement struct {
 	Token   Token
 	Subject Expression

@@ -74,6 +74,7 @@ const (
 	TOKEN_SWITCH
 	TOKEN_CASE
 	TOKEN_DEFAULT
+	TOKEN_EVERY
 )
 
 var keywords = map[string]TokenType{
@@ -105,6 +106,7 @@ var keywords = map[string]TokenType{
 	"switch":   TOKEN_SWITCH,
 	"case":     TOKEN_CASE,
 	"default":  TOKEN_DEFAULT,
+	"every":    TOKEN_EVERY,
 }
 
 type Token struct {
@@ -243,6 +245,8 @@ func (t TokenType) String() string {
 		return "CASE"
 	case TOKEN_DEFAULT:
 		return "DEFAULT"
+	case TOKEN_EVERY:
+		return "EVERY"
 	case TOKEN_TEMPLATE_STRING:
 		return "TEMPLATE_STRING"
 	case TOKEN_GROUP:

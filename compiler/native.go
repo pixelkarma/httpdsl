@@ -33,6 +33,7 @@ type NativeCompiler struct {
 	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
 	routeAfterMap  map[*RouteStatement][]*BlockStatement // group after blocks per route
 	staticMounts   []staticMount // static file serving
+	everyBlocks    []*EveryStatement
 }
 
 type staticMount struct {
@@ -85,6 +86,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 			c.scanBlock(s.Body)
 		case *ErrorStatement:
 			c.errorHandlers = append(c.errorHandlers, s)
+			c.scanBlock(s.Body)
+		case *EveryStatement:
+			c.everyBlocks = append(c.everyBlocks, s)
 			c.scanBlock(s.Body)
 		case *ServerStatement:
 			if pe, ok := s.Settings["port"]; ok {
@@ -387,6 +391,8 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 	case *BeforeStatement:
 		c.detectDBInBlock(s.Body)
 	case *AfterStatement:
+		c.detectDBInBlock(s.Body)
+	case *EveryStatement:
 		c.detectDBInBlock(s.Body)
 	case *FnStatement:
 		c.detectDBInBlock(s.Body)
@@ -3824,6 +3830,30 @@ func (c *NativeCompiler) emitMain() {
 
 	for _, eh := range c.errorHandlers {
 		c.emitErrorHandler(eh)
+	}
+
+	// Scheduled tasks
+	for i, ev := range c.everyBlocks {
+		vars := c.collectVars(ev.Body)
+		c.lnf("go func() { // every %ds", ev.Interval)
+		c.indent++
+		c.lnf("_ticker := time.NewTicker(%d * time.Second)", ev.Interval)
+		c.ln("defer _ticker.Stop()")
+		c.ln("for range _ticker.C {")
+		c.indent++
+		c.lnf("func() { // task %d", i)
+		c.indent++
+		c.ln("defer func() { if r := recover(); r != nil { fmt.Fprintf(os.Stderr, \"scheduled task panic: %v\\n\", r) } }()")
+		for name := range vars {
+			c.lnf("var %s Value = null", safeIdent(name))
+		}
+		c.emitBlock(ev.Body, false)
+		c.indent--
+		c.ln("}()")
+		c.indent--
+		c.ln("}")
+		c.indent--
+		c.ln("}()")
 	}
 
 	c.lnf("addr := \":%d\"", c.port)

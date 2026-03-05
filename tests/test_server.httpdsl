@@ -6,6 +6,11 @@ server {
     static "/static" "./test_static"
 }
 
+// ===== Scheduled tasks =====
+every 1 s {
+    store.incr("scheduled_tick", 1)
+}
+
 // ===== Error handlers =====
 error 404 {
     response.type = "json"
@@ -1683,6 +1688,14 @@ group "/test/mysql" {
             assert_eq(len(rows), 2, "mysql row count")
         ])
     }
+}
+
+// ===== Scheduled task tests =====
+route GET "/test/scheduled/ticks" {
+    ticks = store.get("scheduled_tick", 0)
+    response.body = results([
+        assert_true(ticks >= 1, "scheduled task ran at least once")
+    ])
 }
 
 // ===== Expression tests =====
