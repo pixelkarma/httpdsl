@@ -202,6 +202,11 @@ run_test GET /test/crypto/uuid
 run_test GET /test/crypto/cuid2
 run_test GET /test/crypto/hmac
 run_test GET /test/crypto/jwt
+run_test GET /test/crypto/hash-password/bcrypt
+run_test GET /test/crypto/hash-password/bcrypt-cost
+run_test GET /test/crypto/hash-password/argon2
+run_test GET /test/crypto/hash-password/argon2-opts
+run_test GET /test/crypto/hash-password/cross-verify
 echo ""
 
 # DateTime tests

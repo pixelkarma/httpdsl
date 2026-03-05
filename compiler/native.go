@@ -15,7 +15,8 @@ type NativeCompiler struct {
 	functions    []*FnStatement
 	usedBuiltins map[string]bool
 	usedImports  map[string]bool
-	needsBcrypt  bool
+	needsBcrypt      bool
+	needsArgon2      bool
 	dbDrivers    map[string]bool // "sqlite", "postgres", "mysql", "mongo"
 	tmpCounter   int
 	typeEnv      *TypeEnv // current function's type info
@@ -169,8 +170,18 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["url_encode"] || c.usedBuiltins["url_decode"] {
 		c.usedImports["net/url"] = true
 	}
-	if c.usedBuiltins["bcrypt_hash"] || c.usedBuiltins["bcrypt_verify"] {
+	if c.usedBuiltins["bcrypt_hash"] || c.usedBuiltins["bcrypt_verify"] ||
+		c.usedBuiltins["hash_password"] || c.usedBuiltins["verify_password"] {
 		c.needsBcrypt = true
+	}
+	if c.usedBuiltins["hash_password"] || c.usedBuiltins["verify_password"] {
+		c.needsArgon2 = true
+		c.usedImports["crypto/rand"] = true
+		c.usedImports["crypto/subtle"] = true
+		c.usedImports["encoding/base64"] = true
+		c.usedImports["strings"] = true
+		c.usedImports["strconv"] = true
+		c.usedImports["fmt"] = true
 	}
 
 	if c.usedBuiltins["file"] {
@@ -401,7 +412,7 @@ func (c *NativeCompiler) emitHeader() {
 	c.ln("import (")
 	c.indent++
 	stdlib := []string{"bytes", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
-		"crypto/sha256", "crypto/sha512", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
+		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
 		"os", "regexp", "sort", "strconv", "strings", "sync", "time"}
 	for _, imp := range stdlib {
@@ -416,9 +427,14 @@ func (c *NativeCompiler) emitHeader() {
 			}
 		}
 	}
-	if c.needsBcrypt {
+	if c.needsBcrypt || c.needsArgon2 {
 		c.ln("")
+	}
+	if c.needsBcrypt {
 		c.lnf("%q", "golang.org/x/crypto/bcrypt")
+	}
+	if c.needsArgon2 {
+		c.lnf("%q", "golang.org/x/crypto/argon2")
 	}
 	if c.dbDrivers["sqlite"] {
 		c.lnf("_ %q", "modernc.org/sqlite")
@@ -2044,6 +2060,81 @@ func builtin_jwt_verify(args ...Value) Value {
 }
 `)
 	}
+
+	// Password hashing (bcrypt + argon2id)
+	if c.usedBuiltins["hash_password"] || c.usedBuiltins["verify_password"] {
+		c.raw(`
+func builtin_hash_password(args ...Value) Value {
+	if len(args) < 1 { throw(Value("hash_password requires a password")) }
+	password := valueToString(args[0])
+	algo := "bcrypt"
+	if len(args) >= 2 { algo = valueToString(args[1]) }
+	var opts map[string]Value
+	if len(args) >= 3 {
+		if m, ok := args[2].(map[string]Value); ok { opts = m }
+	}
+	switch algo {
+	case "bcrypt":
+		cost := 12
+		if opts != nil {
+			if v, ok := opts["cost"]; ok { cost = int(toInt64(v)) }
+		}
+		if cost < 4 { cost = 4 }
+		if cost > 31 { cost = 31 }
+		hashed, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+		if err != nil { throw(Value("hash_password: " + err.Error())) }
+		return Value(string(hashed))
+	case "argon2":
+		memory := uint32(65536)
+		iterations := uint32(3)
+		parallelism := uint8(4)
+		keyLength := uint32(32)
+		if opts != nil {
+			if v, ok := opts["memory"]; ok { memory = uint32(toInt64(v)) }
+			if v, ok := opts["iterations"]; ok { iterations = uint32(toInt64(v)) }
+			if v, ok := opts["parallelism"]; ok { parallelism = uint8(toInt64(v)) }
+			if v, ok := opts["key_length"]; ok { keyLength = uint32(toInt64(v)) }
+		}
+		salt := make([]byte, 16)
+		if _, err := crand.Read(salt); err != nil { throw(Value("hash_password: " + err.Error())) }
+		key := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, keyLength)
+		b64Salt := base64.RawStdEncoding.EncodeToString(salt)
+		b64Key := base64.RawStdEncoding.EncodeToString(key)
+		return Value(fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, memory, iterations, parallelism, b64Salt, b64Key))
+	default:
+		throw(Value("hash_password: unknown algorithm: " + algo + " (use bcrypt or argon2)"))
+	}
+	return null
+}
+
+func builtin_verify_password(args ...Value) Value {
+	if len(args) < 2 { throw(Value("verify_password requires password and hash")) }
+	password := valueToString(args[0])
+	hashed := valueToString(args[1])
+	if strings.HasPrefix(hashed, "$2a$") || strings.HasPrefix(hashed, "$2b$") || strings.HasPrefix(hashed, "$2y$") {
+		err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(password))
+		return Value(err == nil)
+	}
+	if strings.HasPrefix(hashed, "$argon2id$") {
+		parts := strings.Split(hashed, "$")
+		if len(parts) != 6 { return Value(false) }
+		var memory uint32
+		var iterations uint32
+		var parallelism uint8
+		_, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism)
+		if err != nil { return Value(false) }
+		salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+		if err != nil { return Value(false) }
+		expectedKey, err := base64.RawStdEncoding.DecodeString(parts[5])
+		if err != nil { return Value(false) }
+		keyLength := uint32(len(expectedKey))
+		actualKey := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, keyLength)
+		return Value(subtle.ConstantTimeCompare(actualKey, expectedKey) == 1)
+	}
+	return Value(false)
+}
+`)
+	}
 	c.ln("")
 }
 
@@ -3002,7 +3093,8 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"regex_match": true, "regex_replace": true, "rand": true,
 		"uuid": true, "cuid2": true, "abs": true, "ceil": true, "floor": true, "round": true,
 		"base64_encode": true, "base64_decode": true, "url_encode": true, "url_decode": true,
-		"hash": true, "hmac_hash": true, "log": true, "log_info": true, "log_warn": true, "log_error": true,
+		"hash": true, "hmac_hash": true, "hash_password": true, "verify_password": true,
+		"log": true, "log_info": true, "log_warn": true, "log_error": true,
 		"map": true, "filter": true, "reduce": true,
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
 		"redirect": true,
@@ -3297,6 +3389,10 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_hash(%s)", argStr)
 		case "hmac_hash":
 			return fmt.Sprintf("builtin_hmac_hash(%s)", argStr)
+		case "hash_password":
+			return fmt.Sprintf("builtin_hash_password(%s)", argStr)
+		case "verify_password":
+			return fmt.Sprintf("builtin_verify_password(%s)", argStr)
 		case "log":
 			if c.inRouteHandler {
 				return fmt.Sprintf("dslLog(\"\", _r, %s)", argStr)

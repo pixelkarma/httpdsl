@@ -486,6 +486,63 @@ group "/test/crypto" {
             assert_true(bad_sig_caught, "bad signature throws")
         ])
     }
+
+    route GET "hash-password/bcrypt" {
+        hashed = hash_password("secret123")
+        match = verify_password("secret123", hashed)
+        no_match = verify_password("wrongpass", hashed)
+        prefix = slice(hashed, 0, 4)
+        response.body = results([
+            assert_true(match, "bcrypt verify correct password"),
+            assert_false(no_match, "bcrypt reject wrong password"),
+            assert_eq(prefix, "$2a$", "bcrypt hash prefix")
+        ])
+    }
+
+    route GET "hash-password/bcrypt-cost" {
+        hashed = hash_password("test", "bcrypt", {"cost": 4})
+        match = verify_password("test", hashed)
+        prefix = slice(hashed, 0, 7)
+        response.body = results([
+            assert_true(match, "bcrypt custom cost verify"),
+            assert_eq(prefix, "$2a$04$", "bcrypt cost 4 prefix")
+        ])
+    }
+
+    route GET "hash-password/argon2" {
+        hashed = hash_password("secret123", "argon2")
+        match = verify_password("secret123", hashed)
+        no_match = verify_password("wrongpass", hashed)
+        prefix = slice(hashed, 0, 10)
+        response.body = results([
+            assert_true(match, "argon2 verify correct password"),
+            assert_false(no_match, "argon2 reject wrong password"),
+            assert_eq(prefix, "$argon2id$", "argon2id hash prefix")
+        ])
+    }
+
+    route GET "hash-password/argon2-opts" {
+        hashed = hash_password("test", "argon2", {"memory": 32768, "iterations": 2, "parallelism": 2, "key_length": 16})
+        match = verify_password("test", hashed)
+        has_params = contains(hashed, "m=32768,t=2,p=2")
+        response.body = results([
+            assert_true(match, "argon2 custom opts verify"),
+            assert_true(has_params, "argon2 custom params in hash")
+        ])
+    }
+
+    route GET "hash-password/cross-verify" {
+        bcrypt_hash = hash_password("same_password")
+        argon2_hash = hash_password("same_password", "argon2")
+        b_ok = verify_password("same_password", bcrypt_hash)
+        a_ok = verify_password("same_password", argon2_hash)
+        a_wrong = verify_password("different", bcrypt_hash)
+        response.body = results([
+            assert_true(b_ok, "verify bcrypt hash"),
+            assert_true(a_ok, "verify argon2 hash"),
+            assert_false(a_wrong, "wrong password rejected")
+        ])
+    }
 }
 
 // ===== DateTime tests =====

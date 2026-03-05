@@ -154,7 +154,7 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 	// Write go.mod
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
 	var requires []string
-	if strings.Contains(src, "golang.org/x/crypto/bcrypt") {
+	if strings.Contains(src, "golang.org/x/crypto/bcrypt") || strings.Contains(src, "golang.org/x/crypto/argon2") {
 		requires = append(requires, "golang.org/x/crypto v0.48.0")
 	}
 	drivers := compiler.DetectDBDrivers(program)
