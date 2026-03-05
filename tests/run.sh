@@ -680,6 +680,32 @@ echo "CORS details:"
 }
 echo ""
 
+# Gzip tests
+echo "Gzip:"
+display="GET /test/types/conversions (gzip Content-Encoding)"
+encoding=$(curl -s -H "Accept-Encoding: gzip" -D - -o /dev/null "$BASE/test/types/conversions" 2>/dev/null | grep -i 'Content-Encoding' | tr -d '\r')
+if echo "$encoding" | grep -qi 'gzip'; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display (header: $encoding)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+
+display="GET /test/types/conversions (gzip decompresses ok)"
+result=$(curl -sf --compressed "$BASE/test/types/conversions" 2>/dev/null)
+pass=$(echo "$result" | jq -r '.pass' 2>/dev/null)
+if [ "$pass" = "true" ]; then
+    echo -e "  ${GREEN}PASS${NC} $display"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} $display"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  $display"
+fi
+echo ""
+
 # Error handler tests
 echo "Error handlers:"
 {

@@ -4,6 +4,7 @@ server {
         origins "*"
     }
     static "/static" "./test_static"
+    gzip true
 }
 
 // ===== Scheduled tasks =====

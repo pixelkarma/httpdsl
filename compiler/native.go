@@ -28,6 +28,7 @@ type NativeCompiler struct {
 	inRouteHandler bool // true when emitting code inside a route/error handler
 	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
 	defaultTimeout int  // server-level timeout in seconds; 0 = no timeout
+	gzipEnabled    bool // gzip compression
 	globalBefore   []*BlockStatement
 	globalAfter    []*BlockStatement
 	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
@@ -104,6 +105,12 @@ func GenerateNativeCode(program *Program) (string, error) {
 			if te, ok := s.Settings["timeout"]; ok {
 				if lit, ok := te.(*IntegerLiteral); ok {
 					c.defaultTimeout = int(lit.Value)
+				}
+			}
+			if gz, ok := s.Settings["gzip"]; ok {
+				if bl, ok := gz.(*BooleanLiteral); ok && bl.Value {
+					c.gzipEnabled = true
+					c.usedImports["compress/gzip"] = true
 				}
 			}
 			for _, sm := range s.StaticMounts {
@@ -452,7 +459,7 @@ func (c *NativeCompiler) emitHeader() {
 	c.ln("")
 	c.ln("import (")
 	c.indent++
-	stdlib := []string{"bytes", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
+	stdlib := []string{"bytes", "compress/gzip", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
 		"os", "path/filepath", "regexp", "sort", "strconv", "strings", "sync", "time"}
@@ -1208,6 +1215,35 @@ func (n noDirFS) Open(name string) (http.File, error) {
 		idx.Close()
 	}
 	return f, nil
+}
+`)
+	}
+
+	// Gzip middleware
+	if c.gzipEnabled {
+		c.raw(`
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.gz.Write(b)
+}
+
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		w.Header().Del("Content-Length")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
+	})
 }
 `)
 	}
@@ -3872,10 +3908,14 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("rt.ServeHTTP(w, r)")
 		c.indent--
 		c.ln("})")
-		c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
 	} else {
-		c.ln("if err := http.ListenAndServe(addr, rt); err != nil {")
+		c.ln("var handler http.Handler = rt")
 	}
+	if c.gzipEnabled {
+		c.ln("handler = gzipMiddleware(handler)")
+	}
+	c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
+
 	c.indent++
 	c.ln(`fmt.Printf("Server error: %s\n", err)`)
 	c.indent--
