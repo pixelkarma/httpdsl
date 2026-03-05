@@ -1,0 +1,7 @@
+{{template "layout.gohtml" .}}
+{{define "content"}}
+<h1>{{.Page.heading}}</h1>
+<p>Method: {{.Request.method}}</p>
+<p>Path: {{.Request.path}}</p>
+{{template "partials/nav.gohtml" .}}
+{{end}}

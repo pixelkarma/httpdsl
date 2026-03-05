@@ -1,5 +1,6 @@
 server {
     port 9997
+    templates "./templates"
     session {
         cookie "csrf_sid"
         expires 1 h
@@ -52,4 +53,27 @@ route GET "/csrf/safe" {
 // POST: test with JSON body
 route POST "/csrf/json" {
     response.body = assert_eq(request.data.name, "test", "json body with csrf")
+}
+
+// ===== Template rendering tests =====
+
+// Simple template render
+route GET "/tpl/simple" {
+    render("simple.gohtml", { name: "World" })
+}
+
+// Layout with partials
+route GET "/tpl/layout" {
+    render("pages/home.gohtml", { title: "Test", heading: "Hello" })
+}
+
+// render() as expression (returns HTML string)
+route GET "/tpl/expr" {
+    html = render("simple.gohtml", { name: "Expr" })
+    response.body = { html: html, has_content: contains(html, "Expr") }
+}
+
+// CSRF in template
+route GET "/tpl/csrf" {
+    render("csrf_form.gohtml", { msg: "hello" })
 }

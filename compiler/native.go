@@ -2,6 +2,8 @@ package compiler
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +48,8 @@ type NativeCompiler struct {
 	sessionSecretExpr Expression // secret expression (e.g., env("..."))
 	csrfEnabled    bool
 	csrfSafeOrigins []string
+	templatesDir   string              // path to templates directory
+	templateFiles  map[string]string   // name -> content (embedded at compile time)
 }
 
 type staticMount struct {
@@ -153,6 +157,12 @@ func GenerateNativeCode(program *Program) (string, error) {
 						case "headers": c.corsHeaders = val
 						}
 					}
+				}
+			}
+			// Templates config
+			if tpl, ok := s.Settings["templates"]; ok {
+				if sv, ok := tpl.(*StringLiteral); ok {
+					c.templatesDir = sv.Value
 				}
 			}
 			// Session config
@@ -315,12 +325,23 @@ func GenerateNativeCode(program *Program) (string, error) {
 		c.fnTypes[fn.Name] = env
 	}
 
+	// Load template files at compile time
+	if c.templatesDir != "" {
+		if err := c.loadTemplateFiles(); err != nil {
+			return "", fmt.Errorf("templates: %w", err)
+		}
+		if len(c.templateFiles) > 0 {
+			c.usedImports["html/template"] = true
+		}
+	}
+
 	c.emitHeader()
 	c.emitGlobalVars()
 	c.emitRuntime()
 	c.emitBuiltinFuncs()
 	c.emitDBRuntime()
 	c.emitSessionRuntime()
+	c.emitTemplateRuntime()
 	c.emitUserFunctions()
 	c.emitMain()
 	return c.b.String(), nil
@@ -537,6 +558,7 @@ func (c *NativeCompiler) emitHeader() {
 	c.indent++
 	stdlib := []string{"bytes", "compress/gzip", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
+		"html/template",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
 		"os", "os/signal", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "syscall", "time"}
 	for _, imp := range stdlib {
@@ -3609,6 +3631,120 @@ func csrfValidate(r *http.Request, sessData map[string]Value, bodyStr string) bo
 `)
 }
 
+func (c *NativeCompiler) loadTemplateFiles() error {
+	c.templateFiles = make(map[string]string)
+	// Resolve templates dir relative to the source file directory
+	baseDir := c.templatesDir
+	return filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".gohtml" {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		// Key is the relative path from templates dir
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return err
+		}
+		// Normalize to forward slashes
+		rel = filepath.ToSlash(rel)
+		c.templateFiles[rel] = string(content)
+		return nil
+	})
+}
+
+func (c *NativeCompiler) emitTemplateRuntime() {
+	if len(c.templateFiles) == 0 {
+		return
+	}
+
+	// Emit embedded template contents as constants
+	c.ln("// ===== Template Runtime =====")
+	c.ln("var _templateSources = map[string]string{")
+	c.indent++
+	// Sort keys for deterministic output
+	keys := make([]string, 0, len(c.templateFiles))
+	for k := range c.templateFiles {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		c.lnf("%q: %q,", name, c.templateFiles[name])
+	}
+	c.indent--
+	c.ln("}")
+	c.ln("")
+
+	c.raw(`var _templates *template.Template
+
+func _initTemplates() {
+	funcMap := template.FuncMap{`)
+	if c.csrfEnabled {
+		c.raw(`
+		"csrf_field": func() template.HTML { return "" },
+		"csrf_token": func() string { return "" },`)
+	}
+	c.raw(`
+	}
+	t := template.New("").Funcs(funcMap)
+	for name, src := range _templateSources {
+		template.Must(t.New(name).Parse(src))
+	}
+	_templates = t
+}
+
+func _render(templateName string, page Value, request Value`)
+	if c.csrfEnabled {
+		c.raw(`, sessData map[string]Value`)
+	}
+	c.raw(`) Value {
+	data := map[string]interface{}{
+		"Page":    valueToGo(page),
+		"Request": valueToGo(request),
+	}
+	// Clone template and set csrf funcs with current session data
+	t, err := _templates.Clone()
+	if err != nil {
+		throw(Value("render: clone templates: " + err.Error()))
+		return null
+	}`)
+	if c.csrfEnabled {
+		c.raw(`
+	t.Funcs(template.FuncMap{
+		"csrf_field": func() template.HTML {
+			tok := valueToString(csrfToken(sessData))
+			return template.HTML(fmt.Sprintf(` + "`" + `<input type="hidden" name="_csrf" value="%s">` + "`" + `, template.HTMLEscapeString(tok)))
+		},
+		"csrf_token": func() string {
+			return valueToString(csrfToken(sessData))
+		},
+	})`)
+	}
+	c.raw(`
+	var buf bytes.Buffer
+	tmpl := t.Lookup(templateName)
+	if tmpl == nil {
+		throw(Value("render: template not found: " + templateName))
+		return null
+	}
+	if err := tmpl.Execute(&buf, data); err != nil {
+		throw(Value("render: " + err.Error()))
+		return null
+	}
+	return Value(buf.String())
+}
+`)
+}
+
 func (c *NativeCompiler) emitUserFunctions() {
 	c.ln("// ===== User Functions =====")
 	for _, fn := range c.functions {
@@ -3931,6 +4067,8 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 		if ae, ok := s.Expression.(*AsyncExpression); ok {
 			inner := c.expr(ae.Expression)
 			c.lnf("go func() { _ = %s }()", inner)
+		} else if c.isRenderCall(s.Expression) {
+			c.emitRenderStmt(s.Expression)
 		} else {
 			c.lnf("_ = %s", c.expr(s.Expression))
 		}
@@ -3998,6 +4136,33 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 			c.lnf("%s = indexValue(%s, int64(%d))", safeIdent(name), tmp, i)
 		}
 	}
+}
+
+func (c *NativeCompiler) isRenderCall(e Expression) bool {
+	call, ok := e.(*CallExpression)
+	if !ok { return false }
+	ident, ok := call.Function.(*Identifier)
+	return ok && ident.Value == "render"
+}
+
+func (c *NativeCompiler) emitRenderStmt(e Expression) {
+	call := e.(*CallExpression)
+	args := call.Arguments
+	if len(args) < 1 {
+		c.ln(`throw(Value("render requires a template name"))`)
+		return
+	}
+	nameExpr := c.expr(args[0])
+	pageExpr := "Value(map[string]Value{})"
+	if len(args) >= 2 {
+		pageExpr = c.expr(args[1])
+	}
+	if c.csrfEnabled && c.sessionEnabled {
+		c.lnf(`setIndex(response, Value("body"), _render(valueToString(%s), %s, request, _sessData))`, nameExpr, pageExpr)
+	} else {
+		c.lnf(`setIndex(response, Value("body"), _render(valueToString(%s), %s, request))`, nameExpr, pageExpr)
+	}
+	c.ln(`setIndex(response, Value("type"), Value("html"))`)
 }
 
 func (c *NativeCompiler) emitTryCatch(s *TryCatchStatement, isRoute bool) {
@@ -4292,6 +4457,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"set_session_store": true,
 		"csrf_token": true,
 		"csrf_field": true,
+		"render": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -4511,6 +4677,15 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return "csrfToken(_sessData)"
 		case "csrf_field":
 			return "csrfField(_sessData)"
+		case "render":
+			if len(args) < 1 { return "null" }
+			nameExpr := args[0]
+			pageExpr := "Value(map[string]Value{})"
+			if len(args) >= 2 { pageExpr = args[1] }
+			if c.csrfEnabled && c.sessionEnabled {
+				return fmt.Sprintf("_render(valueToString(%s), %s, request, _sessData)", nameExpr, pageExpr)
+			}
+			return fmt.Sprintf("_render(valueToString(%s), %s, request)", nameExpr, pageExpr)
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":
@@ -4732,6 +4907,10 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("")
 	}
 
+	if len(c.templateFiles) > 0 {
+		c.ln("_initTemplates()")
+		c.ln("")
+	}
 	c.ln("rt := &dslRouter{errorHandlers: make(map[int]http.HandlerFunc)}")
 	if c.throttleRPS > 0 {
 		c.lnf("rt.limiter = newRateLimiter(%d)", c.throttleRPS)

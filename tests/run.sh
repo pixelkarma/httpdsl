@@ -989,6 +989,76 @@ else
     FAILURES="$FAILURES\n  csrf: query param"
 fi
 
+# ===== Template Rendering Tests =====
+echo ""
+echo "Templates:"
+
+# Test: Simple template render
+RESP=$(curl -s $CSRF_URL/tpl/simple)
+if echo "$RESP" | grep -q "Hello World"; then
+    echo -e "  ${GREEN}PASS${NC} render() simple template"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() simple template: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: simple"
+fi
+
+# Test: Content-Type is text/html
+CT=$(curl -s -o /dev/null -w "%{content_type}" $CSRF_URL/tpl/simple)
+if [[ "$CT" == "text/html" ]]; then
+    echo -e "  ${GREEN}PASS${NC} render() sets Content-Type text/html"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() Content-Type (got $CT)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: content-type"
+fi
+
+# Test: Layout with partials
+RESP=$(curl -s $CSRF_URL/tpl/layout)
+if echo "$RESP" | grep -q "<title>Test</title>" && echo "$RESP" | grep -q "<h1>Hello</h1>" && echo "$RESP" | grep -q "<nav>"; then
+    echo -e "  ${GREEN}PASS${NC} render() layout with partials"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() layout with partials"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: layout"
+fi
+
+# Test: Request data available in template
+RESP=$(curl -s $CSRF_URL/tpl/layout)
+if echo "$RESP" | grep -q "Method: GET" && echo "$RESP" | grep -q "Path: /tpl/layout"; then
+    echo -e "  ${GREEN}PASS${NC} render() has Request data"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() Request data"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: request data"
+fi
+
+# Test: render() as expression returns HTML string
+RESP=$(curl -s $CSRF_URL/tpl/expr)
+if echo "$RESP" | jq -e '.has_content == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} render() as expression returns string"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() as expression: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: expression"
+fi
+
+# Test: CSRF template functions
+RESP=$(curl -s -c $CSRF_COOKIES $CSRF_URL/tpl/csrf)
+if echo "$RESP" | grep -q 'name="_csrf"' && echo "$RESP" | grep -q 'value="hello"'; then
+    echo -e "  ${GREEN}PASS${NC} render() with csrf_field in template"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} render() csrf_field: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  tpl: csrf_field"
+fi
+
 # Cleanup CSRF server
 kill -9 $CSRF_PID 2>/dev/null
 wait $CSRF_PID 2>/dev/null || true
