@@ -1,0 +1,23 @@
+server {
+    port 9995
+}
+
+route SSE "/sse/global" {
+    stream.send("welcome", { ok: true })
+}
+
+route SSE "/sse/channel" {
+    ch = request.query.ch
+    stream.join(ch)
+    stream.send("joined", { channel: ch })
+}
+
+route POST "/sse/broadcast" {
+    broadcast("msg", { value: request.data.value })
+    response.body = { sent: true }
+}
+
+route POST "/sse/target" {
+    broadcast("msg", { value: request.data.value }, request.data.channel)
+    response.body = { sent: true }
+}

@@ -1103,6 +1103,95 @@ rm -f $CSRF_COOKIES
 rm -f ./csrf_server
 echo ""
 
+# ===== SSE Tests =====
+echo "SSE:"
+SSE_PORT=${SSE_PORT:-9995}
+
+"../httpdsl" build sse_server.httpdsl > /dev/null 2>&1
+./sse_server > /dev/null 2>&1 &
+SSE_PID=$!
+sleep 1
+
+SSE_URL="http://localhost:$SSE_PORT"
+
+# Test: SSE welcome event on connect
+SSE_OUT=$(timeout 2 curl -sN $SSE_URL/sse/global 2>/dev/null || true)
+if echo "$SSE_OUT" | grep -q 'event: welcome' && echo "$SSE_OUT" | grep -q '"ok":true'; then
+    echo -e "  ${GREEN}PASS${NC} SSE connect sends welcome event"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} SSE welcome event: $SSE_OUT"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: welcome"
+fi
+
+# Test: SSE channel join
+SSE_OUT=$(timeout 2 curl -sN "$SSE_URL/sse/channel?ch=test-room" 2>/dev/null || true)
+if echo "$SSE_OUT" | grep -q 'event: joined' && echo "$SSE_OUT" | grep -q 'test-room'; then
+    echo -e "  ${GREEN}PASS${NC} SSE stream.join() channel"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} SSE channel join: $SSE_OUT"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: join"
+fi
+
+# Test: broadcast to global
+curl -sN $SSE_URL/sse/global > /tmp/sse_test_global.txt &
+SSE_LISTEN_PID=$!
+sleep 0.5
+curl -s -X POST -H "Content-Type: application/json" -d '{"value":"hello"}' $SSE_URL/sse/broadcast > /dev/null
+sleep 0.5
+kill $SSE_LISTEN_PID 2>/dev/null
+wait $SSE_LISTEN_PID 2>/dev/null || true
+if grep -q '"value":"hello"' /tmp/sse_test_global.txt; then
+    echo -e "  ${GREEN}PASS${NC} broadcast() to global"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} broadcast global: $(cat /tmp/sse_test_global.txt)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: broadcast global"
+fi
+rm -f /tmp/sse_test_global.txt
+
+# Test: broadcast to specific channel
+curl -sN "$SSE_URL/sse/channel?ch=room1" > /tmp/sse_test_ch.txt &
+SSE_LISTEN_PID=$!
+sleep 0.5
+# Send to room1 — should arrive
+curl -s -X POST -H "Content-Type: application/json" -d '{"value":"for-room1","channel":"room1"}' $SSE_URL/sse/target > /dev/null
+# Send to room2 — should NOT arrive
+curl -s -X POST -H "Content-Type: application/json" -d '{"value":"for-room2","channel":"room2"}' $SSE_URL/sse/target > /dev/null
+sleep 0.5
+kill $SSE_LISTEN_PID 2>/dev/null
+wait $SSE_LISTEN_PID 2>/dev/null || true
+if grep -q 'for-room1' /tmp/sse_test_ch.txt && ! grep -q 'for-room2' /tmp/sse_test_ch.txt; then
+    echo -e "  ${GREEN}PASS${NC} broadcast() to specific channel"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} broadcast channel: $(cat /tmp/sse_test_ch.txt)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: broadcast channel"
+fi
+rm -f /tmp/sse_test_ch.txt
+
+# Test: broadcast POST returns response
+RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"value":"test"}' $SSE_URL/sse/broadcast)
+if echo "$RESP" | jq -e '.sent == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} broadcast() returns response"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} broadcast response: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: broadcast response"
+fi
+
+# Cleanup SSE server
+kill -9 $SSE_PID 2>/dev/null
+wait $SSE_PID 2>/dev/null || true
+rm -f ./sse_server
+echo ""
+
 # Summary
 TOTAL=$((PASSED + FAILED + SKIPPED))
 echo "========================================"

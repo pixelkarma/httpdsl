@@ -50,6 +50,7 @@ type NativeCompiler struct {
 	csrfSafeOrigins []string
 	templatesDir   string              // path to templates directory
 	templateFiles  map[string]string   // name -> content (embedded at compile time)
+	hasSSE         bool                // whether any SSE routes exist
 }
 
 type staticMount struct {
@@ -79,6 +80,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 		case *RouteStatement:
 			c.routes = append(c.routes, s)
 			c.scanBlock(s.Body)
+			if s.Method == "SSE" { c.hasSSE = true }
 		case *GroupStatement:
 			for _, b := range s.Before { c.scanBlock(b) }
 			for _, a := range s.After { c.scanBlock(a) }
@@ -342,6 +344,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.emitDBRuntime()
 	c.emitSessionRuntime()
 	c.emitTemplateRuntime()
+	c.emitSSERuntime()
 	c.emitUserFunctions()
 	c.emitMain()
 	return c.b.String(), nil
@@ -3745,6 +3748,89 @@ func _render(templateName string, page Value, request Value`)
 `)
 }
 
+func (c *NativeCompiler) emitSSERuntime() {
+	if !c.hasSSE {
+		return
+	}
+	c.raw(`
+// ===== SSE Runtime =====
+type sseClient struct {
+	ch       chan sseEvent
+	channels map[string]bool
+}
+
+type sseEvent struct {
+	event string
+	data  string
+}
+
+type sseHub struct {
+	mu      sync.RWMutex
+	clients map[*sseClient]bool
+}
+
+var _sseHub = &sseHub{
+	clients: make(map[*sseClient]bool),
+}
+
+func (h *sseHub) register(client *sseClient) {
+	h.mu.Lock()
+	h.clients[client] = true
+	h.mu.Unlock()
+}
+
+func (h *sseHub) unregister(client *sseClient) {
+	h.mu.Lock()
+	delete(h.clients, client)
+	h.mu.Unlock()
+	close(client.ch)
+}
+
+func (h *sseHub) broadcast(event string, data string, channel string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for client := range h.clients {
+		if client.channels[channel] {
+			select {
+			case client.ch <- sseEvent{event: event, data: data}:
+			default:
+				// Drop if client buffer full
+			}
+		}
+	}
+}
+
+func builtin_broadcast(args ...Value) Value {
+	if len(args) < 2 { return null }
+	event := valueToString(args[0])
+	data := ""
+	if args[1] != nil {
+		jBytes, err := json.Marshal(valueToGo(args[1]))
+		if err == nil { data = string(jBytes) } else { data = valueToString(args[1]) }
+	}
+	channel := "global"
+	if len(args) >= 3 { channel = valueToString(args[2]) }
+	_sseHub.broadcast(event, data, channel)
+	return null
+}
+
+func _sseClientSend(client *sseClient, event string, data Value) Value {
+	d := ""
+	if data != nil {
+		jBytes, err := json.Marshal(valueToGo(data))
+		if err == nil { d = string(jBytes) } else { d = valueToString(data) }
+	}
+	client.ch <- sseEvent{event: event, data: d}
+	return null
+}
+
+func _sseClientJoin(client *sseClient, channel string) Value {
+	client.channels[channel] = true
+	return null
+}
+`)
+}
+
 func (c *NativeCompiler) emitUserFunctions() {
 	c.ln("// ===== User Functions =====")
 	for _, fn := range c.functions {
@@ -4458,6 +4544,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"csrf_token": true,
 		"csrf_field": true,
 		"render": true,
+		"broadcast": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -4618,6 +4705,23 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				case "sync":
 					return fmt.Sprintf("storeSync(%s)", argStr)
 				}
+			case "stream":
+				switch dot.Field {
+				case "send":
+					if len(args) >= 2 {
+						// stream.send(event, data)
+						return fmt.Sprintf("_sseClientSend(_sseClient, valueToString(%s), %s)", args[0], args[1])
+					} else if len(args) == 1 {
+						// stream.send(data) — default event "message"
+						return fmt.Sprintf(`_sseClientSend(_sseClient, "message", %s)`, args[0])
+					}
+					return "null"
+				case "join":
+					if len(args) >= 1 {
+						return fmt.Sprintf("_sseClientJoin(_sseClient, valueToString(%s))", args[0])
+					}
+					return "null"
+				}
 			}
 		}
 		// Method calls on db handles: mydb.query(...) etc.
@@ -4686,6 +4790,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				return fmt.Sprintf("_render(valueToString(%s), %s, request, _sessData)", nameExpr, pageExpr)
 			}
 			return fmt.Sprintf("_render(valueToString(%s), %s, request)", nameExpr, pageExpr)
+		case "broadcast":
+			return fmt.Sprintf("builtin_broadcast(%s)", argStr)
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":
@@ -4886,7 +4992,7 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 func (c *NativeCompiler) dotExpr(e *DotExpression) string {
 	// json and store are handled at call sites
 	if ident, ok := e.Left.(*Identifier); ok {
-		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" || ident.Value == "jwt" {
+		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" || ident.Value == "jwt" || ident.Value == "stream" {
 			// These are namespace objects; the actual call is handled in callExpr
 			return fmt.Sprintf("dotValue(%s, %q)", safeIdent(ident.Value), e.Field)
 		}
@@ -4930,7 +5036,11 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("")
 
 	for _, route := range c.routes {
-		c.emitRoute(route)
+		if route.Method == "SSE" {
+			c.emitSSERoute(route)
+		} else {
+			c.emitRoute(route)
+		}
 	}
 
 	for _, eh := range c.errorHandlers {
@@ -5180,6 +5290,143 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 		}
 	}
 }
+func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
+	c.lnf(`rt.add("GET", %q, func(_w http.ResponseWriter, _r *http.Request) {`, route.Path)
+	c.indent++
+
+	// SSE headers
+	c.ln(`_flusher, _ok := _w.(http.Flusher)`)
+	c.ln(`if !_ok { http.Error(_w, "SSE not supported", http.StatusInternalServerError); return }`)
+	c.ln(`_w.Header().Set("Content-Type", "text/event-stream")`)
+	c.ln(`_w.Header().Set("Cache-Control", "no-cache")`)
+	c.ln(`_w.Header().Set("Connection", "keep-alive")`)
+	if c.corsOrigins != "" {
+		c.lnf(`_w.Header().Set("Access-Control-Allow-Origin", %q)`, c.corsOrigins)
+	}
+
+	// Create SSE client
+	c.ln(`_sseClient := &sseClient{`)
+	c.indent++
+	c.ln(`ch:       make(chan sseEvent, 64),`)
+	c.ln(`channels: map[string]bool{"global": true},`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`_sseHub.register(_sseClient)`)
+	c.ln(`defer _sseHub.unregister(_sseClient)`)
+	c.ln(``)
+
+	// Parse path params, query, headers for request object
+	c.ln(`_pathParams := getParams(_r)`)
+	c.ln(`_queryMap := make(map[string]Value)`)
+	c.ln(`for _k, _v := range _r.URL.Query() {`)
+	c.indent++
+	c.ln(`if len(_v) == 1 { _queryMap[_k] = Value(_v[0]) } else {`)
+	c.indent++
+	c.ln(`_arr := make([]Value, len(_v))`)
+	c.ln(`for _i, _s := range _v { _arr[_i] = Value(_s) }`)
+	c.ln(`_queryMap[_k] = Value(_arr)`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`_reqHeaders := make(map[string]Value)`)
+	c.ln(`for _k, _v := range _r.Header {`)
+	c.indent++
+	c.ln(`if len(_v) > 0 { _reqHeaders[strings.ToLower(_k)] = Value(_v[0]) }`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`_reqCookies := make(map[string]Value)`)
+	c.ln(`for _, _c := range _r.Cookies() { _reqCookies[_c.Name] = Value(_c.Value) }`)
+
+	// Bearer/basic auth
+	c.ln(`var _bearer Value = Value("")`)
+	c.ln(`var _basic Value = null`)
+	c.ln(`if _authH := _r.Header.Get("Authorization"); _authH != "" {`)
+	c.indent++
+	c.ln(`if strings.HasPrefix(_authH, "Bearer ") { _bearer = Value(_authH[7:]) }`)
+	c.ln(`if strings.HasPrefix(_authH, "Basic ") {`)
+	c.indent++
+	c.ln(`if _decoded, _err := base64.StdEncoding.DecodeString(_authH[6:]); _err == nil {`)
+	c.indent++
+	c.ln(`if _idx := strings.IndexByte(string(_decoded), ':'); _idx >= 0 {`)
+	c.indent++
+	c.ln(`_basic = Value(map[string]Value{"username": Value(string(_decoded[:_idx])), "password": Value(string(_decoded[_idx+1:]))})`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+
+	// Session loading (for SSE auth)
+	if c.sessionEnabled {
+		c.ln(`_sessID, _sessData, _ := sessionLoad(_r)`)
+		c.ln(`_sessDestroyed := false`)
+		c.ln(`_ = _sessID`)
+		c.ln(`_ = _sessDestroyed`)
+	}
+
+	// Build request object
+	c.ln(`request := Value(map[string]Value{`)
+	c.indent++
+	c.ln(`"method":  Value("SSE"),`)
+	c.ln(`"path":    Value(_r.URL.Path),`)
+	c.ln(`"params":  Value(_pathParams),`)
+	c.ln(`"query":   Value(_queryMap),`)
+	c.ln(`"headers": Value(_reqHeaders),`)
+	c.ln(`"cookies": Value(_reqCookies),`)
+	c.ln(`"bearer":  _bearer,`)
+	c.ln(`"basic":   _basic,`)
+	if c.sessionEnabled {
+		c.ln(`"session": Value(_sessData),`)
+	}
+	c.indent--
+	c.ln(`})`)
+	c.ln(`_ = request`)
+	c.ln(``)
+
+	// Declare user variables
+	vars := c.collectVars(route.Body)
+	for name := range vars {
+		if name != "request" && !c.globalVars[name] {
+			c.lnf("var %s Value = null", safeIdent(name))
+		}
+	}
+
+	// Run route body (initial events, auth, joins)
+	c.emitBlock(route.Body, true)
+	c.ln(``)
+
+	// Event loop: block on client channel or disconnect
+	c.ln(`for {`)
+	c.indent++
+	c.ln(`select {`)
+	c.ln(`case _evt, _ok := <-_sseClient.ch:`)
+	c.indent++
+	c.ln(`if !_ok { return }`)
+	c.ln(`if _evt.event != "" {`)
+	c.indent++
+	c.ln(`fmt.Fprintf(_w, "event: %s\n", _evt.event)`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`fmt.Fprintf(_w, "data: %s\n\n", _evt.data)`)
+	c.ln(`_flusher.Flush()`)
+	c.indent--
+	c.ln(`case <-_r.Context().Done():`)
+	c.indent++
+	c.ln(`return`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+
+	c.indent--
+	c.ln(`})`)
+	c.ln(``)
+}
+
 func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.lnf("rt.add(%q, %q, func(_w http.ResponseWriter, _r *http.Request) {", route.Method, route.Path)
 	c.indent++
