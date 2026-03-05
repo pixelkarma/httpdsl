@@ -442,6 +442,25 @@ run_test GET /test/async-extra/race
 run_test GET /test/async-extra/multi-await
 echo ""
 
+# Closure / HOF tests
+echo "Closures/HOF:"
+run_test GET /test/closures/mutable-capture
+run_test GET /test/closures/fn-as-arg
+run_test GET /test/closures/fn-return-fn
+run_test GET /test/closures/each-closure
+echo ""
+
+# Log / print tests
+echo "Log/Print:"
+run_test GET /test/log/all-levels
+echo ""
+
+# Fetch extras
+echo "Fetch extras:"
+run_test GET /test/fetch/error
+run_test GET /test/fetch/headers
+echo ""
+
 # CORS detail test
 echo "CORS details:"
 {

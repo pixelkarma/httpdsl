@@ -15,6 +15,14 @@ error 404 {
     }
 }
 
+error 500 {
+    response.type = "json"
+    response.body = {
+        error: "internal server error",
+        path: request.path
+    }
+}
+
 // ===== Test helpers =====
 fn assert_eq(actual, expected, name) {
     if actual == expected {
@@ -144,6 +152,13 @@ route GET "tests" {
         "/test/io-extra/chmod",
         "/test/async-extra/race",
         "/test/async-extra/multi-await",
+        "/test/closures/mutable-capture",
+        "/test/closures/fn-as-arg",
+        "/test/closures/fn-return-fn",
+        "/test/closures/each-closure",
+        "GET /test/log/all-levels",
+        "GET /test/fetch/error",
+        "GET /test/fetch/headers",
         "GET /test/cors/details"
     ]
 }
@@ -1280,6 +1295,94 @@ group "/test/async-extra" {
             assert_eq(r3, 30, "await third")
         ])
     }
+}
+
+// ===== Closure / HOF tests =====
+group "/test/closures" {
+    route GET "mutable-capture" {
+        counter = 0
+        inc = fn() {
+            counter += 1
+            return counter
+        }
+        a = inc()
+        b = inc()
+        c = inc()
+        response.body = results([
+            assert_eq(a, 1, "first call"),
+            assert_eq(b, 2, "second call"),
+            assert_eq(c, 3, "third call"),
+            assert_eq(counter, 3, "captured var mutated")
+        ])
+    }
+
+    route GET "fn-as-arg" {
+        apply = fn(f, x) { return f(x) }
+        double = fn(n) { return n * 2 }
+        negate = fn(n) { return 0 - n }
+        response.body = results([
+            assert_eq(apply(double, 5), 10, "pass fn double"),
+            assert_eq(apply(negate, 7), -7, "pass fn negate")
+        ])
+    }
+
+    route GET "fn-return-fn" {
+        make_adder = fn(n) {
+            return fn(x) { return x + n }
+        }
+        add5 = make_adder(5)
+        add10 = make_adder(10)
+        response.body = results([
+            assert_eq(add5(3), 8, "adder 5+3"),
+            assert_eq(add10(3), 13, "adder 10+3")
+        ])
+    }
+
+    route GET "each-closure" {
+        fns = []
+        each i in [10, 20, 30] {
+            fns = append(fns, fn() { return i })
+        }
+        response.body = results([
+            assert_eq(len(fns), 3, "captured 3 fns")
+        ])
+    }
+}
+
+// ===== Log / print tests (verify no crash) =====
+route GET "test/log/all-levels" {
+    print("print test")
+    log("log test")
+    log_info("info test")
+    log_warn("warn test")
+    log_error("error test")
+    log("multi", "arg", "log")
+    response.body = results([
+        assert_true(true, "log functions did not crash")
+    ])
+}
+
+// ===== Fetch error handling =====
+route GET "test/fetch/error" {
+    caught = null
+    try {
+        fetch("http://localhost:1/will-fail")
+    } catch(e) {
+        caught = e
+    }
+    response.body = results([
+        assert_true(caught != null, "fetch error caught"),
+        assert_true(starts_with(str(caught), "fetch:"), "error starts with fetch:")
+    ])
+}
+
+// ===== Fetch with response headers =====
+route GET "test/fetch/headers" {
+    resp = fetch(`http://localhost:${env("TEST_PORT", "9999")}/test/response/headers`)
+    response.body = results([
+        assert_eq(resp.status, 200, "fetch headers status"),
+        assert_eq(resp.headers["x-custom"], "test-value", "fetch response header")
+    ])
 }
 
 // ===== CORS detail test =====
