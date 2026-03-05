@@ -853,6 +853,149 @@ else
 fi
 echo ""
 
+# ===== CSRF Protection Tests =====
+echo "CSRF Protection:"
+CSRF_PORT=${CSRF_PORT:-9997}
+
+# Build and start CSRF test server
+"../httpdsl" build csrf_server.httpdsl > /dev/null 2>&1
+CSRF_BIN="./csrf_server"
+$CSRF_BIN > /dev/null 2>&1 &
+CSRF_PID=$!
+sleep 1
+
+CSRF_URL="http://localhost:$CSRF_PORT"
+CSRF_COOKIES=$(mktemp)
+
+# Test: GET is csrf-safe (no token needed)
+RESP=$(curl -s $CSRF_URL/csrf/safe)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} GET method is csrf-safe"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} GET method is csrf-safe"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: GET is safe"
+fi
+
+# Test: POST without token rejected
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $CSRF_URL/csrf/protected)
+if [[ "$HTTP_CODE" == "403" ]]; then
+    echo -e "  ${GREEN}PASS${NC} POST without csrf token returns 403"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST without csrf token returns 403 (got $HTTP_CODE)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: POST without token"
+fi
+
+# Test: GET /csrf/token returns token and field
+RESP=$(curl -s -c $CSRF_COOKIES $CSRF_URL/csrf/token)
+CSRF_TOKEN=$(echo "$RESP" | jq -r '.token')
+if [[ -n "$CSRF_TOKEN" && "$CSRF_TOKEN" != "null" ]]; then
+    echo -e "  ${GREEN}PASS${NC} csrf_token() returns token"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} csrf_token() returns token"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: csrf_token()"
+fi
+
+# Test: csrf_field() returns hidden input
+HAS_FIELD=$(echo "$RESP" | jq -r '.has_field')
+if [[ "$HAS_FIELD" == "true" ]]; then
+    echo -e "  ${GREEN}PASS${NC} csrf_field() returns hidden input"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} csrf_field() returns hidden input"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: csrf_field()"
+fi
+
+# Test: POST with valid _csrf form field
+RESP=$(curl -s -b $CSRF_COOKIES -X POST --data-urlencode "_csrf=$CSRF_TOKEN" $CSRF_URL/csrf/protected)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} POST with valid _csrf form field"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with valid _csrf form field: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: form field"
+fi
+
+# Test: POST with valid X-CSRF-Token header
+RESP=$(curl -s -b $CSRF_COOKIES -X POST -H "X-CSRF-Token: $CSRF_TOKEN" $CSRF_URL/csrf/protected)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} POST with valid X-CSRF-Token header"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with valid X-CSRF-Token header: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: header"
+fi
+
+# Test: POST with valid X-XSRF-Token header
+RESP=$(curl -s -b $CSRF_COOKIES -X POST -H "X-XSRF-Token: $CSRF_TOKEN" $CSRF_URL/csrf/protected)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} POST with valid X-XSRF-Token header"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with valid X-XSRF-Token header: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: xsrf header"
+fi
+
+# Test: POST with wrong token rejected
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -b $CSRF_COOKIES -X POST -d "_csrf=wrong-token" $CSRF_URL/csrf/protected)
+if [[ "$HTTP_CODE" == "403" ]]; then
+    echo -e "  ${GREEN}PASS${NC} POST with wrong csrf token returns 403"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with wrong csrf token returns 403 (got $HTTP_CODE)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: wrong token"
+fi
+
+# Test: POST with JSON body _csrf
+RESP=$(curl -s -b $CSRF_COOKIES -X POST -H "Content-Type: application/json" -d "{\"_csrf\":\"$CSRF_TOKEN\",\"name\":\"test\"}" $CSRF_URL/csrf/json)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} POST with _csrf in JSON body"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with _csrf in JSON body: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: json body"
+fi
+
+# Test: csrf false route (bypass)
+RESP=$(curl -s -X POST $CSRF_URL/csrf/unprotected)
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} csrf false route bypasses protection"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} csrf false route bypasses protection: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: bypass"
+fi
+
+# Test: POST with _csrf query param
+RESP=$(curl -s -b $CSRF_COOKIES -X POST "$CSRF_URL/csrf/protected?_csrf=$CSRF_TOKEN")
+if echo "$RESP" | jq -e '.pass == true' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} POST with _csrf query parameter"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} POST with _csrf query parameter: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  csrf: query param"
+fi
+
+# Cleanup CSRF server
+kill -9 $CSRF_PID 2>/dev/null
+wait $CSRF_PID 2>/dev/null || true
+rm -f $CSRF_COOKIES
+rm -f ./csrf_server
+echo ""
+
 # Summary
 TOTAL=$((PASSED + FAILED + SKIPPED))
 echo "========================================"

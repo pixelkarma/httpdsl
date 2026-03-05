@@ -257,6 +257,15 @@ func (p *Parser) parseRouteStatement() Statement {
 		}
 	}
 
+	// Optional: csrf false (disable CSRF for this route)
+	if p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "csrf" {
+		p.nextToken() // skip 'csrf'
+		if p.curTokenIs(TOKEN_FALSE) {
+			stmt.CSRFDisabled = true
+			p.nextToken()
+		}
+	}
+
 	// Parse rest of body
 	block := &BlockStatement{Token: p.curTok}
 	for !p.curTokenIs(TOKEN_RBRACE) && !p.curTokenIs(TOKEN_EOF) {

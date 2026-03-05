@@ -44,6 +44,8 @@ type NativeCompiler struct {
 	sessionExpires int    // seconds, default 86400 (24h)
 	sessionSecret  string     // HMAC signing secret (literal)
 	sessionSecretExpr Expression // secret expression (e.g., env("..."))
+	csrfEnabled    bool
+	csrfSafeOrigins []string
 }
 
 type staticMount struct {
@@ -173,6 +175,20 @@ func GenerateNativeCode(program *Program) (string, error) {
 							} else {
 								c.sessionSecretExpr = p.Value
 							}
+						case "csrf":
+							if id, ok := p.Value.(*Identifier); ok && id.Value == "true" {
+								c.csrfEnabled = true
+							} else if bl, ok := p.Value.(*BooleanLiteral); ok && bl.Value {
+								c.csrfEnabled = true
+							}
+						case "csrf_safe_origins":
+							if arr, ok := p.Value.(*ArrayLiteral); ok {
+								for _, el := range arr.Elements {
+									if sv, ok := el.(*StringLiteral); ok {
+										c.csrfSafeOrigins = append(c.csrfSafeOrigins, sv.Value)
+									}
+								}
+							}
 						}
 					}
 				}
@@ -269,6 +285,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["store"] || len(c.shutdownBlocks) > 0 || c.sessionEnabled {
 		c.usedImports["os/signal"] = true
 		c.usedImports["syscall"] = true
+	}
+	if c.sessionEnabled && len(c.dbDrivers) == 0 {
+		c.usedImports["database/sql"] = true
 	}
 	if c.usedBuiltins["strtotime"] {
 		c.usedImports["strconv"] = true
@@ -2905,6 +2924,15 @@ func builtin_validate(args ...Value) Value {
 
 func (c *NativeCompiler) emitDBRuntime() {
 	if len(c.dbDrivers) == 0 {
+		// Emit stub dslDB type if sessions need it
+		if c.sessionEnabled {
+			c.raw(`
+type dslDB struct {
+	db     *sql.DB
+	driver string
+}
+`)
+		}
 		return
 	}
 	needSQL := c.dbDrivers["sqlite"] || c.dbDrivers["postgres"] || c.dbDrivers["mysql"]
@@ -3481,6 +3509,102 @@ func set_session_store(args ...Value) Value {
 	}()
 
 	return null
+}
+`)
+
+	// CSRF runtime
+	if c.csrfEnabled {
+		c.emitCSRFRuntime()
+	}
+}
+
+func (c *NativeCompiler) emitCSRFRuntime() {
+	// Emit safe origins slice
+	originsStr := "var _csrfSafeOrigins = []string{}"
+	if len(c.csrfSafeOrigins) > 0 {
+		parts := make([]string, len(c.csrfSafeOrigins))
+		for i, o := range c.csrfSafeOrigins {
+			parts[i] = fmt.Sprintf("%q", o)
+		}
+		originsStr = fmt.Sprintf("var _csrfSafeOrigins = []string{%s}", strings.Join(parts, ", "))
+	}
+	c.ln(originsStr)
+	c.raw(`
+func csrfToken(sessData map[string]Value) Value {
+	if tok, ok := sessData["_csrf_token"]; ok {
+		if s, ok := tok.(string); ok && s != "" {
+			return Value(s)
+		}
+	}
+	// Generate new token
+	b := make([]byte, 32)
+	crand.Read(b)
+	tok := hex.EncodeToString(b)
+	sessData["_csrf_token"] = Value(tok)
+	return Value(tok)
+}
+
+func csrfField(sessData map[string]Value) Value {
+	tok := valueToString(csrfToken(sessData))
+	return Value(fmt.Sprintf(` + "`" + `<input type="hidden" name="_csrf" value="%s">` + "`" + `, tok))
+}
+
+func csrfValidate(r *http.Request, sessData map[string]Value, bodyStr string) bool {
+	// Safe methods don't need CSRF
+	switch r.Method {
+	case "GET", "HEAD", "OPTIONS", "TRACE":
+		return true
+	}
+
+	// Check safe origins
+	if len(_csrfSafeOrigins) > 0 {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = r.Header.Get("Referer")
+		}
+		for _, safe := range _csrfSafeOrigins {
+			if strings.HasPrefix(origin, safe) {
+				return true
+			}
+		}
+	}
+
+	// Get expected token from session
+	expected := ""
+	if tok, ok := sessData["_csrf_token"]; ok {
+		expected = valueToString(tok)
+	}
+	if expected == "" {
+		return false
+	}
+
+	// Check token from header first
+	submitted := r.Header.Get("X-CSRF-Token")
+	if submitted == "" {
+		submitted = r.Header.Get("X-XSRF-Token")
+	}
+	// Check URL query parameter
+	if submitted == "" {
+		submitted = r.URL.Query().Get("_csrf")
+	}
+	// Check form body (already read)
+	if submitted == "" && bodyStr != "" {
+		vals, err := url.ParseQuery(bodyStr)
+		if err == nil {
+			submitted = vals.Get("_csrf")
+		}
+		// Also check JSON body
+		if submitted == "" {
+			var jsonBody map[string]interface{}
+			if json.Unmarshal([]byte(bodyStr), &jsonBody) == nil {
+				if tok, ok := jsonBody["_csrf"]; ok {
+					submitted = fmt.Sprintf("%v", tok)
+				}
+			}
+		}
+	}
+
+	return hmac.Equal([]byte(submitted), []byte(expected))
 }
 `)
 }
@@ -4166,6 +4290,8 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"redirect": true,
 		"server_stats": true,
 		"set_session_store": true,
+		"csrf_token": true,
+		"csrf_field": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -4381,6 +4507,10 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return "builtin_server_stats()"
 		case "set_session_store":
 			return fmt.Sprintf("set_session_store(%s)", argStr)
+		case "csrf_token":
+			return "csrfToken(_sessData)"
+		case "csrf_field":
+			return "csrfField(_sessData)"
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":
@@ -5022,6 +5152,19 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	if c.sessionEnabled {
 		c.ln("_sessID, _sessData, _ := sessionLoad(_r)")
 		c.ln("_sessDestroyed := false")
+	}
+
+	// CSRF validation
+	if c.csrfEnabled && !route.CSRFDisabled {
+		c.ln(`// CSRF protection`)
+		c.ln(`if !csrfValidate(_r, _sessData, _bodyStr) {`)
+		c.indent++
+		c.ln(`_w.Header().Set("Content-Type", "application/json")`)
+		c.ln(`_w.WriteHeader(403)`)
+		c.ln(`_w.Write([]byte("{\"error\":\"CSRF token mismatch\"}"))`)
+		c.ln(`return`)
+		c.indent--
+		c.ln(`}`)
 	}
 
 	// Build request object

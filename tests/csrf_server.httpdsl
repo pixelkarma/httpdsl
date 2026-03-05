@@ -1,0 +1,55 @@
+server {
+    port 9997
+    session {
+        cookie "csrf_sid"
+        expires 1 h
+        secret "csrf-test-secret"
+        csrf true
+    }
+}
+
+// results helper is inline - use response.body = ... directly
+
+fn assert_eq(actual, expected, name) {
+    if actual == expected {
+        return { pass: true, test: name }
+    }
+    return { pass: false, test: name, expected: expected, actual: actual }
+}
+
+fn assert_true(val, name) {
+    return assert_eq(val, true, name)
+}
+
+// GET: returns csrf token and field
+route GET "/csrf/token" {
+    token = csrf_token()
+    field = csrf_field()
+    response.body = {
+        token: token,
+        field: field,
+        has_token: len(token) > 0,
+        has_field: contains(field, "_csrf")
+    }
+}
+
+// POST: protected by CSRF (default)
+route POST "/csrf/protected" {
+    response.body = assert_true(true, "csrf protected route reached")
+}
+
+// POST: csrf disabled
+route POST "/csrf/unprotected" {
+    csrf false
+    response.body = assert_true(true, "csrf unprotected route reached")
+}
+
+// GET: safe method (no CSRF check)
+route GET "/csrf/safe" {
+    response.body = assert_true(true, "GET is csrf-safe")
+}
+
+// POST: test with JSON body
+route POST "/csrf/json" {
+    response.body = assert_eq(request.data.name, "test", "json body with csrf")
+}

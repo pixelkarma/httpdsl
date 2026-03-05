@@ -35,9 +35,10 @@ type RouteStatement struct {
 	Path      string
 	Params    []string        // extracted :param names from path
 	TypeCheck string          // "json", "text", "form", or "" (auto-detect)
-	Timeout   int             // per-route timeout in seconds (0 = use server default)
-	Body      *BlockStatement
-	ElseBlock *BlockStatement // runs on type mismatch or uncaught errors
+	Timeout      int             // per-route timeout in seconds (0 = use server default)
+	CSRFDisabled bool            // csrf false on this route
+	Body         *BlockStatement
+	ElseBlock    *BlockStatement // runs on type mismatch or uncaught errors
 }
 
 func (s *RouteStatement) statementNode()       {}
