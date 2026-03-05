@@ -2179,6 +2179,25 @@ route GET "test/auth/basic-empty" {
     ])
 }
 
+// ===== Store TTL test =====
+route GET "test/store/ttl-set" {
+    store.set("ttl_key", "expires_soon", 2)
+    store.set("no_ttl_key", "stays")
+    response.body = results([
+        assert_eq(store.get("ttl_key"), "expires_soon", "ttl key set"),
+        assert_eq(store.has("ttl_key"), true, "ttl key exists"),
+        assert_eq(store.get("no_ttl_key"), "stays", "no-ttl key set")
+    ])
+}
+
+route GET "test/store/ttl-expired" {
+    response.body = results([
+        assert_eq(store.get("ttl_key"), null, "ttl key expired"),
+        assert_eq(store.has("ttl_key"), false, "ttl key gone"),
+        assert_eq(store.get("no_ttl_key"), "stays", "no-ttl key still here")
+    ])
+}
+
 // ===== Cron scheduling test =====
 route GET "test/cron/status" {
     response.body = results([

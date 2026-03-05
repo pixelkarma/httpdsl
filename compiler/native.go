@@ -637,9 +637,9 @@ func storeSync(args ...Value) Value {
 		if err := rows.Scan(&k, &v); err != nil { continue }
 		var parsed interface{}
 		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
-			globalStore.data[k] = goToValue(parsed)
+			globalStore.data[k] = storeEntry{value: goToValue(parsed)}
 		} else {
-			globalStore.data[k] = Value(v)
+			globalStore.data[k] = storeEntry{value: Value(v)}
 		}
 	}
 	globalStore.synced = true
@@ -669,7 +669,7 @@ func storeSync(args ...Value) Value {
 		}
 		dirty := make(map[string]Value, len(globalStore.dirtyKeys))
 		for k := range globalStore.dirtyKeys {
-			if v, ok := globalStore.data[k]; ok { dirty[k] = v }
+			if e, ok := globalStore.data[k]; ok { dirty[k] = e.value }
 		}
 		deleted := make(map[string]bool, len(globalStore.deletedKeys))
 		for k := range globalStore.deletedKeys { deleted[k] = true }
@@ -1375,30 +1375,48 @@ var _ = context.Background
 	if c.usedBuiltins["store"] {
 		c.raw(`
 // Concurrent store with optional persistence
+type storeEntry struct {
+	value   Value
+	expires int64 // unix timestamp, 0 = no expiry
+}
+
 type concurrentStore struct {
 	mu          sync.RWMutex
-	data        map[string]Value
+	data        map[string]storeEntry
 	dirtyKeys   map[string]bool
 	deletedKeys map[string]bool
 	synced      bool
 }
 var globalStore = &concurrentStore{
-	data:        make(map[string]Value),
+	data:        make(map[string]storeEntry),
 	dirtyKeys:   make(map[string]bool),
 	deletedKeys: make(map[string]bool),
 }
 var _storeFlush func() // set by store.sync for graceful shutdown
 
+func storeExpired(e storeEntry) bool {
+	return e.expires > 0 && e.expires < time.Now().Unix()
+}
+
 func storeGet(key string, def Value) Value {
 	globalStore.mu.RLock()
-	v, ok := globalStore.data[key]
+	e, ok := globalStore.data[key]
 	globalStore.mu.RUnlock()
 	if !ok { return def }
-	return v
+	if storeExpired(e) {
+		globalStore.mu.Lock()
+		delete(globalStore.data, key)
+		if globalStore.synced { globalStore.deletedKeys[key] = true }
+		globalStore.mu.Unlock()
+		return def
+	}
+	return e.value
 }
-func storeSet(key string, val Value) Value {
+func storeSet(key string, val Value, ttl int64) Value {
+	var expires int64
+	if ttl > 0 { expires = time.Now().Unix() + ttl }
 	globalStore.mu.Lock()
-	globalStore.data[key] = val
+	globalStore.data[key] = storeEntry{value: val, expires: expires}
 	globalStore.dirtyKeys[key] = true
 	delete(globalStore.deletedKeys, key)
 	globalStore.mu.Unlock()
@@ -1415,27 +1433,67 @@ func storeDelete(key string) {
 }
 func storeHas(key string) bool {
 	globalStore.mu.RLock()
-	_, ok := globalStore.data[key]
+	e, ok := globalStore.data[key]
 	globalStore.mu.RUnlock()
-	return ok
+	if !ok { return false }
+	if storeExpired(e) {
+		globalStore.mu.Lock()
+		delete(globalStore.data, key)
+		if globalStore.synced { globalStore.deletedKeys[key] = true }
+		globalStore.mu.Unlock()
+		return false
+	}
+	return true
 }
 func storeAll() map[string]Value {
+	now := time.Now().Unix()
 	globalStore.mu.RLock()
 	r := make(map[string]Value, len(globalStore.data))
-	for k, v := range globalStore.data { r[k] = v }
+	for k, e := range globalStore.data {
+		if e.expires == 0 || e.expires >= now {
+			r[k] = e.value
+		}
+	}
 	globalStore.mu.RUnlock()
 	return r
 }
-func storeIncr(key string, amount int64) int64 {
+func storeIncr(key string, amount int64, ttl int64) int64 {
 	globalStore.mu.Lock()
 	defer globalStore.mu.Unlock()
-	cur, _ := globalStore.data[key]
+	e, exists := globalStore.data[key]
 	var n int64
-	if ci, ok := cur.(int64); ok { n = ci + amount } else { n = amount }
-	globalStore.data[key] = n
+	if exists && !storeExpired(e) {
+		if ci, ok := e.value.(int64); ok { n = ci + amount } else { n = amount }
+	} else {
+		n = amount
+	}
+	var expires int64
+	if ttl > 0 {
+		expires = time.Now().Unix() + ttl
+	} else if exists && e.expires > 0 {
+		expires = e.expires // preserve existing TTL
+	}
+	globalStore.data[key] = storeEntry{value: Value(n), expires: expires}
 	globalStore.dirtyKeys[key] = true
 	delete(globalStore.deletedKeys, key)
 	return n
+}
+
+func init() {
+	// Sweep expired store entries every 60 seconds
+	go func() {
+		for range time.NewTicker(60 * time.Second).C {
+			now := time.Now().Unix()
+			globalStore.mu.Lock()
+			for k, e := range globalStore.data {
+				if e.expires > 0 && e.expires < now {
+					delete(globalStore.data, k)
+					if globalStore.synced { globalStore.deletedKeys[k] = true }
+				}
+			}
+			globalStore.mu.Unlock()
+		}
+	}()
 }
 `)
 		if len(c.dbDrivers) > 0 {
@@ -4768,8 +4826,10 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 					}
 					return "null"
 				case "set":
-					if len(args) >= 2 {
-						return fmt.Sprintf("storeSet(valueToString(%s), %s)", args[0], args[1])
+					if len(args) >= 3 {
+						return fmt.Sprintf("storeSet(valueToString(%s), %s, toInt64(%s))", args[0], args[1], args[2])
+					} else if len(args) >= 2 {
+						return fmt.Sprintf("storeSet(valueToString(%s), %s, 0)", args[0], args[1])
 					}
 					return "null"
 				case "delete":
@@ -4785,10 +4845,12 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				case "all":
 					return "storeAll()"
 				case "incr":
-					if len(args) >= 2 {
-						return fmt.Sprintf("Value(storeIncr(valueToString(%s), toInt64(%s)))", args[0], args[1])
+					if len(args) >= 3 {
+						return fmt.Sprintf("Value(storeIncr(valueToString(%s), toInt64(%s), toInt64(%s)))", args[0], args[1], args[2])
+					} else if len(args) >= 2 {
+						return fmt.Sprintf("Value(storeIncr(valueToString(%s), toInt64(%s), 0))", args[0], args[1])
 					} else if len(args) == 1 {
-						return fmt.Sprintf("Value(storeIncr(valueToString(%s), 1))", args[0])
+						return fmt.Sprintf("Value(storeIncr(valueToString(%s), 1, 0))", args[0])
 					}
 					return "Value(int64(0))"
 				case "sync":

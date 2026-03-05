@@ -869,6 +869,13 @@ run_test GET /test/auth/basic-empty
 echo ""
 
 # Cron scheduling
+# Store TTL
+echo "Store TTL:"
+run_test GET /test/store/ttl-set
+sleep 3
+run_test GET /test/store/ttl-expired
+echo ""
+
 echo "Cron:"
 run_test GET /test/cron/status
 echo ""
