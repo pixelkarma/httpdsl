@@ -13,10 +13,13 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: httpdsl <command> <file.httpdsl or directory>")
+		fmt.Println("Usage: httpdsl <command> [path]")
 		fmt.Println("Commands:")
-		fmt.Println("  run <file>    Compile and run (requires Go)")
-		fmt.Println("  build <file>  Compile to native binary (requires Go)")
+		fmt.Println("  run [path]    Compile and run (requires Go)")
+		fmt.Println("  build [path]  Compile to native binary (requires Go)")
+		fmt.Println("")
+		fmt.Println("If no path given, looks for app.httpdsl in current directory")
+		fmt.Println("and recursively includes all .httpdsl files.")
 		os.Exit(1)
 	}
 
@@ -25,19 +28,19 @@ func main() {
 
 	switch cmd {
 	case "build":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: httpdsl build <file.httpdsl>")
-			os.Exit(1)
+		if len(os.Args) >= 3 {
+			target = os.Args[2]
+		} else {
+			target = resolveDefault()
 		}
-		target = os.Args[2]
 		program := parseFiles(target)
 		doBuild(program, target)
 	case "run":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: httpdsl run <file.httpdsl>")
-			os.Exit(1)
+		if len(os.Args) >= 3 {
+			target = os.Args[2]
+		} else {
+			target = resolveDefault()
 		}
-		target = os.Args[2]
 		program := parseFiles(target)
 		doRun(program, target)
 	default:
@@ -45,6 +48,18 @@ func main() {
 		program := parseFiles(target)
 		doRun(program, target)
 	}
+}
+
+// resolveDefault finds the project root by looking for app.httpdsl
+func resolveDefault() string {
+	// Check current directory for app.httpdsl
+	if _, err := os.Stat("app.httpdsl"); err == nil {
+		return "."
+	}
+	fmt.Fprintln(os.Stderr, "No app.httpdsl found in current directory.")
+	fmt.Fprintln(os.Stderr, "Create app.httpdsl or specify a path: httpdsl build <path>")
+	os.Exit(1)
+	return ""
 }
 
 func parseFiles(target string) *compiler.Program {
@@ -56,18 +71,43 @@ func parseFiles(target string) *compiler.Program {
 	}
 
 	if info.IsDir() {
-		entries, _ := os.ReadDir(target)
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".httpdsl") {
-				sources = append(sources, filepath.Join(target, e.Name()))
-			}
-		}
-		if len(sources) == 0 {
-			fmt.Fprintf(os.Stderr, "No .httpdsl files found in %s\n", target)
+		// Require app.httpdsl in the directory
+		appFile := filepath.Join(target, "app.httpdsl")
+		if _, err := os.Stat(appFile); err != nil {
+			fmt.Fprintf(os.Stderr, "No app.httpdsl found in %s\n", target)
+			fmt.Fprintln(os.Stderr, "Create app.httpdsl with your server {} block.")
 			os.Exit(1)
 		}
+
+		// app.httpdsl goes first (has server config)
+		sources = append(sources, appFile)
+
+		// Recursively find all other .httpdsl files
+		filepath.Walk(target, func(path string, fi os.FileInfo, err error) error {
+			if err != nil { return nil }
+			if fi.IsDir() { return nil }
+			if !strings.HasSuffix(fi.Name(), ".httpdsl") { return nil }
+			abs, _ := filepath.Abs(path)
+			appAbs, _ := filepath.Abs(appFile)
+			if abs != appAbs {
+				sources = append(sources, path)
+			}
+			return nil
+		})
 	} else {
+		// Single file mode — check if there are sibling .httpdsl files
+		dir := filepath.Dir(target)
+		base := filepath.Base(target)
+		if base == "app.httpdsl" {
+			// Treat as project root, load all files
+			return parseFiles(dir)
+		}
 		sources = []string{target}
+	}
+
+	if len(sources) == 0 {
+		fmt.Fprintf(os.Stderr, "No .httpdsl files found\n")
+		os.Exit(1)
 	}
 
 	program := &compiler.Program{}
@@ -200,7 +240,14 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 	} else {
 		base := strings.TrimSuffix(filepath.Base(target), ".httpdsl")
 		if base == "" || base == "." {
-			base = "server"
+			// Use current directory name as binary name
+			wd, _ := filepath.Abs(target)
+			base = filepath.Base(wd)
+		}
+		if base == "app" {
+			// If target was app.httpdsl, use directory name
+			wd, _ := filepath.Abs(filepath.Dir(target))
+			base = filepath.Base(wd)
 		}
 		outputPath, _ = filepath.Abs(base)
 		if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
