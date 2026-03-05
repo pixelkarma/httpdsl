@@ -33,7 +33,8 @@ echo ""
 # Start server
 $BIN &
 SRV_PID=$!
-trap "kill $SRV_PID 2>/dev/null; rm -f ../test_server" EXIT
+trap "kill -TERM $SRV_PID 2>/dev/null; rm -f ../test_server" EXIT
+rm -f /tmp/httpdsl_shutdown_proof.txt
 sleep 1
 
 # Check server is up
@@ -762,6 +763,28 @@ echo "Error handlers:"
     fi
     rm -f /tmp/err404_resp.json
 }
+echo ""
+
+# Shutdown test — kill server gracefully and check proof file
+echo "Shutdown:"
+kill -TERM $SRV_PID 2>/dev/null
+sleep 2
+if [[ -f /tmp/httpdsl_shutdown_proof.txt ]]; then
+    content=$(cat /tmp/httpdsl_shutdown_proof.txt)
+    if [[ "$content" == "shutdown_ok" ]]; then
+        echo -e "  ${GREEN}PASS${NC} shutdown block executed"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} shutdown block (wrong content: $content)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  shutdown block"
+    fi
+    rm -f /tmp/httpdsl_shutdown_proof.txt
+else
+    echo -e "  ${RED}FAIL${NC} shutdown block (proof file not found)"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  shutdown block"
+fi
 echo ""
 
 # Summary

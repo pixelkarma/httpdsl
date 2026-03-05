@@ -37,6 +37,7 @@ type NativeCompiler struct {
 	staticMounts   []staticMount // static file serving
 	everyBlocks    []*EveryStatement
 	initBlocks     []*BlockStatement
+	shutdownBlocks []*BlockStatement
 	globalVars     map[string]bool // variables declared in init blocks
 }
 
@@ -102,6 +103,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 			for name := range c.collectVars(s.Body) {
 				c.globalVars[name] = true
 			}
+		case *ShutdownStatement:
+			c.shutdownBlocks = append(c.shutdownBlocks, s.Body)
+			c.scanBlock(s.Body)
 		case *ServerStatement:
 			if pe, ok := s.Settings["port"]; ok {
 				if lit, ok := pe.(*IntegerLiteral); ok {
@@ -233,7 +237,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["server_stats"] {
 		c.usedImports["runtime"] = true
 	}
-	if c.usedBuiltins["store"] {
+	if c.usedBuiltins["store"] || len(c.shutdownBlocks) > 0 {
 		c.usedImports["os/signal"] = true
 		c.usedImports["syscall"] = true
 	}
@@ -421,6 +425,8 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 	case *EveryStatement:
 		c.detectDBInBlock(s.Body)
 	case *InitStatement:
+		c.detectDBInBlock(s.Body)
+	case *ShutdownStatement:
 		c.detectDBInBlock(s.Body)
 	case *FnStatement:
 		c.detectDBInBlock(s.Body)
@@ -625,13 +631,8 @@ func storeSync(args ...Value) Value {
 		for range ticker.C { flush() }
 	}()
 
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-		<-sigCh
-		flush()
-		os.Exit(0)
-	}()
+	// Store the flush func globally so shutdown can call it
+	_storeFlush = flush
 
 	return null
 }
@@ -1309,6 +1310,7 @@ var globalStore = &concurrentStore{
 	dirtyKeys:   make(map[string]bool),
 	deletedKeys: make(map[string]bool),
 }
+var _storeFlush func() // set by store.sync for graceful shutdown
 
 func storeGet(key string, def Value) Value {
 	globalStore.mu.RLock()
@@ -4387,6 +4389,38 @@ func (c *NativeCompiler) emitMain() {
 	if c.gzipEnabled {
 		c.ln("handler = gzipMiddleware(handler)")
 	}
+
+	// Graceful shutdown handler
+	if len(c.shutdownBlocks) > 0 || c.usedBuiltins["store"] {
+		c.ln("// Graceful shutdown")
+		c.ln("go func() {")
+		c.indent++
+		c.ln("_sigCh := make(chan os.Signal, 1)")
+		c.ln("signal.Notify(_sigCh, os.Interrupt, syscall.SIGTERM)")
+		c.ln("<-_sigCh")
+		c.ln(`fmt.Println("\nShutting down...")`)
+		// Emit user shutdown blocks
+		if len(c.shutdownBlocks) > 0 {
+			for _, block := range c.shutdownBlocks {
+				vars := c.collectVars(block)
+				for name := range vars {
+					if !c.globalVars[name] {
+						c.lnf("var %s Value = null", safeIdent(name))
+					}
+				}
+				c.emitBlock(block, false)
+			}
+		}
+		// Flush store if synced
+		if c.usedBuiltins["store"] {
+			c.ln("if _storeFlush != nil { _storeFlush() }")
+		}
+		c.ln("os.Exit(0)")
+		c.indent--
+		c.ln("}()")
+		c.ln("")
+	}
+
 	c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
 
 	c.indent++

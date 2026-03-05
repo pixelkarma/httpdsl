@@ -155,6 +155,10 @@ func (p *Parser) parseStatement() Statement {
 		if p.curTok.Literal == "init" && p.peekTokenIs(TOKEN_LBRACE) {
 			return p.parseInitStatement()
 		}
+		// shutdown { ... } — contextual keyword
+		if p.curTok.Literal == "shutdown" && p.peekTokenIs(TOKEN_LBRACE) {
+			return p.parseShutdownStatement()
+		}
 		// before { ... } — contextual keyword
 		if p.curTok.Literal == "before" && p.peekTokenIs(TOKEN_LBRACE) {
 			return p.parseBeforeStatement()
@@ -311,6 +315,17 @@ func (p *Parser) parseInitStatement() Statement {
 	p.nextToken() // skip 'init'
 	if !p.curTokenIs(TOKEN_LBRACE) {
 		p.addError("expected '{' after init, got %s", p.curTok.Type)
+		return nil
+	}
+	stmt.Body = p.parseBlockStatement()
+	return stmt
+}
+
+func (p *Parser) parseShutdownStatement() Statement {
+	stmt := &ShutdownStatement{Token: p.curTok}
+	p.nextToken() // skip 'shutdown'
+	if !p.curTokenIs(TOKEN_LBRACE) {
+		p.addError("expected '{' after shutdown, got %s", p.curTok.Type)
 		return nil
 	}
 	stmt.Body = p.parseBlockStatement()

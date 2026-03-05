@@ -17,6 +17,11 @@ init {
     store.sync(test_db, "test_state", 2)
 }
 
+// ===== Shutdown block =====
+shutdown {
+    file.write("/tmp/httpdsl_shutdown_proof.txt", "shutdown_ok")
+}
+
 // ===== Scheduled tasks =====
 every 1 s {
     store.incr("scheduled_tick", 1)
