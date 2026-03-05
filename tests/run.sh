@@ -89,6 +89,29 @@ run_test() {
     fi
 }
 
+check_pass() {
+    local resp="$1"
+    local display="$2"
+    local pass
+    pass=$(echo "$resp" | jq -r '.pass' 2>/dev/null)
+    if [[ "$pass" == "true" ]]; then
+        local check_count
+        check_count=$(echo "$resp" | jq '.checks | length' 2>/dev/null)
+        echo -e "  ${GREEN}PASS${NC} $display ($check_count checks)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display"
+        echo "$resp" | jq -c '.checks[] | select(.pass == false)' 2>/dev/null | while read -r check; do
+            local tname=$(echo "$check" | jq -r '.test')
+            local expected=$(echo "$check" | jq -r '.expected')
+            local actual=$(echo "$check" | jq -r '.actual')
+            echo -e "         ${RED}✗${NC} $tname: expected=$expected actual=$actual"
+        done
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+
 run_redirect_test() {
     local path="$1"
     local url="$BASE$path"
@@ -829,6 +852,20 @@ echo "Error handlers:"
     fi
     rm -f /tmp/err404_resp.json
 }
+echo ""
+
+# Auth header parsing
+echo "Auth:"
+
+RESP=$(curl -sf -H "Authorization: Bearer my-jwt-token" "$BASE/test/auth/bearer" 2>/dev/null)
+check_pass "$RESP" "GET /test/auth/bearer"
+
+run_test GET /test/auth/bearer-empty
+
+RESP=$(curl -sf -H "Authorization: Basic YWxpY2U6c2VjcmV0MTIz" "$BASE/test/auth/basic" 2>/dev/null)
+check_pass "$RESP" "GET /test/auth/basic"
+
+run_test GET /test/auth/basic-empty
 echo ""
 
 # Shutdown test — kill server gracefully and check proof file

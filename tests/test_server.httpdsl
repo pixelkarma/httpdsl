@@ -2146,3 +2146,30 @@ route GET "test/server-stats" {
 route GET "test/cors/details" {
     response.body = { ok: true }
 }
+
+// ===== Auth header parsing =====
+route GET "test/auth/bearer" {
+    response.body = results([
+        assert_eq(request.bearer, "my-jwt-token", "bearer extracted"),
+        assert_eq(type(request.bearer), "string", "bearer is string")
+    ])
+}
+
+route GET "test/auth/bearer-empty" {
+    response.body = results([
+        assert_eq(request.bearer, "", "bearer empty when missing")
+    ])
+}
+
+route GET "test/auth/basic" {
+    response.body = results([
+        assert_eq(request.basic.username, "alice", "basic username"),
+        assert_eq(request.basic.password, "secret123", "basic password")
+    ])
+}
+
+route GET "test/auth/basic-empty" {
+    response.body = results([
+        assert_eq(request.basic, null, "basic null when missing")
+    ])
+}

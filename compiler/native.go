@@ -5346,6 +5346,28 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		c.ln(`}`)
 	}
 
+	// Parse Authorization header
+	c.ln(`var _bearer Value = Value("")`)
+	c.ln(`var _basic Value = null`)
+	c.ln(`if _authH := _r.Header.Get("Authorization"); _authH != "" {`)
+	c.indent++
+	c.ln(`if strings.HasPrefix(_authH, "Bearer ") { _bearer = Value(_authH[7:]) }`)
+	c.ln(`if strings.HasPrefix(_authH, "Basic ") {`)
+	c.indent++
+	c.ln(`if _decoded, _err := base64.StdEncoding.DecodeString(_authH[6:]); _err == nil {`)
+	c.indent++
+	c.ln(`if _idx := strings.IndexByte(string(_decoded), ':'); _idx >= 0 {`)
+	c.indent++
+	c.ln(`_basic = Value(map[string]Value{"username": Value(string(_decoded[:_idx])), "password": Value(string(_decoded[_idx+1:]))})`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}`)
+
 	// Build request object
 	c.ln("request := Value(map[string]Value{")
 	c.indent++
@@ -5359,11 +5381,14 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.ln("\"cookies\": Value(_reqCookies),")
 	c.ln("\"ip\":      Value(_clientIP),")
 	c.ln("\"files\":   _reqFiles,")
+	c.ln("\"bearer\":  _bearer,")
+	c.ln("\"basic\":   _basic,")
 	if c.sessionEnabled {
 		c.ln("\"session\": Value(_sessData),")
 	}
 	c.indent--
 	c.ln("})")
+
 
 	// Build response object
 	c.ln("response := Value(map[string]Value{")
