@@ -25,6 +25,7 @@ type NativeCompiler struct {
 	corsHeaders    string // CORS: allowed headers
 	errorHandlers  []*ErrorStatement
 	inRouteHandler bool // true when emitting code inside a route/error handler
+	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -61,6 +62,11 @@ func GenerateNativeCode(program *Program) (string, error) {
 			if pe, ok := s.Settings["port"]; ok {
 				if lit, ok := pe.(*IntegerLiteral); ok {
 					c.port = int(lit.Value)
+				}
+			}
+			if te, ok := s.Settings["throttle_requests_per_second"]; ok {
+				if lit, ok := te.(*IntegerLiteral); ok {
+					c.throttleRPS = int(lit.Value)
 				}
 			}
 			// CORS config
@@ -734,6 +740,7 @@ type routeSeg struct {
 type dslRouter struct {
 	routes        []routeEntry
 	errorHandlers map[int]http.HandlerFunc
+	limiter       *rateLimiter
 }
 
 func (rt *dslRouter) add(method, pattern string, h http.HandlerFunc) {
@@ -752,6 +759,21 @@ func (rt *dslRouter) add(method, pattern string, h http.HandlerFunc) {
 }
 
 func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Rate limiting — checked before anything else
+	if rt.limiter != nil {
+		ip := r.RemoteAddr
+		if idx := strings.LastIndex(ip, ":"); idx != -1 { ip = ip[:idx] }
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			ip = strings.TrimSpace(strings.Split(xff, ",")[0])
+		}
+		if !rt.limiter.allow(ip) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(429)
+			w.Write([]byte("{\"error\":\"too many requests\"}"))
+			return
+		}
+	}
 	path := strings.Trim(r.URL.Path, "/")
 	parts := strings.Split(path, "/")
 	for _, route := range rt.routes {
@@ -786,6 +808,62 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 	w.Write([]byte("{\"error\":\"not found\"}"))
+}
+
+// Per-IP rate limiter (token bucket)
+type ipBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*ipBucket
+	rate    float64 // tokens per second
+	burst   float64 // max tokens (= rate, so 1 second burst)
+}
+
+func newRateLimiter(rps int) *rateLimiter {
+	rl := &rateLimiter{
+		buckets: make(map[string]*ipBucket),
+		rate:    float64(rps),
+		burst:   float64(rps),
+	}
+	// Cleanup stale entries every 60s
+	go func() {
+		for {
+			time.Sleep(60 * time.Second)
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, b := range rl.buckets {
+				if now.Sub(b.last) > 5*time.Minute {
+					delete(rl.buckets, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	b, ok := rl.buckets[ip]
+	if !ok {
+		rl.buckets[ip] = &ipBucket{tokens: rl.burst - 1, last: now}
+		return true
+	}
+	elapsed := now.Sub(b.last).Seconds()
+	b.tokens += elapsed * rl.rate
+	if b.tokens > rl.burst { b.tokens = rl.burst }
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }
 
 // Throw support
@@ -3268,6 +3346,9 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("func main() {")
 	c.indent++
 	c.ln("rt := &dslRouter{errorHandlers: make(map[int]http.HandlerFunc)}")
+	if c.throttleRPS > 0 {
+		c.lnf("rt.limiter = newRateLimiter(%d)", c.throttleRPS)
+	}
 	c.ln("")
 
 	for _, route := range c.routes {

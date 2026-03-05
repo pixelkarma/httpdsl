@@ -482,6 +482,8 @@ func (p *Parser) parseServerStatement() Statement {
 				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
 				stmt.Settings["cors"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(corsMap)}
 			} else {
+				// Allow optional '=' for settings: both "port 8080" and "port = 8080"
+				if p.curTokenIs(TOKEN_ASSIGN) { p.nextToken() }
 				val := p.parseExpression(PREC_LOWEST)
 				stmt.Settings[key] = val
 			}
