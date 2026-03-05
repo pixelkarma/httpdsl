@@ -295,6 +295,181 @@ run_test GET /test/sqlite/types
 run_test GET /test/sqlite/empty
 echo ""
 
+# Builtin tests
+echo "Builtins:"
+run_test GET /test/builtins/type-fn
+run_test GET /test/builtins/reduce
+run_test GET /test/builtins/has-keys-values
+run_test GET /test/builtins/index-of
+run_test GET /test/builtins/starts-ends
+run_test GET /test/builtins/repeat-fn
+run_test GET /test/builtins/delete-fn
+run_test GET /test/builtins/json-parse-stringify
+run_test GET /test/builtins/date-parse
+run_test GET /test/builtins/env-fn
+run_test GET /test/builtins/sleep-fn
+run_test GET /test/builtins/now-fns
+echo ""
+
+# Operator tests
+echo "Operators:"
+run_test GET /test/operators/compound-assign
+run_test GET /test/operators/modulo
+run_test GET /test/operators/string-concat
+run_test GET /test/operators/comparisons
+run_test GET /test/operators/logical
+echo ""
+
+# Response type tests
+echo "Response types:"
+{
+    display="GET /test/response/text"
+    body=$(curl -sf -D /tmp/resp_text_hdrs.txt "$BASE/test/response/text" 2>/dev/null)
+    ct=$(grep -i '^content-type:' /tmp/resp_text_hdrs.txt | tr -d '\r')
+    rm -f /tmp/resp_text_hdrs.txt
+    if echo "$ct" | grep -qi 'text/plain' && [[ "$body" == "plain text response" ]]; then
+        echo -e "  ${GREEN}PASS${NC} $display (content-type + body)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (ct=$ct body=$body)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+{
+    display="GET /test/response/html"
+    body=$(curl -sf -D /tmp/resp_html_hdrs.txt "$BASE/test/response/html" 2>/dev/null)
+    ct=$(grep -i '^content-type:' /tmp/resp_html_hdrs.txt | tr -d '\r')
+    rm -f /tmp/resp_html_hdrs.txt
+    if echo "$ct" | grep -qi 'text/html' && [[ "$body" == "<h1>Hello</h1>" ]]; then
+        echo -e "  ${GREEN}PASS${NC} $display (content-type + body)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (ct=$ct body=$body)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+{
+    display="GET /test/response/status"
+    status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/test/response/status" 2>/dev/null)
+    if [[ "$status" == "201" ]]; then
+        echo -e "  ${GREEN}PASS${NC} $display (HTTP 201)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (expected 201, got $status)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+{
+    display="GET /test/response/headers"
+    curl -sf -D /tmp/resp_hdrs.txt "$BASE/test/response/headers" > /dev/null 2>&1
+    x_custom=$(grep -i 'X-Custom' /tmp/resp_hdrs.txt | tr -d '\r')
+    x_reqid=$(grep -i 'X-Request-Id' /tmp/resp_hdrs.txt | tr -d '\r')
+    rm -f /tmp/resp_hdrs.txt
+    if echo "$x_custom" | grep -q 'test-value' && echo "$x_reqid" | grep -q 'abc-123'; then
+        echo -e "  ${GREEN}PASS${NC} $display (2 custom headers)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (X-Custom=$x_custom X-Request-Id=$x_reqid)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+{
+    display="GET /test/response/cookies"
+    curl -sf -D /tmp/resp_cookies.txt "$BASE/test/response/cookies" > /dev/null 2>&1
+    simple=$(grep -i 'Set-Cookie.*simple=hello' /tmp/resp_cookies.txt | head -1)
+    complex=$(grep -i 'Set-Cookie.*complex=world' /tmp/resp_cookies.txt | head -1)
+    rm -f /tmp/resp_cookies.txt
+    if [[ -n "$simple" && -n "$complex" ]]; then
+        checks=1
+        [[ -n "$complex" ]] && checks=$((checks + 1))
+        echo "$complex" | grep -qi 'HttpOnly' && checks=$((checks + 1))
+        echo -e "  ${GREEN}PASS${NC} $display ($checks checks)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (simple=$simple complex=$complex)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+echo ""
+
+# Request inspection tests
+echo "Request inspection:"
+run_raw_test "GET /test/request/headers" \
+    "$(curl -sf -H 'X-Test-Header: test-value' "$BASE/test/request/headers" 2>/dev/null)"
+run_raw_test "GET /test/request/ip" \
+    "$(curl -sf "$BASE/test/request/ip" 2>/dev/null)"
+run_raw_test "GET /test/request/cookies" \
+    "$(curl -sf -b 'session=abc123' "$BASE/test/request/cookies" 2>/dev/null)"
+echo ""
+
+# HTTP method tests
+echo "HTTP methods:"
+run_raw_test "PUT /test/methods/put" \
+    "$(curl -sf -X PUT "$BASE/test/methods/put" 2>/dev/null)"
+run_raw_test "DELETE /test/methods/delete" \
+    "$(curl -sf -X DELETE "$BASE/test/methods/delete" 2>/dev/null)"
+run_raw_test "PATCH /test/methods/patch" \
+    "$(curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"field":"updated"}' "$BASE/test/methods/patch" 2>/dev/null)"
+echo ""
+
+# Fetch tests
+echo "Fetch:"
+run_test GET /test/fetch/basic
+run_test GET /test/fetch/post
+echo ""
+
+# Error handling tests
+echo "Error handling:"
+run_test GET /test/errors/throw-catch
+run_test GET /test/errors/throw-object
+run_test GET /test/errors/nested-try
+echo ""
+
+# File I/O extras
+echo "File I/O extras:"
+run_test GET /test/io-extra/append
+run_test GET /test/io-extra/chmod
+echo ""
+
+# Async extras
+echo "Async extras:"
+run_test GET /test/async-extra/race
+run_test GET /test/async-extra/multi-await
+echo ""
+
+# CORS detail test
+echo "CORS details:"
+{
+    display="OPTIONS /test/cors/details"
+    curl -sf -X OPTIONS -D /tmp/cors_hdrs.txt -o /dev/null "$BASE/test/cors/details" 2>/dev/null
+    status=$(grep 'HTTP/' /tmp/cors_hdrs.txt | awk '{print $2}' | tr -d '\r')
+    origin=$(grep -i 'Access-Control-Allow-Origin' /tmp/cors_hdrs.txt | tr -d '\r')
+    methods=$(grep -i 'Access-Control-Allow-Methods' /tmp/cors_hdrs.txt | tr -d '\r')
+    allow_hdrs=$(grep -i 'Access-Control-Allow-Headers' /tmp/cors_hdrs.txt | tr -d '\r')
+    rm -f /tmp/cors_hdrs.txt
+    checks=0
+    ok=true
+    if echo "$origin" | grep -q '\*'; then checks=$((checks + 1)); else ok=false; fi
+    if echo "$methods" | grep -qi 'GET'; then checks=$((checks + 1)); else ok=false; fi
+    if echo "$methods" | grep -qi 'POST'; then checks=$((checks + 1)); else ok=false; fi
+    if echo "$allow_hdrs" | grep -qi 'Content-Type'; then checks=$((checks + 1)); else ok=false; fi
+    if [[ "$status" == "204" ]]; then checks=$((checks + 1)); else ok=false; fi
+    if $ok; then
+        echo -e "  ${GREEN}PASS${NC} $display ($checks checks)"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}FAIL${NC} $display (origin=$origin methods=$methods headers=$allow_hdrs status=$status)"
+        FAILED=$((FAILED + 1))
+        FAILURES="$FAILURES\n  $display"
+    fi
+}
+echo ""
+
 # Error handler tests
 echo "Error handlers:"
 {

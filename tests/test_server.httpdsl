@@ -106,7 +106,45 @@ route GET "tests" {
         "/test/sqlite/crud",
         "/test/sqlite/types",
         "/test/sqlite/empty",
-        "/test/error/404"
+        "/test/error/404",
+        "/test/builtins/type-fn",
+        "/test/builtins/reduce",
+        "/test/builtins/has-keys-values",
+        "/test/builtins/index-of",
+        "/test/builtins/starts-ends",
+        "/test/builtins/repeat-fn",
+        "/test/builtins/delete-fn",
+        "/test/builtins/json-parse-stringify",
+        "/test/builtins/date-parse",
+        "/test/builtins/env-fn",
+        "/test/builtins/sleep-fn",
+        "/test/builtins/now-fns",
+        "/test/operators/compound-assign",
+        "/test/operators/modulo",
+        "/test/operators/string-concat",
+        "/test/operators/comparisons",
+        "/test/operators/logical",
+        "GET /test/response/text",
+        "GET /test/response/html",
+        "GET /test/response/status",
+        "GET /test/response/headers",
+        "GET /test/response/cookies",
+        "GET /test/request/headers",
+        "GET /test/request/ip",
+        "GET /test/request/cookies",
+        "PUT /test/methods/put",
+        "DELETE /test/methods/delete",
+        "PATCH /test/methods/patch",
+        "GET /test/fetch/basic",
+        "GET /test/fetch/post",
+        "/test/errors/throw-catch",
+        "/test/errors/throw-object",
+        "/test/errors/nested-try",
+        "/test/io-extra/append",
+        "/test/io-extra/chmod",
+        "/test/async-extra/race",
+        "/test/async-extra/multi-await",
+        "GET /test/cors/details"
     ]
 }
 
@@ -857,4 +895,394 @@ group "/test/sqlite" {
             assert_eq(one, null, "query_one on empty returns null")
         ])
     }
+}
+
+// ===== Untested builtins =====
+group "/test/builtins" {
+    route GET "type-fn" {
+        response.body = results([
+            assert_eq(type(42), "int", "type int"),
+            assert_eq(type(3.14), "float", "type float"),
+            assert_eq(type("hi"), "string", "type string"),
+            assert_eq(type(true), "bool", "type bool"),
+            assert_eq(type(null), "null", "type null"),
+            assert_eq(type([1,2]), "array", "type array"),
+            assert_eq(type({a:1}), "object", "type object")
+        ])
+    }
+
+    route GET "reduce" {
+        nums = [1, 2, 3, 4, 5]
+        sum = reduce(nums, fn(acc, x) { return acc + x }, 0)
+        product = reduce(nums, fn(acc, x) { return acc * x }, 1)
+        response.body = results([
+            assert_eq(sum, 15, "reduce sum"),
+            assert_eq(product, 120, "reduce product")
+        ])
+    }
+
+    route GET "has-keys-values" {
+        obj = { name: "Alice", age: 30 }
+        k = keys(obj)
+        v = values(obj)
+        response.body = results([
+            assert_true(has(obj, "name"), "has existing key"),
+            assert_false(has(obj, "email"), "has missing key"),
+            assert_eq(len(k), 2, "keys count"),
+            assert_eq(len(v), 2, "values count")
+        ])
+    }
+
+    route GET "index-of" {
+        arr = [10, 20, 30, 40]
+        response.body = results([
+            assert_eq(index_of(arr, 20), 1, "index_of found"),
+            assert_eq(index_of(arr, 99), -1, "index_of not found"),
+            assert_eq(index_of("hello world", "world"), 6, "index_of string")
+        ])
+    }
+
+    route GET "starts-ends" {
+        s = "hello world"
+        response.body = results([
+            assert_true(starts_with(s, "hello"), "starts_with true"),
+            assert_false(starts_with(s, "world"), "starts_with false"),
+            assert_true(ends_with(s, "world"), "ends_with true"),
+            assert_false(ends_with(s, "hello"), "ends_with false")
+        ])
+    }
+
+    route GET "repeat-fn" {
+        response.body = results([
+            assert_eq(repeat("ab", 3), "ababab", "repeat string"),
+            assert_eq(repeat("x", 0), "", "repeat zero")
+        ])
+    }
+
+    route GET "delete-fn" {
+        obj = { a: 1, b: 2, c: 3 }
+        delete(obj, "b")
+        response.body = results([
+            assert_false(has(obj, "b"), "delete removes key"),
+            assert_eq(len(keys(obj)), 2, "delete reduces size")
+        ])
+    }
+
+    route GET "json-parse-stringify" {
+        encoded = json.stringify({ name: "Bob", age: 25 })
+        parsed = json.parse(encoded)
+        response.body = results([
+            assert_eq(type(encoded), "string", "stringify returns string"),
+            assert_eq(parsed.name, "Bob", "parse restores name"),
+            assert_eq(parsed.age, 25, "parse restores age"),
+            assert_eq(json.parse("invalid"), null, "parse invalid returns null")
+        ])
+    }
+
+    route GET "date-parse" {
+        ts = date_parse("2024-01-15", "2006-01-02")
+        response.body = results([
+            assert_true(ts > 0, "date_parse returns positive timestamp"),
+            assert_eq(date_parse("bad", "2006-01-02"), null, "date_parse bad input")
+        ])
+    }
+
+    route GET "env-fn" {
+        // PATH should always be set
+        path_val = env("PATH")
+        missing = env("HTTPDSL_NONEXISTENT_VAR")
+        with_default = env("HTTPDSL_NONEXISTENT_VAR", "fallback")
+        response.body = results([
+            assert_true(len(path_val) > 0, "env PATH exists"),
+            assert_eq(missing, null, "env missing returns null"),
+            assert_eq(with_default, "fallback", "env missing with default")
+        ])
+    }
+
+    route GET "sleep-fn" {
+        start = now_ms()
+        sleep(50)
+        elapsed = now_ms() - start
+        response.body = results([
+            assert_true(elapsed >= 40, "sleep at least 40ms")
+        ])
+    }
+
+    route GET "now-fns" {
+        ts = now()
+        ms = now_ms()
+        response.body = results([
+            assert_true(ts > 1700000000, "now returns recent unix timestamp"),
+            assert_true(ms > 1700000000000, "now_ms returns recent ms timestamp")
+        ])
+    }
+}
+
+// ===== Operator tests =====
+group "/test/operators" {
+    route GET "compound-assign" {
+        x = 10
+        x += 5
+        y = 20
+        y -= 8
+        response.body = results([
+            assert_eq(x, 15, "+= operator"),
+            assert_eq(y, 12, "-= operator")
+        ])
+    }
+
+    route GET "modulo" {
+        response.body = results([
+            assert_eq(10 % 3, 1, "modulo 10%3"),
+            assert_eq(15 % 5, 0, "modulo 15%5"),
+            assert_eq(7 % 2, 1, "modulo 7%2")
+        ])
+    }
+
+    route GET "string-concat" {
+        a = "hello"
+        b = " world"
+        response.body = results([
+            assert_eq(a + b, "hello world", "string concat"),
+            assert_eq("num: " + str(42), "num: 42", "string + int coercion")
+        ])
+    }
+
+    route GET "comparisons" {
+        response.body = results([
+            assert_true(1 < 2, "less than"),
+            assert_true(2 > 1, "greater than"),
+            assert_true(2 <= 2, "less than or equal"),
+            assert_true(3 >= 3, "greater than or equal"),
+            assert_true(1 != 2, "not equal"),
+            assert_true("a" < "b", "string less than")
+        ])
+    }
+
+    route GET "logical" {
+        response.body = results([
+            assert_true(true && true, "and true"),
+            assert_false(true && false, "and false"),
+            assert_true(true || false, "or true"),
+            assert_false(false || false, "or false"),
+            assert_true(!false, "not false"),
+            assert_false(!true, "not true")
+        ])
+    }
+}
+
+// ===== Response type tests =====
+route GET "test/response/text" {
+    response.type = "text"
+    response.body = "plain text response"
+}
+
+route GET "test/response/html" {
+    response.type = "html"
+    response.body = "<h1>Hello</h1>"
+}
+
+route GET "test/response/status" {
+    response.status = 201
+    response.body = { created: true }
+}
+
+route GET "test/response/headers" {
+    response.headers["X-Custom"] = "test-value"
+    response.headers["X-Request-Id"] = "abc-123"
+    response.body = { ok: true }
+}
+
+route GET "test/response/cookies" {
+    response.cookies["simple"] = "hello"
+    response.cookies["complex"] = {
+        value: "world",
+        path: "/test",
+        httpOnly: true,
+        maxAge: 3600
+    }
+    response.body = { ok: true }
+}
+
+// ===== Request inspection tests =====
+route GET "test/request/headers" {
+    ua = request.headers["user-agent"]
+    custom = request.headers["x-test-header"]
+    response.body = results([
+        assert_true(len(ua) > 0, "user-agent present"),
+        assert_eq(custom, "test-value", "custom header")
+    ])
+}
+
+route GET "test/request/ip" {
+    response.body = results([
+        assert_true(len(request.ip) > 0, "ip is present")
+    ])
+}
+
+route GET "test/request/cookies" {
+    val = request.cookies["session"]
+    response.body = results([
+        assert_eq(val, "abc123", "cookie value")
+    ])
+}
+
+// ===== HTTP method tests =====
+route PUT "test/methods/put" {
+    response.body = results([
+        assert_eq(request.method, "PUT", "method is PUT")
+    ])
+}
+
+route DELETE "test/methods/delete" {
+    response.body = results([
+        assert_eq(request.method, "DELETE", "method is DELETE")
+    ])
+}
+
+route PATCH "test/methods/patch" json {
+    response.body = results([
+        assert_eq(request.method, "PATCH", "method is PATCH"),
+        assert_eq(request.data.field, "updated", "patch body field")
+    ])
+} else {
+    response.status = 400
+    response.body = { pass: false, test: "patch", error: error }
+}
+
+// ===== Fetch tests (server fetches from itself) =====
+route GET "test/fetch/echo" {
+    response.body = { message: "echo", method: request.method }
+}
+
+route POST "test/fetch/echo" json {
+    response.body = { message: "echo", data: request.data }
+} else {
+    response.body = { message: "echo", data: null }
+}
+
+route GET "test/fetch/basic" {
+    resp = fetch(`http://localhost:${env("TEST_PORT", "9999")}/test/fetch/echo`)
+    response.body = results([
+        assert_eq(resp.status, 200, "fetch status"),
+        assert_eq(resp.body.message, "echo", "fetch body"),
+        assert_eq(resp.body.method, "GET", "fetch method")
+    ])
+}
+
+route GET "test/fetch/post" {
+    resp = fetch(`http://localhost:${env("TEST_PORT", "9999")}/test/fetch/echo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: { greeting: "hi" }
+    })
+    response.body = results([
+        assert_eq(resp.status, 200, "fetch POST status"),
+        assert_eq(resp.body.data.greeting, "hi", "fetch POST body")
+    ])
+}
+
+// ===== Error handling tests =====
+group "/test/errors" {
+    route GET "throw-catch" {
+        caught = null
+        try {
+            throw "custom error"
+        } catch(e) {
+            caught = e
+        }
+        response.body = results([
+            assert_eq(caught, "custom error", "catch gets thrown value")
+        ])
+    }
+
+    route GET "throw-object" {
+        caught = null
+        try {
+            throw { code: 42, message: "bad thing" }
+        } catch(e) {
+            caught = e
+        }
+        response.body = results([
+            assert_eq(caught.code, 42, "catch object code"),
+            assert_eq(caught.message, "bad thing", "catch object message")
+        ])
+    }
+
+    route GET "nested-try" {
+        outer = null
+        inner = null
+        try {
+            try {
+                throw "inner error"
+            } catch(e) {
+                inner = e
+                throw "outer error"
+            }
+        } catch(e) {
+            outer = e
+        }
+        response.body = results([
+            assert_eq(inner, "inner error", "inner catch"),
+            assert_eq(outer, "outer error", "outer catch")
+        ])
+    }
+}
+
+// ===== File I/O extras =====
+group "/test/io-extra" {
+    route GET "append" {
+        path = "/tmp/httpdsl_append_test.txt"
+        file.write(path, "line1\n")
+        file.append(path, "line2\n")
+        file.append(path, "line3\n")
+        content = file.read(path)
+        file.delete(path)
+        response.body = results([
+            assert_eq(content, "line1\nline2\nline3\n", "append content")
+        ])
+    }
+
+    route GET "chmod" {
+        path = "/tmp/httpdsl_chmod_test.txt"
+        file.write(path, "test")
+        file.chmod(path, "0755")
+        exists = file.exists(path)
+        file.delete(path)
+        response.body = results([
+            assert_true(exists, "chmod file exists")
+        ])
+    }
+}
+
+// ===== Async extras =====
+group "/test/async-extra" {
+    route GET "race" {
+        // race returns first resolved value
+        f1 = async 42
+        f2 = async 99
+        result = race(f1, f2)
+        response.body = results([
+            assert_true(result == 42 || result == 99, "race returns a result")
+        ])
+    }
+
+    route GET "multi-await" {
+        f1 = async 10
+        f2 = async 20
+        f3 = async 30
+        r1 = await(f1)
+        r2 = await(f2)
+        r3 = await(f3)
+        response.body = results([
+            assert_eq(r1, 10, "await first"),
+            assert_eq(r2, 20, "await second"),
+            assert_eq(r3, 30, "await third")
+        ])
+    }
+}
+
+// ===== CORS detail test =====
+route GET "test/cors/details" {
+    response.body = { ok: true }
 }
