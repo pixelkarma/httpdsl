@@ -715,6 +715,11 @@ else
 fi
 echo ""
 
+# Server stats test
+echo "Server stats:"
+run_test GET /test/server-stats
+echo ""
+
 # Init block tests
 echo "Init blocks:"
 run_test GET /test/init/basic

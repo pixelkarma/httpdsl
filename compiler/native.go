@@ -230,6 +230,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["file"] {
 		c.usedImports["os"] = true
 	}
+	if c.usedBuiltins["server_stats"] {
+		c.usedImports["runtime"] = true
+	}
 	if c.usedBuiltins["strtotime"] {
 		c.usedImports["strconv"] = true
 	}
@@ -476,7 +479,7 @@ func (c *NativeCompiler) emitHeader() {
 	stdlib := []string{"bytes", "compress/gzip", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
-		"os", "path/filepath", "regexp", "sort", "strconv", "strings", "sync", "time"}
+		"os", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
 			switch imp {
@@ -524,10 +527,11 @@ func (c *NativeCompiler) emitHeader() {
 }
 
 func (c *NativeCompiler) emitGlobalVars() {
-	if len(c.globalVars) == 0 {
+	hasGlobals := len(c.globalVars) > 0 || c.usedBuiltins["server_stats"]
+	if !hasGlobals {
 		return
 	}
-	c.ln("// ===== Global Variables (from init blocks) =====")
+	c.ln("// ===== Global Variables =====")
 	// Sort for deterministic output
 	names := make([]string, 0, len(c.globalVars))
 	for name := range c.globalVars {
@@ -536,6 +540,9 @@ func (c *NativeCompiler) emitGlobalVars() {
 	sort.Strings(names)
 	for _, name := range names {
 		c.lnf("var %s Value = null", safeIdent(name))
+	}
+	if c.usedBuiltins["server_stats"] {
+		c.ln("var _startTime = time.Now()")
 	}
 	c.ln("")
 }
@@ -2705,6 +2712,32 @@ func builtin_validate(args ...Value) Value {
 }
 `)
 	}
+
+	if c.usedBuiltins["server_stats"] {
+		c.raw(`func builtin_server_stats() Value {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return Value(map[string]Value{
+		"mem_alloc":       Value(int64(m.Alloc)),
+		"mem_alloc_mb":    Value(math.Round(float64(m.Alloc) / 1024 / 1024 * 100) / 100),
+		"mem_total":       Value(int64(m.TotalAlloc)),
+		"mem_total_mb":    Value(math.Round(float64(m.TotalAlloc) / 1024 / 1024 * 100) / 100),
+		"mem_sys":         Value(int64(m.Sys)),
+		"mem_sys_mb":      Value(math.Round(float64(m.Sys) / 1024 / 1024 * 100) / 100),
+		"mem_heap_inuse":  Value(int64(m.HeapInuse)),
+		"mem_heap_idle":   Value(int64(m.HeapIdle)),
+		"mem_stack":       Value(int64(m.StackInuse)),
+		"gc_count":        Value(int64(m.NumGC)),
+		"gc_pause_ms":     Value(math.Round(float64(m.PauseTotalNs) / 1e6 * 100) / 100),
+		"goroutines":      Value(int64(runtime.NumGoroutine())),
+		"cpus":            Value(int64(runtime.NumCPU())),
+		"uptime":          Value(int64(time.Since(_startTime).Seconds())),
+		"uptime_human":    Value(time.Since(_startTime).Round(time.Second).String()),
+	})
+}
+`)
+	}
+
 	c.ln("")
 }
 
@@ -3723,6 +3756,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"pad_left": true, "pad_right": true, "truncate": true, "capitalize": true,
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
 		"redirect": true,
+		"server_stats": true,
 	}
 	if builtinNames[name] {
 		// Return as a callable value - but since Go can't store these directly,
@@ -3924,6 +3958,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_fetch(%s)", argStr)
 		case "now":
 			return "Value(time.Now().Unix())"
+		case "server_stats":
+			return "builtin_server_stats()"
 		case "now_ms":
 			return "Value(time.Now().UnixMilli())"
 		case "len":

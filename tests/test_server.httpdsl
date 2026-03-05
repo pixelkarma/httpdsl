@@ -2051,6 +2051,21 @@ route GET "test/init/after-mutate" {
     ])
 }
 
+// ===== Server stats test =====
+route GET "test/server-stats" {
+    stats = server_stats()
+    response.body = results([
+        assert_true(stats.mem_alloc > 0, "mem_alloc positive"),
+        assert_true(stats.mem_alloc_mb > 0, "mem_alloc_mb positive"),
+        assert_true(stats.mem_sys > 0, "mem_sys positive"),
+        assert_true(stats.goroutines >= 1, "goroutines >= 1"),
+        assert_true(stats.cpus >= 1, "cpus >= 1"),
+        assert_true(stats.uptime >= 0, "uptime >= 0"),
+        assert_eq(type(stats.uptime_human), "string", "uptime_human is string"),
+        assert_eq(type(stats.gc_pause_ms), "float", "gc_pause_ms is float")
+    ])
+}
+
 // ===== CORS detail test =====
 route GET "test/cors/details" {
     response.body = { ok: true }
