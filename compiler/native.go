@@ -24,6 +24,7 @@ type NativeCompiler struct {
 	corsMethods    string // CORS: allowed methods
 	corsHeaders    string // CORS: allowed headers
 	errorHandlers  []*ErrorStatement
+	inRouteHandler bool // true when emitting code inside a route/error handler
 }
 
 // DetectDBDrivers returns which database drivers are used in the program
@@ -105,7 +106,6 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["encoding/hex"] = true
 	c.usedImports["encoding/base64"] = true
 	c.usedImports["hash"] = true
-	c.usedImports["log"] = true
 	// Import tracking for builtins
 	if c.usedBuiltins["env"] {
 		c.usedImports["os"] = true
@@ -146,9 +146,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 	if c.usedBuiltins["bcrypt_hash"] || c.usedBuiltins["bcrypt_verify"] {
 		c.needsBcrypt = true
 	}
-	if c.usedBuiltins["log"] || c.usedBuiltins["log_info"] || c.usedBuiltins["log_warn"] || c.usedBuiltins["log_error"] {
-		c.usedImports["log"] = true
-	}
+
 	if c.usedBuiltins["file"] {
 		c.usedImports["os"] = true
 	}
@@ -372,7 +370,7 @@ func (c *NativeCompiler) emitHeader() {
 	c.indent++
 	stdlib := []string{"bytes", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
 		"crypto/sha256", "crypto/sha512", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
-		"fmt", "hash", "io", "log", "math", "math/rand", "net/http", "net/url",
+		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
 		"os", "regexp", "sort", "strconv", "strings", "sync", "time"}
 	for _, imp := range stdlib {
 		if c.usedImports[imp] {
@@ -1721,31 +1719,29 @@ func builtin_hmac_hash(args ...Value) Value {
 	return Value(hex.EncodeToString(h.Sum(nil)))
 }
 
-func builtin_log(args ...Value) Value {
+func dslLog(level string, r *http.Request, args ...Value) Value {
 	parts := make([]string, len(args))
 	for i, a := range args { parts[i] = valueToString(a) }
-	log.Println(strings.Join(parts, " "))
-	return null
-}
+	msg := strings.Join(parts, " ")
 
-func builtin_log_info(args ...Value) Value {
-	parts := make([]string, len(args))
-	for i, a := range args { parts[i] = valueToString(a) }
-	log.Println("[INFO]", strings.Join(parts, " "))
-	return null
-}
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 
-func builtin_log_warn(args ...Value) Value {
-	parts := make([]string, len(args))
-	for i, a := range args { parts[i] = valueToString(a) }
-	log.Println("[WARN]", strings.Join(parts, " "))
-	return null
-}
-
-func builtin_log_error(args ...Value) Value {
-	parts := make([]string, len(args))
-	for i, a := range args { parts[i] = valueToString(a) }
-	log.Println("[ERROR]", strings.Join(parts, " "))
+	var sb strings.Builder
+	sb.WriteString(now)
+	if level != "" {
+		sb.WriteString(" [")
+		sb.WriteString(level)
+		sb.WriteString("]")
+	}
+	if r != nil {
+		sb.WriteString(" ")
+		sb.WriteString(r.Method)
+		sb.WriteString(" ")
+		sb.WriteString(r.URL.Path)
+	}
+	sb.WriteString(" — ")
+	sb.WriteString(msg)
+	fmt.Fprintln(os.Stderr, sb.String())
 	return null
 }
 
@@ -3198,13 +3194,25 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 		case "hmac_hash":
 			return fmt.Sprintf("builtin_hmac_hash(%s)", argStr)
 		case "log":
-			return fmt.Sprintf("builtin_log(%s)", argStr)
+			if c.inRouteHandler {
+				return fmt.Sprintf("dslLog(\"\", _r, %s)", argStr)
+			}
+			return fmt.Sprintf("dslLog(\"\", nil, %s)", argStr)
 		case "log_info":
-			return fmt.Sprintf("builtin_log_info(%s)", argStr)
+			if c.inRouteHandler {
+				return fmt.Sprintf("dslLog(\"INFO\", _r, %s)", argStr)
+			}
+			return fmt.Sprintf("dslLog(\"INFO\", nil, %s)", argStr)
 		case "log_warn":
-			return fmt.Sprintf("builtin_log_warn(%s)", argStr)
+			if c.inRouteHandler {
+				return fmt.Sprintf("dslLog(\"WARN\", _r, %s)", argStr)
+			}
+			return fmt.Sprintf("dslLog(\"WARN\", nil, %s)", argStr)
 		case "log_error":
-			return fmt.Sprintf("builtin_log_error(%s)", argStr)
+			if c.inRouteHandler {
+				return fmt.Sprintf("dslLog(\"ERROR\", _r, %s)", argStr)
+			}
+			return fmt.Sprintf("dslLog(\"ERROR\", nil, %s)", argStr)
 		case "map":
 			return fmt.Sprintf("builtin_map(%s)", argStr)
 		case "filter":
@@ -3361,6 +3369,8 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.lnf("rt.add(%q, %q, func(_w http.ResponseWriter, _r *http.Request) {", route.Method, route.Path)
 	c.indent++
+	c.inRouteHandler = true
+	defer func() { c.inRouteHandler = false }()
 
 	// Handle redirects
 	c.ln("defer func() {")
@@ -3609,6 +3619,8 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 func (c *NativeCompiler) emitErrorHandler(eh *ErrorStatement) {
 	c.lnf("rt.errorHandlers[%d] = func(_w http.ResponseWriter, _r *http.Request) {", eh.StatusCode)
 	c.indent++
+	c.inRouteHandler = true
+	defer func() { c.inRouteHandler = false }()
 
 	// Build minimal request object (no body parsing needed for error pages)
 	c.ln("_pathParams := make(map[string]Value)")
