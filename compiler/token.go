@@ -29,6 +29,8 @@ const (
 	TOKEN_GTE      // >=
 	TOKEN_AND      // &&
 	TOKEN_OR       // ||
+	TOKEN_QUESTION // ?
+	TOKEN_NULLISH  // ??
 	TOKEN_PLUS_EQ  // +=
 	TOKEN_MINUS_EQ // -=
 
@@ -163,6 +165,10 @@ func (t TokenType) String() string {
 		return "&&"
 	case TOKEN_OR:
 		return "||"
+	case TOKEN_QUESTION:
+		return "?"
+	case TOKEN_NULLISH:
+		return "??"
 	case TOKEN_PLUS_EQ:
 		return "+="
 	case TOKEN_MINUS_EQ:

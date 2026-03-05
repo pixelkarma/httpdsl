@@ -10,7 +10,9 @@ import (
 const (
 	_ int = iota
 	PREC_LOWEST
+	PREC_TERNARY // ? :
 	PREC_OR      // ||
+	PREC_NULLISH // ??
 	PREC_AND     // &&
 	PREC_EQUALS  // == !=
 	PREC_COMPARE // < > <= >=
@@ -21,7 +23,9 @@ const (
 )
 
 var precedences = map[TokenType]int{
+	TOKEN_QUESTION: PREC_TERNARY,
 	TOKEN_OR:       PREC_OR,
+	TOKEN_NULLISH:  PREC_NULLISH,
 	TOKEN_AND:      PREC_AND,
 	TOKEN_EQ:       PREC_EQUALS,
 	TOKEN_NEQ:      PREC_EQUALS,
@@ -942,12 +946,23 @@ func (p *Parser) parseInfixExpr(left Expression) Expression {
 	switch p.curTok.Type {
 	case TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
 		TOKEN_EQ, TOKEN_NEQ, TOKEN_LT, TOKEN_GT, TOKEN_LTE, TOKEN_GTE,
-		TOKEN_AND, TOKEN_OR:
+		TOKEN_AND, TOKEN_OR, TOKEN_NULLISH:
 		tok := p.curTok
 		prec := p.curPrecedence()
 		p.nextToken()
 		right := p.parseExpression(prec)
 		return &InfixExpression{Token: tok, Left: left, Operator: tok.Literal, Right: right}
+	case TOKEN_QUESTION:
+		tok := p.curTok
+		p.nextToken() // skip '?'
+		consequence := p.parseExpression(PREC_LOWEST)
+		if !p.curTokenIs(TOKEN_COLON) {
+			p.addError("expected ':' in ternary expression, got %s", p.curTok.Type)
+			return left
+		}
+		p.nextToken() // skip ':'
+		alternative := p.parseExpression(PREC_TERNARY)
+		return &TernaryExpression{Token: tok, Condition: left, Consequence: consequence, Alternative: alternative}
 	case TOKEN_LPAREN:
 		return p.parseCallExpression(left)
 	case TOKEN_DOT:

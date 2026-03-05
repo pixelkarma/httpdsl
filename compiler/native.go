@@ -313,6 +313,8 @@ func (c *NativeCompiler) scanExpr(expr Expression) {
 		for _, a := range e.Arguments { c.scanExpr(a) }
 	case *InfixExpression:
 		c.scanExpr(e.Left); c.scanExpr(e.Right)
+	case *TernaryExpression:
+		c.scanExpr(e.Condition); c.scanExpr(e.Consequence); c.scanExpr(e.Alternative)
 	case *PrefixExpression:
 		c.scanExpr(e.Right)
 	case *IndexExpression:
@@ -421,6 +423,8 @@ func (c *NativeCompiler) detectDBInExpr(expr Expression) {
 		for _, a := range e.Arguments { c.detectDBInExpr(a) }
 	case *InfixExpression:
 		c.detectDBInExpr(e.Left); c.detectDBInExpr(e.Right)
+	case *TernaryExpression:
+		c.detectDBInExpr(e.Condition); c.detectDBInExpr(e.Consequence); c.detectDBInExpr(e.Alternative)
 	case *PrefixExpression:
 		c.detectDBInExpr(e.Right)
 	case *DotExpression:
@@ -547,6 +551,33 @@ func isTruthy(v Value) bool {
 	case map[string]Value: return len(val) > 0
 	default: return true
 	}
+}
+
+func logicalOr(a, b Value) Value {
+	if isTruthy(a) { return a }
+	return b
+}
+
+func logicalAnd(a, b Value) Value {
+	if !isTruthy(a) { return a }
+	return b
+}
+
+func nullCoalesce(a, b Value) Value {
+	if a == nil || isNull(a) { return b }
+	return a
+}
+
+func ternary(cond, a, b Value) Value {
+	if isTruthy(cond) { return a }
+	return b
+}
+
+func isNull(v Value) bool {
+	v = resolveValue(v)
+	if v == nil { return true }
+	_, ok := v.(*nullType)
+	return ok
 }
 
 func valueToString(v Value) string {
@@ -3307,6 +3338,8 @@ func (c *NativeCompiler) expr(e Expression) string {
 		return c.prefixExpr(ex)
 	case *InfixExpression:
 		return c.infixExpr(ex)
+	case *TernaryExpression:
+		return fmt.Sprintf("ternary(%s, %s, %s)", c.expr(ex.Condition), c.expr(ex.Consequence), c.expr(ex.Alternative))
 	case *CallExpression:
 		return c.callExpr(ex)
 	case *DotExpression:
@@ -3439,9 +3472,11 @@ func (c *NativeCompiler) infixExpr(e *InfixExpression) string {
 	case ">=":
 		return fmt.Sprintf("Value(compareLess(%s, %s) || valuesEqual(%s, %s))", r, l, l, r)
 	case "&&":
-		return fmt.Sprintf("Value(isTruthy(%s) && isTruthy(%s))", l, r)
+		return fmt.Sprintf("logicalAnd(%s, %s)", l, r)
 	case "||":
-		return fmt.Sprintf("Value(isTruthy(%s) || isTruthy(%s))", l, r)
+		return fmt.Sprintf("logicalOr(%s, %s)", l, r)
+	case "??":
+		return fmt.Sprintf("nullCoalesce(%s, %s)", l, r)
 	}
 	return "null"
 }

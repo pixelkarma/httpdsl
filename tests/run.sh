@@ -573,6 +573,14 @@ run_test GET /test/mysql/crud
 run_test GET /test/mysql/types
 echo ""
 
+# Expression tests
+echo "Expressions:"
+run_test GET /test/expressions/ternary
+run_test GET /test/expressions/nullish
+run_test GET /test/expressions/logical-or
+run_test GET /test/expressions/logical-and
+echo ""
+
 # Switch tests
 echo "Switch:"
 run_test GET /test/switch/basic/a

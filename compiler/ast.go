@@ -304,6 +304,16 @@ type InfixExpression struct {
 func (e *InfixExpression) expressionNode()      {}
 func (e *InfixExpression) TokenLiteral() string { return e.Token.Literal }
 
+type TernaryExpression struct {
+	Token       Token
+	Condition   Expression
+	Consequence Expression
+	Alternative Expression
+}
+
+func (e *TernaryExpression) expressionNode()      {}
+func (e *TernaryExpression) TokenLiteral() string { return e.Token.Literal }
+
 type CallExpression struct {
 	Token     Token
 	Function  Expression

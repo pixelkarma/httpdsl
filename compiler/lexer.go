@@ -122,6 +122,15 @@ func (l *Lexer) NextToken() Token {
 			tok.Type = TOKEN_ILLEGAL
 			tok.Literal = string(l.ch)
 		}
+	case '?':
+		if l.peekChar() == '?' {
+			l.readChar()
+			tok.Type = TOKEN_NULLISH
+			tok.Literal = "??"
+		} else {
+			tok.Type = TOKEN_QUESTION
+			tok.Literal = "?"
+		}
 	case ',':
 		tok.Type = TOKEN_COMMA
 		tok.Literal = ","

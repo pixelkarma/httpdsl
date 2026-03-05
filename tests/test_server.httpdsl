@@ -1685,6 +1685,69 @@ group "/test/mysql" {
     }
 }
 
+// ===== Expression tests =====
+group "/test/expressions" {
+    route GET "ternary" {
+        a = 10 > 5 ? "yes" : "no"
+        b = 0 > 1 ? "yes" : "no"
+        c = true ? 1 : 2
+        d = false ? 1 : 2
+        e = null ? "truthy" : "falsy"
+        response.body = results([
+            assert_eq(a, "yes", "ternary true"),
+            assert_eq(b, "no", "ternary false"),
+            assert_eq(c, 1, "ternary true literal"),
+            assert_eq(d, 2, "ternary false literal"),
+            assert_eq(e, "falsy", "ternary null is falsy")
+        ])
+    }
+
+    route GET "nullish" {
+        a = null ?? "fallback"
+        b = "exists" ?? "fallback"
+        c = null ?? null ?? "deep"
+        d = 0 ?? "not null"
+        e = "" ?? "not null"
+        f = false ?? "not null"
+        response.body = results([
+            assert_eq(a, "fallback", "null coalesces"),
+            assert_eq(b, "exists", "non-null keeps value"),
+            assert_eq(c, "deep", "chained nullish"),
+            assert_eq(d, 0, "zero is not null"),
+            assert_eq(e, "", "empty string is not null"),
+            assert_eq(f, false, "false is not null")
+        ])
+    }
+
+    route GET "logical-or" {
+        a = "" || "default"
+        b = "first" || "second"
+        c = null || 0 || "found"
+        d = false || 42
+        e = 0 || false || "last"
+        response.body = results([
+            assert_eq(a, "default", "or skips empty string"),
+            assert_eq(b, "first", "or returns first truthy"),
+            assert_eq(c, "found", "or chains through falsy"),
+            assert_eq(d, 42, "or skips false"),
+            assert_eq(e, "last", "or chains multiple falsy")
+        ])
+    }
+
+    route GET "logical-and" {
+        a = "hello" && "world"
+        b = "" && "world"
+        c = null && "world"
+        d = true && 42
+        response.body = results([
+            assert_eq(a, "world", "and returns second if first truthy"),
+            assert_eq(b, "", "and returns first if falsy"),
+            assert_eq(c, null, "and returns null if first null"),
+            assert_eq(d, 42, "and returns second value")
+        ])
+    }
+}
+
 // ===== Switch tests =====
 group "/test/switch" {
     route GET "basic/:val" {
