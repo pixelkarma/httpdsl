@@ -225,7 +225,6 @@ This is the complete language reference.
 - [**Init**](init.md) — Startup initialization
   - `init { }` block — runs once before server starts
   - Variables assigned in `init` become **globals** (accessible everywhere)
-  - Top-level statements are implicit init code
   - Execution order: CLI flags → .env → init → templates → routes → listen
   - Database setup, store initialization, configuration
 
