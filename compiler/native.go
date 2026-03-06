@@ -54,8 +54,10 @@ type NativeCompiler struct {
 	hasCron        bool                // whether any cron expressions are used
 	hasExec        bool                // whether exec() builtin is used
 	helpText       string              // help text from help block
-	sslCert        string              // path to SSL certificate file
-	sslKey         string              // path to SSL private key file
+	sslCert        string              // path to SSL certificate file (literal)
+	sslKey         string              // path to SSL private key file (literal)
+	sslCertExpr    Expression          // SSL cert expression (e.g., env("SSL_CERT"))
+	sslKeyExpr     Expression          // SSL key expression (e.g., env("SSL_KEY"))
 }
 
 type staticMount struct {
@@ -173,11 +175,15 @@ func GenerateNativeCode(program *Program) (string, error) {
 			if cert, ok := s.Settings["ssl_cert"]; ok {
 				if sv, ok := cert.(*StringLiteral); ok {
 					c.sslCert = sv.Value
+				} else {
+					c.sslCertExpr = cert
 				}
 			}
 			if key, ok := s.Settings["ssl_key"]; ok {
 				if sv, ok := key.(*StringLiteral); ok {
 					c.sslKey = sv.Value
+				} else {
+					c.sslKeyExpr = key
 				}
 			}
 			// Templates config
@@ -5375,6 +5381,10 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`_envFile := ".env"`)
 	c.ln("_showHelp := false")
 	c.ln("_showVersion := false")
+	c.ln(`_portFlag := ""`)
+	if len(c.staticMounts) > 0 {
+		c.ln(`_staticFlag := ""`)
+	}
 	c.ln("{")
 	c.indent++
 	c.ln("i := 1")
@@ -5396,6 +5406,16 @@ func (c *NativeCompiler) emitMain() {
 	c.indent++
 	c.ln("if i+1 < len(os.Args) { _envFile = os.Args[i+1]; i += 2 } else { i++ }")
 	c.indent--
+	c.ln(`case "-p":`)
+	c.indent++
+	c.ln("if i+1 < len(os.Args) { _portFlag = os.Args[i+1]; i += 2 } else { i++ }")
+	c.indent--
+	if len(c.staticMounts) > 0 {
+		c.ln(`case "-s":`)
+		c.indent++
+		c.ln("if i+1 < len(os.Args) { _staticFlag = os.Args[i+1]; i += 2 } else { i++ }")
+		c.indent--
+	}
 	c.ln("default:")
 	c.indent++
 	c.ln(`if strings.HasPrefix(a, "--") && len(a) > 2 {`)
@@ -5429,9 +5449,18 @@ func (c *NativeCompiler) emitMain() {
 		c.ln(`fmt.Println("")`)
 	}
 	c.ln(`fmt.Println("Flags:")`)
+	c.lnf(`fmt.Println("  -p <port>   Listen port (default: %d, or PORT env var)")`, c.port)
+	if len(c.staticMounts) > 0 {
+		c.lnf("fmt.Println(\"  -s <dir>    Static file directory (default: %s)\")", c.staticMounts[0].Dir)
+	}
 	c.ln(`fmt.Println("  -e <path>   Load env file (default: .env, \"none\" to skip)")`)
 	c.ln(`fmt.Println("  -v          Show version")`)
 	c.ln(`fmt.Println("  -h          Show this help")`)
+	c.ln(`fmt.Println("")`)
+	c.ln(`fmt.Println("Environment variables:")`)
+	c.ln(`fmt.Println("  PORT        Override listen port")`)
+	c.ln(`fmt.Println("  SSL_CERT    Path to TLS certificate file")`)
+	c.ln(`fmt.Println("  SSL_KEY     Path to TLS private key file")`)
 	c.ln("os.Exit(0)")
 	c.indent--
 	c.ln("}")
@@ -5458,17 +5487,32 @@ func (c *NativeCompiler) emitMain() {
 	if c.throttleRPS > 0 {
 		c.lnf("rt.limiter = newRateLimiter(%d)", c.throttleRPS)
 	}
-	for _, sm := range c.staticMounts {
-		prefix := sm.Prefix
-		if !strings.HasSuffix(prefix, "/") {
-			prefix += "/"
+	if len(c.staticMounts) > 0 {
+		// Static directory override: -s flag → compiled default
+		for i, sm := range c.staticMounts {
+			prefix := sm.Prefix
+			if !strings.HasSuffix(prefix, "/") {
+				prefix += "/"
+			}
+			if i == 0 {
+				// First mount can be overridden with -s flag
+				c.lnf(`_staticDir := %q`, sm.Dir)
+				c.ln(`if _staticFlag != "" { _staticDir = _staticFlag }`)
+				c.lnf("rt.statics = append(rt.statics, staticMountEntry{")
+				c.indent++
+				c.lnf("prefix: %q,", prefix)
+				c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(_staticDir))})),", prefix)
+				c.indent--
+				c.ln("})") 
+			} else {
+				c.lnf("rt.statics = append(rt.statics, staticMountEntry{")
+				c.indent++
+				c.lnf("prefix: %q,", prefix)
+				c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(%q))})),", prefix, sm.Dir)
+				c.indent--
+				c.ln("})") 
+			}
 		}
-		c.lnf("rt.statics = append(rt.statics, staticMountEntry{")
-		c.indent++
-		c.lnf("prefix: %q,", prefix)
-		c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(%q))})),", prefix, sm.Dir)
-		c.indent--
-		c.ln("})") 
 	}
 	c.ln("")
 
@@ -5526,12 +5570,46 @@ func (c *NativeCompiler) emitMain() {
 		}
 	}
 
-	c.lnf("addr := \":%d\"", c.port)
-	if c.sslCert != "" && c.sslKey != "" {
-		c.ln(`fmt.Printf("httpdsl native server (TLS) on %s\n", addr)`)
+	// Port resolution: -p flag → PORT env → compiled default
+	c.lnf(`_port := "%d"`, c.port)
+	c.ln(`if _envPort := os.Getenv("PORT"); _envPort != "" { _port = _envPort }`)
+	c.ln(`if _portFlag != "" { _port = _portFlag }`)
+	c.ln(`addr := ":" + _port`)
+	c.ln("")
+
+	// SSL resolution: SSL_CERT/SSL_KEY env → compiled default → no TLS
+	hasCompiledSSL := (c.sslCert != "" && c.sslKey != "") || (c.sslCertExpr != nil && c.sslKeyExpr != nil)
+	if hasCompiledSSL {
+		// Compiled default from server block
+		certExpr := fmt.Sprintf("%q", c.sslCert)
+		if c.sslCertExpr != nil {
+			certExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.sslCertExpr))
+		}
+		keyExpr := fmt.Sprintf("%q", c.sslKey)
+		if c.sslKeyExpr != nil {
+			keyExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.sslKeyExpr))
+		}
+		c.lnf("_sslCert := %s", certExpr)
+		c.lnf("_sslKey := %s", keyExpr)
 	} else {
-		c.ln(`fmt.Printf("httpdsl native server on %s\n", addr)`)
+		c.ln(`_sslCert := ""`)
+		c.ln(`_sslKey := ""`)
 	}
+	c.ln(`if _envCert := os.Getenv("SSL_CERT"); _envCert != "" { _sslCert = _envCert }`)
+	c.ln(`if _envKey := os.Getenv("SSL_KEY"); _envKey != "" { _sslKey = _envKey }`)
+	c.ln("")
+
+	// Print startup info
+	c.ln(`if _sslCert != "" && _sslKey != "" {`)
+	c.indent++
+	c.ln(`fmt.Printf("httpdsl native server (TLS) on %s\n", addr)`)
+	c.indent--
+	c.ln("} else {")
+	c.indent++
+	c.ln(`fmt.Printf("httpdsl native server on %s\n", addr)`)
+	c.indent--
+	c.ln("}")
+
 	if c.corsOrigins != "" {
 		c.ln("var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 		c.indent++
@@ -5587,15 +5665,22 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("")
 	}
 
-	if c.sslCert != "" && c.sslKey != "" {
-		c.lnf(`fmt.Printf("httpdsl TLS enabled (cert: %s)\n")`, c.sslCert)
-		c.lnf("if err := http.ListenAndServeTLS(addr, %q, %q, handler); err != nil {", c.sslCert, c.sslKey)
-	} else {
-		c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
-	}
-
+	c.ln(`if _sslCert != "" && _sslKey != "" {`)
+	c.indent++
+	c.ln(`fmt.Printf("  TLS cert: %s\n", _sslCert)`)
+	c.ln("if err := http.ListenAndServeTLS(addr, _sslCert, _sslKey, handler); err != nil {")
 	c.indent++
 	c.ln(`fmt.Printf("Server error: %s\n", err)`)
+	c.indent--
+	c.ln("}")
+	c.indent--
+	c.ln("} else {")
+	c.indent++
+	c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
+	c.indent++
+	c.ln(`fmt.Printf("Server error: %s\n", err)`)
+	c.indent--
+	c.ln("}")
 	c.indent--
 	c.ln("}")
 
