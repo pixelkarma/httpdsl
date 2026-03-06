@@ -4,7 +4,14 @@ An `.httpdsl` file is a series of **top-level blocks**. There are no loose state
 
 ## Quick Example
 
+Every top-level block type in one file:
+
 ```httpdsl
+help `User API
+
+Options:
+  --verbose   Enable request logging`
+
 server {
   port 8080
   gzip true
@@ -13,7 +20,7 @@ server {
 
 init {
   db = db.open("sqlite", "./app.db")
-  debug = env("DEBUG", "false") == "true"
+  verbose = args["verbose"] ?? false
 }
 
 fn format_user(user) {
@@ -21,12 +28,27 @@ fn format_user(user) {
 }
 
 before {
-  if debug { log_info(`${request.method} ${request.path}`) }
+  if verbose { log_info(`${request.method} ${request.path}`) }
 }
 
-route GET "/users/:id" {
-  user = db.query_one("SELECT * FROM users WHERE id = ?", [request.params.id])
-  response.body = format_user(user)
+after {
+  response.headers["X-Powered-By"] = "httpdsl"
+}
+
+route GET "/" {
+  response.body = {status: "ok"}
+}
+
+group "/api/users" {
+  route GET "/" {
+    users = db.query("SELECT * FROM users", [])
+    response.body = map(users, fn(u) { return format_user(u) })
+  }
+
+  route GET "/:id" {
+    user = db.query_one("SELECT * FROM users WHERE id = ?", [request.params.id])
+    response.body = format_user(user)
+  }
 }
 
 every 1 h {
