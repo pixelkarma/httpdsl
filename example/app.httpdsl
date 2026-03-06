@@ -101,33 +101,10 @@ fn get_tasks_by_status(status) {
     result = []
     each row in rows {
         row.initials = get_initials(row.username)
-        row.html = build_card_html(row)
         result = append(result, row)
     }
     return result
 }
-
-fn build_card_actions(task) {
-    actions = ""
-    if task.status == "todo" {
-        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"doing"}' hx-swap="none" title="Start">▶</button>`
-    }
-    if task.status == "doing" {
-        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"todo"}' hx-swap="none" title="Back to To Do">◀</button>`
-        actions = actions + `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"done"}' hx-swap="none" title="Complete">✔</button>`
-    }
-    if task.status == "done" {
-        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"doing"}' hx-swap="none" title="Reopen">↩</button>`
-    }
-    actions = actions + `<button class="btn btn-danger btn-sm" hx-delete="/tasks/${task.id}" hx-target="#task-${task.id}" hx-swap="outerHTML" hx-confirm="Delete this task?" title="Delete">✕</button>`
-    return actions
-}
-
-fn build_card_html(task) {
-    actions = build_card_actions(task)
-    return `<div class="task-card anim-card-in" id="task-${task.id}"><div class="task-title">${task.title}</div><div class="task-meta"><div style="display:flex;align-items:center;gap:8px"><span class="priority priority-${task.priority}">${task.priority}</span><span class="avatar" title="${task.username}">${task.initials}</span></div><div class="task-actions">${actions}</div></div></div>`
-}
-
 
 // ===== Global middleware: auth check =====
 before {
@@ -233,18 +210,18 @@ route GET "/board" {
     doing = get_tasks_by_status("doing")
     done  = get_tasks_by_status("done")
 
-    // Pre-render card HTML for each column
+    // Pre-render card HTML for each column using templates
     todo_html = ""
     each t in todo {
-        todo_html = todo_html + t.html
+        todo_html = todo_html + render("partials/task_card.gohtml", t)
     }
     doing_html = ""
     each t in doing {
-        doing_html = doing_html + t.html
+        doing_html = doing_html + render("partials/task_card.gohtml", t)
     }
     done_html = ""
     each t in done {
-        done_html = done_html + t.html
+        done_html = done_html + render("partials/task_card.gohtml", t)
     }
 
     render("board.gohtml", {
@@ -286,7 +263,7 @@ route POST "/tasks" {
     )
     task.initials = get_initials(task.username)
 
-    html = build_card_html(task)
+    html = render("partials/task_card.gohtml", task)
 
     // Broadcast to other clients
     broadcast("task-created", {
@@ -326,7 +303,7 @@ route PATCH "/tasks/:id" {
     }
     task.initials = get_initials(task.username)
 
-    html = build_card_html(task)
+    html = render("partials/task_card.gohtml", task)
 
     // Broadcast move to other clients
     broadcast("task-moved", {
