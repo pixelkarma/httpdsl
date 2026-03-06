@@ -26,7 +26,7 @@ conn = db.open("mysql", "user:password@tcp(localhost:3306)/dbname")
 ### MongoDB
 
 ```httpdsl
-conn = db.open("mongo", "mongodb://localhost:27017")
+conn = db.open("mongo", "mongodb://localhost:27017/mydb")
 ```
 
 ## SQL Operations
@@ -253,7 +253,7 @@ route DELETE "/users/:id" {
 ### find()
 
 ```httpdsl
-conn = db.open("mongo", "mongodb://localhost:27017")
+conn = db.open("mongo", "mongodb://localhost:27017/mydb")
 
 users = conn.find("users", {age: {"$gt": 18}})
 
