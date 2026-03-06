@@ -5,8 +5,8 @@ runtime.bin
 *.gen.go
 
 # Example app build artifacts
-example/example
-example/taskboard.db
-example/taskboard_store.json
+examples/taskboard/taskboard
+examples/taskboard/taskboard.db
+examples/taskboard/taskboard_store.json
 .DS_Store
 
