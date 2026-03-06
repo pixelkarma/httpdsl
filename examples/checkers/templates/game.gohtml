@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkers — {{.Page.key}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="room-key">Room: <span id="room-key">{{.Page.key}}</span></div>
+        <div id="status" class="status">Waiting for opponent...</div>
+        <div id="board" class="board"
+             data-key="{{.Page.key}}"
+             data-color="{{.Page.color}}"
+             data-player="{{.Page.player}}"></div>
+        <div id="game-over" class="game-over hidden">
+            <p id="game-over-msg"></p>
+            <div class="game-over-buttons">
+                <button id="play-again-yes" class="btn">Yes</button>
+                <button id="play-again-no" class="btn">No</button>
+            </div>
+        </div>
+        <a href="/" class="leave-link">Leave Game</a>
+    </div>
+    <script src="/static/game.js"></script>
+</body>
+</html>

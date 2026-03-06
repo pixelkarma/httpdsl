@@ -1,0 +1,369 @@
+server {
+    port 8080
+    templates "./templates"
+    static "/static" "./static"
+}
+
+init {
+    games = {}
+}
+
+// Generate a random 4-letter key with no active dupes
+fn make_key() {
+    letters = "ABCDEFGHJKMNPQRSTUVWXYZ"
+    tries = 0
+    while tries < 100 {
+        k = ""
+        i = 0
+        while i < 4 {
+            idx = rand(0, len(letters))
+            k = k + slice(letters, idx, idx + 1)
+            i = i + 1
+        }
+        if games[k] == null {
+            return k
+        }
+        tries = tries + 1
+    }
+    return "ZZZZ"
+}
+
+// Build initial board state
+fn new_board() {
+    rows = []
+    r = 0
+    while r < 8 {
+        row = []
+        c = 0
+        while c < 8 {
+            if (r + c) % 2 == 1 {
+                if r < 3 {
+                    row = append(row, "b")
+                } else if r > 4 {
+                    row = append(row, "r")
+                } else {
+                    row = append(row, ".")
+                }
+            } else {
+                row = append(row, ".")
+            }
+            c = c + 1
+        }
+        rows = append(rows, row)
+        r = r + 1
+    }
+    return rows
+}
+
+// Check if a player has any pieces left
+fn count_pieces(board, color) {
+    n = 0
+    king = upper(color)
+    r = 0
+    while r < 8 {
+        c = 0
+        while c < 8 {
+            p = board[r][c]
+            if p == color || p == king {
+                n = n + 1
+            }
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return n
+}
+
+// Check if a player can make any move
+fn has_moves(board, color) {
+    king = upper(color)
+    enemy = "b"
+    if color == "b" {
+        enemy = "r"
+    }
+    enemy_king = upper(enemy)
+    r = 0
+    while r < 8 {
+        c = 0
+        while c < 8 {
+            p = board[r][c]
+            if p == color || p == king {
+                dirs = []
+                if p == "r" || p == "R" {
+                    dirs = append(dirs, [-1, -1])
+                    dirs = append(dirs, [-1, 1])
+                }
+                if p == "b" || p == "B" {
+                    dirs = append(dirs, [1, -1])
+                    dirs = append(dirs, [1, 1])
+                }
+                if p == "R" {
+                    dirs = append(dirs, [1, -1])
+                    dirs = append(dirs, [1, 1])
+                }
+                if p == "B" {
+                    dirs = append(dirs, [-1, -1])
+                    dirs = append(dirs, [-1, 1])
+                }
+                d = 0
+                while d < len(dirs) {
+                    dr = dirs[d][0]
+                    dc = dirs[d][1]
+                    nr = r + dr
+                    nc = c + dc
+                    if nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] == "." {
+                        return true
+                    }
+                    jr = r + dr * 2
+                    jc = c + dc * 2
+                    if nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && jr >= 0 && jr < 8 && jc >= 0 && jc < 8 {
+                        mid = board[nr][nc]
+                        if (mid == enemy || mid == enemy_king) && board[jr][jc] == "." {
+                            return true
+                        }
+                    }
+                    d = d + 1
+                }
+            }
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return false
+}
+
+// Main menu
+route GET "/" {
+    render("menu.gohtml", {})
+}
+
+// Create a new game
+route POST "/game/new" {
+    key = make_key()
+    game = {
+        key: key,
+        board: new_board(),
+        turn: "red",
+        player1: null,
+        player2: null,
+        p1_connected: false,
+        p2_connected: false,
+        status: "waiting",
+        rematch_p1: null,
+        rematch_p2: null,
+        winner: null,
+        last_activity: now()
+    }
+    games[key] = game
+    response.body = {key: key}
+}
+
+// Game page
+route GET "/game/:key" {
+    key = upper(request.params.key)
+    game = games[key]
+    if game == null {
+        response.status = 404
+        response.body = "Game not found"
+        return
+    }
+
+    player_num = 0
+    color = ""
+    if game.player1 == null {
+        player_num = 1
+        color = "red"
+    } else if game.player2 == null {
+        player_num = 2
+        color = "black"
+    } else {
+        // Game full, could be reconnect
+        player_num = 1
+        color = "red"
+    }
+
+    render("game.gohtml", {key: key, color: color, player: player_num})
+}
+
+// SSE events
+route SSE "/game/:key/events" {
+    key = upper(request.params.key)
+    player_num = int(request.query.player ?? "0")
+    game = games[key]
+
+    if game != null {
+        game.last_activity = now()
+
+        // Assign player slot
+        if player_num == 1 {
+            game.player1 = "connected"
+            game.p1_connected = true
+        } else if player_num == 2 {
+            game.player2 = "connected"
+            game.p2_connected = true
+        }
+
+        // Notify opponent of reconnect
+        if game.p1_connected && game.p2_connected {
+            broadcast("opponent_reconnected", {}, key)
+        }
+
+        // Join the game channel
+        stream.join(key)
+
+        // Send current state
+        if game.player1 != null && game.player2 != null {
+            if game.status == "playing" || game.status == "waiting" {
+                game.status = "playing"
+                // Broadcast to all players in the game
+                broadcast("state", {board: game.board, turn: game.turn}, key)
+            } else if game.status == "gameover" {
+                stream.send("gameover", {board: game.board, winner: game.winner})
+            }
+        } else {
+            stream.send("waiting", {})
+        }
+    }
+}
+
+// Handle moves
+route POST "/game/:key/move" {
+    key = upper(request.params.key)
+    game = games[key]
+    if game == null {
+        response.status = 404
+        response.body = {error: "Game not found"}
+        return
+    }
+
+    game.last_activity = now()
+
+    from = request.data.from
+    to = request.data.to
+    fr = int(from[0])
+    fc = int(from[1])
+    tr = int(to[0])
+    tc = int(to[1])
+
+    piece = game.board[fr][fc]
+    if piece == "." {
+        response.status = 400
+        response.body = {error: "No piece there"}
+        return
+    }
+
+    // Check turn
+    piece_color = "red"
+    if piece == "b" || piece == "B" {
+        piece_color = "black"
+    }
+    if piece_color != game.turn {
+        response.status = 400
+        response.body = {error: "Not your turn"}
+        return
+    }
+
+    // Execute move
+    game.board[tr][tc] = piece
+    game.board[fr][fc] = "."
+
+    // Check for jump (capture)
+    dr = tr - fr
+    dc = tc - fc
+    if dr == 2 || dr == -2 {
+        mr = fr + dr / 2
+        mc = fc + dc / 2
+        game.board[mr][mc] = "."
+    }
+
+    // King promotion
+    if piece == "r" && tr == 0 {
+        game.board[tr][tc] = "R"
+    }
+    if piece == "b" && tr == 7 {
+        game.board[tr][tc] = "B"
+    }
+
+    // Check win condition
+    next_turn = "black"
+    if game.turn == "black" {
+        next_turn = "red"
+    }
+    next_piece = "b"
+    if next_turn == "red" {
+        next_piece = "r"
+    }
+
+    opp_pieces = count_pieces(game.board, next_piece)
+    opp_can_move = has_moves(game.board, next_piece)
+
+    if opp_pieces == 0 || !opp_can_move {
+        game.status = "gameover"
+        game.winner = game.turn
+        broadcast("gameover", {board: game.board, winner: game.winner}, key)
+    } else {
+        game.turn = next_turn
+        broadcast("state", {board: game.board, turn: game.turn}, key)
+    }
+
+    response.body = {ok: true}
+}
+
+// Rematch handling
+route POST "/game/:key/rematch" {
+    key = upper(request.params.key)
+    game = games[key]
+    if game == null {
+        response.status = 404
+        response.body = {error: "Game not found"}
+        return
+    }
+
+    game.last_activity = now()
+    want = request.data.want
+
+    if game.rematch_p1 == null {
+        game.rematch_p1 = want
+    } else {
+        game.rematch_p2 = want
+    }
+
+    if game.rematch_p1 != null && game.rematch_p2 != null {
+        if game.rematch_p1 == true && game.rematch_p2 == true {
+            // Both want rematch
+            game.board = new_board()
+            game.turn = "red"
+            game.status = "playing"
+            game.winner = null
+            game.rematch_p1 = null
+            game.rematch_p2 = null
+            broadcast("state", {board: game.board, turn: game.turn}, key)
+        } else {
+            // Someone declined
+            broadcast("rematch_declined", {}, key)
+            delete(games, key)
+        }
+    } else {
+        broadcast("rematch_waiting", {}, key)
+    }
+
+    response.body = {ok: true}
+}
+
+// Cleanup empty games every 5 minutes
+every 5 m {
+    keys_to_delete = []
+    each k in keys(games) {
+        game = games[k]
+        if game != null {
+            age = now() - game.last_activity
+            if age > 300 && !game.p1_connected && !game.p2_connected {
+                keys_to_delete = append(keys_to_delete, k)
+            }
+        }
+    }
+    each k in keys_to_delete {
+        delete(games, k)
+        log_info(`Cleaned up game ${k}`)
+    }
+}
