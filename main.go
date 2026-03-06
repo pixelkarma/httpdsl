@@ -8,14 +8,31 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+const version = "0.1.0"
+
+// ANSI colors
+const (
+	colorReset  = "\033[0m"
+	colorCyan   = "\033[36m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorRed    = "\033[31m"
+	colorDim    = "\033[2m"
+	colorBold   = "\033[1m"
 )
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: httpdsl <command> [path]")
 		fmt.Println("Commands:")
-		fmt.Println("  run [path]    Compile and run (requires Go)")
+		fmt.Println("  run [path]    Compile, run, and watch for changes (requires Go)")
 		fmt.Println("  build [path]  Compile to native binary (requires Go)")
 		fmt.Println("")
 		fmt.Println("If no path given, looks for app.httpdsl in current directory")
@@ -33,7 +50,7 @@ func main() {
 		} else {
 			target = resolveDefault()
 		}
-		program := parseFiles(target)
+		program := parseTarget(target)
 		doBuild(program, target)
 	case "run":
 		if len(os.Args) >= 3 {
@@ -41,18 +58,15 @@ func main() {
 		} else {
 			target = resolveDefault()
 		}
-		program := parseFiles(target)
-		doRun(program, target)
+		doRunWatch(target)
 	default:
 		target = cmd
-		program := parseFiles(target)
-		doRun(program, target)
+		doRunWatch(target)
 	}
 }
 
 // resolveDefault finds the project root by looking for app.httpdsl
 func resolveDefault() string {
-	// Check current directory for app.httpdsl
 	if _, err := os.Stat("app.httpdsl"); err == nil {
 		return "."
 	}
@@ -62,7 +76,7 @@ func resolveDefault() string {
 	return ""
 }
 
-func parseFiles(target string) *compiler.Program {
+func parseTarget(target string) *compiler.Program {
 	var sources []string
 	info, err := os.Stat(target)
 	if err != nil {
@@ -71,22 +85,23 @@ func parseFiles(target string) *compiler.Program {
 	}
 
 	if info.IsDir() {
-		// Require app.httpdsl in the directory
 		appFile := filepath.Join(target, "app.httpdsl")
 		if _, err := os.Stat(appFile); err != nil {
 			fmt.Fprintf(os.Stderr, "No app.httpdsl found in %s\n", target)
 			fmt.Fprintln(os.Stderr, "Create app.httpdsl with your server {} block.")
 			os.Exit(1)
 		}
-
-		// app.httpdsl goes first (has server config)
 		sources = append(sources, appFile)
-
-		// Recursively find all other .httpdsl files
 		filepath.Walk(target, func(path string, fi os.FileInfo, err error) error {
-			if err != nil { return nil }
-			if fi.IsDir() { return nil }
-			if !strings.HasSuffix(fi.Name(), ".httpdsl") { return nil }
+			if err != nil {
+				return nil
+			}
+			if fi.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(fi.Name(), ".httpdsl") {
+				return nil
+			}
 			abs, _ := filepath.Abs(path)
 			appAbs, _ := filepath.Abs(appFile)
 			if abs != appAbs {
@@ -95,12 +110,10 @@ func parseFiles(target string) *compiler.Program {
 			return nil
 		})
 	} else {
-		// Single file mode — check if there are sibling .httpdsl files
 		dir := filepath.Dir(target)
 		base := filepath.Base(target)
 		if base == "app.httpdsl" {
-			// Treat as project root, load all files
-			return parseFiles(dir)
+			return parseTarget(dir)
 		}
 		sources = []string{target}
 	}
@@ -132,42 +145,416 @@ func parseFiles(target string) *compiler.Program {
 	return program
 }
 
-func doRun(program *compiler.Program, target string) {
-	// Build to temp, then exec
+// parseTargetSoft is like parseTarget but returns an error instead of exiting
+func parseTargetSoft(target string) (*compiler.Program, error) {
+	var sources []string
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+
+	if info.IsDir() {
+		appFile := filepath.Join(target, "app.httpdsl")
+		if _, err := os.Stat(appFile); err != nil {
+			return nil, fmt.Errorf("no app.httpdsl found in %s", target)
+		}
+		sources = append(sources, appFile)
+		filepath.Walk(target, func(path string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if fi.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(fi.Name(), ".httpdsl") {
+				return nil
+			}
+			abs, _ := filepath.Abs(path)
+			appAbs, _ := filepath.Abs(appFile)
+			if abs != appAbs {
+				sources = append(sources, path)
+			}
+			return nil
+		})
+	} else {
+		base := filepath.Base(target)
+		if base == "app.httpdsl" {
+			return parseTargetSoft(filepath.Dir(target))
+		}
+		sources = []string{target}
+	}
+
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("no .httpdsl files found")
+	}
+
+	program := &compiler.Program{}
+	for _, src := range sources {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", src, err)
+		}
+		l := compiler.NewLexer(string(data))
+		p := compiler.NewParser(l)
+		fileProgram := p.ParseProgram()
+		if errs := p.Errors(); len(errs) > 0 {
+			var msgs []string
+			for _, e := range errs {
+				msgs = append(msgs, e)
+			}
+			return nil, fmt.Errorf("parse errors in %s:\n  %s", src, strings.Join(msgs, "\n  "))
+		}
+		program.Statements = append(program.Statements, fileProgram.Statements...)
+	}
+	return program, nil
+}
+
+// extractPort reads the port from a parsed program's server block
+func extractPort(program *compiler.Program) int {
+	for _, stmt := range program.Statements {
+		if ss, ok := stmt.(*compiler.ServerStatement); ok {
+			if pe, ok := ss.Settings["port"]; ok {
+				if lit, ok := pe.(*compiler.IntegerLiteral); ok {
+					return int(lit.Value)
+				}
+			}
+		}
+	}
+	return 8080
+}
+
+// extractSSL checks if SSL is configured
+func extractSSL(program *compiler.Program) bool {
+	for _, stmt := range program.Statements {
+		if ss, ok := stmt.(*compiler.ServerStatement); ok {
+			_, hasCert := ss.Settings["ssl_cert"]
+			_, hasKey := ss.Settings["ssl_key"]
+			if hasCert && hasKey {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func printBanner(port int, ssl bool, buildTime time.Duration, watchDir string) {
+	protocol := "http"
+	if ssl {
+		protocol = "https"
+	}
+	fmt.Println()
+	fmt.Printf("  %shttpdsl%s %sv%s%s\n", colorBold+colorCyan, colorReset, colorDim, version, colorReset)
+	fmt.Println()
+	fmt.Printf("  %s➜%s  %sServer:%s   %s%s://localhost:%d/%s\n", colorGreen, colorReset, colorBold, colorReset, colorCyan, protocol, port, colorReset)
+	fmt.Printf("  %s➜%s  %sBuilt in:%s  %s\n", colorGreen, colorReset, colorBold, colorReset, buildTime.Round(time.Millisecond))
+	if watchDir != "" {
+		fmt.Printf("  %s➜%s  %sWatching:%s  %s\n", colorGreen, colorReset, colorBold, colorReset, watchDir)
+	}
+	fmt.Println()
+}
+
+func printRebuild(changedFiles []string, watchDir string) {
+	fmt.Printf("  %s[watch]%s %d file%s changed:\n", colorYellow, colorReset, len(changedFiles), plural(len(changedFiles)))
+	for _, f := range changedFiles {
+		rel, err := filepath.Rel(watchDir, f)
+		if err != nil {
+			rel = f
+		}
+		fmt.Printf("    %smodified%s  %s\n", colorDim, colorReset, rel)
+	}
+	fmt.Println()
+	fmt.Printf("  %s➜%s  Rebuilding...\n", colorYellow, colorReset)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// doRunWatch compiles, runs, watches for changes, and restarts
+func doRunWatch(target string) {
+	// Determine watch directory
+	watchDir := target
+	info, err := os.Stat(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
+	}
+	if !info.IsDir() {
+		watchDir = filepath.Dir(target)
+	}
+	watchDir, _ = filepath.Abs(watchDir)
+
+	// Temp directory for the binary
 	tmpDir, err := os.MkdirTemp("", "httpdsl-run-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
 	defer os.RemoveAll(tmpDir)
-
 	binPath := filepath.Join(tmpDir, "server")
-	doBuild(program, target, binPath)
 
-	// Run the binary, forwarding signals
-	proc := exec.Command(binPath)
-	proc.Stdout = os.Stdout
-	proc.Stderr = os.Stderr
-	proc.Stdin = os.Stdin
-
-	if err := proc.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting server: %s\n", err)
-		os.Exit(1)
+	// Initial build
+	program, buildTime, buildErr := buildSoft(target, binPath)
+	if buildErr != nil {
+		fmt.Fprintf(os.Stderr, "\n  %sBuild error:%s %s\n\n", colorRed, colorReset, buildErr)
+		fmt.Printf("  %s[watch]%s waiting for changes...\n\n", colorYellow, colorReset)
+	} else {
+		port := extractPort(program)
+		ssl := extractSSL(program)
+		printBanner(port, ssl, buildTime, watchDir)
 	}
 
-	// Forward SIGINT/SIGTERM
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sig
-		proc.Process.Signal(syscall.SIGTERM)
-	}()
+	// Start the server process
+	var proc *os.Process
+	var procMu sync.Mutex
 
-	if err := proc.Wait(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+	startServer := func() {
+		procMu.Lock()
+		defer procMu.Unlock()
+		cmd := exec.Command(binPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "  %sError starting server:%s %s\n", colorRed, colorReset, err)
+			return
+		}
+		proc = cmd.Process
+		go cmd.Wait() // reap the child
+	}
+
+	stopServer := func() {
+		procMu.Lock()
+		defer procMu.Unlock()
+		if proc != nil {
+			proc.Signal(syscall.SIGTERM)
+			// Wait briefly for graceful shutdown
+			done := make(chan struct{})
+			go func() {
+				proc.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				proc.Kill()
+			}
+			proc = nil
 		}
 	}
+
+	if buildErr == nil {
+		startServer()
+	}
+
+	// Set up file watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating watcher: %s\n", err)
+		os.Exit(1)
+	}
+	defer watcher.Close()
+
+	// Recursively add directories to watch
+	addWatchDirs(watcher, watchDir, tmpDir)
+
+	// Handle Ctrl+C
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Debounce timer and changed file tracking
+	var debounceTimer *time.Timer
+	var changedFiles []string
+	var changeMu sync.Mutex
+
+	rebuild := func() {
+		changeMu.Lock()
+		files := changedFiles
+		changedFiles = nil
+		changeMu.Unlock()
+
+		if len(files) == 0 {
+			return
+		}
+
+		// Deduplicate
+		seen := make(map[string]bool)
+		var unique []string
+		for _, f := range files {
+			if !seen[f] {
+				seen[f] = true
+				unique = append(unique, f)
+			}
+		}
+
+		printRebuild(unique, watchDir)
+
+		stopServer()
+
+		p, bt, err := buildSoft(target, binPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\n  %sBuild error:%s %s\n\n", colorRed, colorReset, err)
+			fmt.Printf("  %s[watch]%s waiting for changes...\n\n", colorYellow, colorReset)
+			return
+		}
+
+		port := extractPort(p)
+		ssl := extractSSL(p)
+
+		fmt.Printf("  %s➜%s  %sServer:%s   %s%s://localhost:%d/%s\n", colorGreen, colorReset, colorBold, colorReset, colorCyan, func() string { if ssl { return "https" }; return "http" }(), port, colorReset)
+		fmt.Printf("  %s➜%s  %sBuilt in:%s  %s\n\n", colorGreen, colorReset, colorBold, colorReset, bt.Round(time.Millisecond))
+
+		startServer()
+
+		// Re-add any new directories that may have appeared
+		addWatchDirs(watcher, watchDir, tmpDir)
+	}
+
+	for {
+		select {
+		case <-sigCh:
+			fmt.Printf("\n  %s[watch]%s shutting down...\n", colorYellow, colorReset)
+			stopServer()
+			return
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// Only care about writes, creates, removes, renames
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
+				continue
+			}
+			// Skip hidden files and temp files
+			base := filepath.Base(event.Name)
+			if strings.HasPrefix(base, ".") || strings.HasSuffix(base, "~") || strings.HasSuffix(base, ".swp") {
+				continue
+			}
+
+			// If a new directory was created, watch it
+			if event.Op&fsnotify.Create != 0 {
+				if fi, err := os.Stat(event.Name); err == nil && fi.IsDir() {
+					addWatchDirs(watcher, event.Name, tmpDir)
+				}
+			}
+
+			changeMu.Lock()
+			changedFiles = append(changedFiles, event.Name)
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(500*time.Millisecond, rebuild)
+			changeMu.Unlock()
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "  %s[watch] error:%s %s\n", colorRed, colorReset, err)
+		}
+	}
+}
+
+// addWatchDirs recursively adds directories to the watcher, skipping hidden dirs and tmpDir
+func addWatchDirs(watcher *fsnotify.Watcher, root string, tmpDir string) {
+	filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !fi.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		// Skip hidden directories, node_modules, and temp build dir
+		if strings.HasPrefix(base, ".") && path != root {
+			return filepath.SkipDir
+		}
+		if base == "node_modules" || base == "vendor" {
+			return filepath.SkipDir
+		}
+		abs, _ := filepath.Abs(path)
+		tmpAbs, _ := filepath.Abs(tmpDir)
+		if strings.HasPrefix(abs, tmpAbs) {
+			return filepath.SkipDir
+		}
+		watcher.Add(path)
+		return nil
+	})
+}
+
+// buildSoft compiles the target, returning the program, build duration, and any error
+func buildSoft(target string, binPath string) (*compiler.Program, time.Duration, error) {
+	start := time.Now()
+
+	program, err := parseTargetSoft(target)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	src, err := compiler.GenerateNativeCode(program)
+	if err != nil {
+		return nil, 0, fmt.Errorf("code generation: %w", err)
+	}
+
+	buildDir, err := os.MkdirTemp("", "httpdsl-build-*")
+	if err != nil {
+		return nil, 0, fmt.Errorf("creating build dir: %w", err)
+	}
+	defer os.RemoveAll(buildDir)
+
+	if err := os.WriteFile(filepath.Join(buildDir, "main.go"), []byte(src), 0644); err != nil {
+		return nil, 0, fmt.Errorf("writing source: %w", err)
+	}
+
+	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
+	var requires []string
+	if strings.Contains(src, "golang.org/x/crypto/bcrypt") || strings.Contains(src, "golang.org/x/crypto/argon2") {
+		requires = append(requires, "golang.org/x/crypto v0.48.0")
+	}
+	drivers := compiler.DetectDBDrivers(program)
+	if drivers["sqlite"] {
+		requires = append(requires, "modernc.org/sqlite v1.46.1")
+	}
+	if drivers["postgres"] {
+		requires = append(requires, "github.com/jackc/pgx/v5 v5.8.0")
+	}
+	if drivers["mysql"] {
+		requires = append(requires, "github.com/go-sql-driver/mysql v1.9.3")
+	}
+	if drivers["mongo"] {
+		requires = append(requires, "go.mongodb.org/mongo-driver/v2 v2.5.0")
+	}
+	if len(requires) > 0 {
+		goMod += "\nrequire (\n"
+		for _, r := range requires {
+			goMod += "\t" + r + "\n"
+		}
+		goMod += ")\n"
+	}
+	if err := os.WriteFile(filepath.Join(buildDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		return nil, 0, fmt.Errorf("writing go.mod: %w", err)
+	}
+	if len(requires) > 0 {
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = buildDir
+		if out, err := tidyCmd.CombinedOutput(); err != nil {
+			return nil, 0, fmt.Errorf("go mod tidy: %s\n%s", err, out)
+		}
+	}
+
+	buildCmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", binPath, ".")
+	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	buildCmd.Dir = buildDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		// Save source for debugging
+		debugPath := filepath.Join(os.TempDir(), "httpdsl-debug.go")
+		os.WriteFile(debugPath, []byte(src), 0644)
+		return nil, 0, fmt.Errorf("build failed (source saved: %s):\n%s", debugPath, out)
+	}
+
+	return program, time.Since(start), nil
 }
 
 func doBuild(program *compiler.Program, target string, outputOverride ...string) {
@@ -177,7 +564,6 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 		os.Exit(1)
 	}
 
-	// Create temp build directory
 	buildDir, err := os.MkdirTemp("", "httpdsl-build-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating build dir: %s\n", err)
@@ -185,13 +571,11 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 	}
 	defer os.RemoveAll(buildDir)
 
-	// Write generated source
 	if err := os.WriteFile(filepath.Join(buildDir, "main.go"), []byte(src), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing source: %s\n", err)
 		os.Exit(1)
 	}
 
-	// Write go.mod
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
 	var requires []string
 	if strings.Contains(src, "golang.org/x/crypto/bcrypt") || strings.Contains(src, "golang.org/x/crypto/argon2") {
@@ -221,9 +605,7 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 		fmt.Fprintf(os.Stderr, "Error writing go.mod: %s\n", err)
 		os.Exit(1)
 	}
-	// Run go mod tidy if there are external dependencies
-	needsTidy := len(requires) > 0
-	if needsTidy {
+	if len(requires) > 0 {
 		tidyCmd := exec.Command("go", "mod", "tidy")
 		tidyCmd.Dir = buildDir
 		tidyCmd.Stderr = os.Stderr
@@ -233,19 +615,16 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 		}
 	}
 
-	// Determine output path
 	var outputPath string
 	if len(outputOverride) > 0 && outputOverride[0] != "" {
 		outputPath = outputOverride[0]
 	} else {
 		base := strings.TrimSuffix(filepath.Base(target), ".httpdsl")
 		if base == "" || base == "." {
-			// Use current directory name as binary name
 			wd, _ := filepath.Abs(target)
 			base = filepath.Base(wd)
 		}
 		if base == "app" {
-			// If target was app.httpdsl, use directory name
 			wd, _ := filepath.Abs(filepath.Dir(target))
 			base = filepath.Base(wd)
 		}
@@ -255,20 +634,17 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 		}
 	}
 
-	// Build
 	buildCmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outputPath, ".")
 	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	buildCmd.Dir = buildDir
 	buildCmd.Stderr = os.Stderr
 	if err := buildCmd.Run(); err != nil {
-		// Save source for debugging
-		debugPath := filepath.Join(os.TempDir(), filepath.Base(outputPath) + ".go")
+		debugPath := filepath.Join(os.TempDir(), filepath.Base(outputPath)+".go")
 		os.WriteFile(debugPath, []byte(src), 0644)
 		fmt.Fprintf(os.Stderr, "Build failed. Source saved: %s\n", debugPath)
 		os.Exit(1)
 	}
 
-	// Only print when building to a named output (not temp for run)
 	if !strings.Contains(outputPath, "httpdsl-run-") {
 		fi, _ := os.Stat(outputPath)
 		fmt.Printf("Built %s → %s (%s)\n", target, outputPath, humanSize(fi.Size()))
