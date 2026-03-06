@@ -33,6 +33,7 @@ This is the complete language reference.
   - `templates` — Go html/template directory
   - `cors` — cross-origin resource sharing
   - `session` — server-side sessions and CSRF
+  - Runtime overrides: `-p` (port), `-s` (static dir), `SSL_CERT`/`SSL_KEY` env vars
 
 - [**Types & Values**](types.md) — The value system
   - Strings, integers, floats, booleans, null
