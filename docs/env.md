@@ -64,18 +64,18 @@ max_upload = env("MAX_UPLOAD", "10")
 The `args` built-in is a read-only map populated from `--key value` CLI flags:
 
 ```bash
-./myapp --port 8080 --mode production
+./myapp --mode production --db-path ./data.db
 ```
 
 ```httpdsl
-port = int(args["port"] ?? "3000")
 mode = args["mode"] ?? "development"
+db_path = args["db-path"] ?? "./app.db"
 ```
 
 Every `--key` consumes the next argument as its value. A `--key` at the end of the command line (with no following argument) is set to `true`:
 
 ```bash
-./myapp --port 8080 --verbose
+./myapp --mode production --verbose
 ```
 
 ```httpdsl
@@ -83,6 +83,8 @@ if args["verbose"] {
   log_info("verbose is on")
 }
 ```
+
+> **Note:** Port is handled by the built-in `-p` flag (see [Built-in Flags](#built-in-flags)), not through `args`. Use `args` for app-specific configuration.
 
 > **Note:** `--key` always consumes the next argument as its value. `--foo --bar` sets `args["foo"]` to the string `"--bar"`, not `true`. Put value-less flags last.
 
@@ -96,10 +98,9 @@ help `My API Server
 A REST API for managing widgets.
 
 Usage:
-  ./myapp --port 8080 --db postgres://localhost/mydb
+  ./myapp -p 8080 --db postgres://localhost/mydb
 
 Options:
-  --port <n>     Port to listen on (default: 3000)
   --db <url>     Database connection URL
   --verbose      Enable verbose logging`
 ```
@@ -112,12 +113,26 @@ Every compiled binary supports these flags:
 
 | Flag | Description |
 |------|-------------|
-| `-h` | Print help text (if defined) and list built-in flags, then exit |
-| `-v` | Print `Built with httpdsl` and exit |
+| `-p <port>` | Override listen port (also via `PORT` env var) |
+| `-s <dir>` | Override primary static file directory |
 | `-e <path>` | Load a specific `.env` file instead of `.env` |
 | `-e none` | Skip `.env` loading entirely |
+| `-v` | Print `Built with httpdsl` and exit |
+| `-h` | Print help text (if defined) and list built-in flags, then exit |
 
-Example output of `-h` with a help block:
+Port precedence: `-p` flag → `PORT` env var → compiled default from `server { port ... }`.
+
+The following **environment variables** are also recognized:
+
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Override listen port |
+| `SSL_CERT` | Path to TLS certificate file |
+| `SSL_KEY` | Path to TLS private key file |
+
+SSL precedence: `SSL_CERT`/`SSL_KEY` env → compiled `ssl_cert`/`ssl_key` → no TLS.
+
+Example output of `-h`:
 
 ```
 My API Server
@@ -125,45 +140,60 @@ My API Server
 A REST API for managing widgets.
 
 Flags:
+  -p <port>   Listen port (default: 8080, or PORT env var)
+  -s <dir>    Static file directory (default: ./public)
   -e <path>   Load env file (default: .env, "none" to skip)
   -v          Show version
   -h          Show this help
+
+Environment variables:
+  PORT        Override listen port
+  SSL_CERT    Path to TLS certificate file
+  SSL_KEY     Path to TLS private key file
 ```
 
 ## Load Order
 
 Configuration sources from weakest to strongest:
 
-1. **`.env` file** — loaded at startup, populates the `env()` map
-2. **CLI `args`** — `--key value` flags, available via `args["key"]`
+1. **Compiled defaults** — `server { port 8080 }` etc.
+2. **`.env` file** — loaded at startup, populates the `env()` map
+3. **OS environment variables** — `PORT`, `SSL_CERT`, `SSL_KEY`
+4. **CLI flags** — `-p`, `-s`, and `--key value` args
 
-These are separate namespaces. `env()` reads from `.env`, `args` reads from CLI flags. Your code decides how to combine them:
+The `env()` function and `args` map are separate namespaces. `env()` reads from `.env`, `args` reads from `--key value` CLI flags. Your code decides how to combine them:
 
 ```httpdsl
 # CLI args override .env values
-port = int(args["port"] ?? env("PORT", "3000"))
 db_url = args["db"] ?? env("DATABASE_URL", "sqlite:./app.db")
+mode = args["mode"] ?? env("MODE", "development")
 ```
+
+Port, SSL, and static dir are handled automatically by built-in flags — no need to wire them up manually.
 
 ## Server Block Limitations
 
-Settings in the `server {}` block (port, templates, static, etc.) are parsed at **compile time** as literal values. You cannot use runtime expressions like `env()` in most settings.
+Most settings in the `server {}` block are parsed at **compile time** as literal values. You cannot use runtime expressions like `env()` in most of them.
 
-The one exception is `session.secret`, which supports runtime expressions:
+The exceptions are `session.secret`, `ssl_cert`, and `ssl_key`, which support runtime expressions:
 
 ```httpdsl
 server {
-  port 3000
+  port 8080
   templates "./templates"
   static "/assets" "./public"
+  ssl_cert env("SSL_CERT", "")
+  ssl_key env("SSL_KEY", "")
 
   session {
     cookie "sid"
     expires 24 h
-    secret env("SESSION_SECRET")  # this works — evaluated at runtime
+    secret env("SESSION_SECRET")  # evaluated at runtime
   }
 }
 ```
+
+For port and static directory, use the built-in `-p` and `-s` flags instead. See [Built-in Flags](#built-in-flags) and [Server → Runtime Overrides](server.md#runtime-overrides).
 
 ## Examples
 
@@ -173,11 +203,10 @@ server {
 help `Widget API
 
 Options:
-  --port <n>     Port to listen on
   --verbose      Enable request logging`
 
 server {
-  port 3000
+  port 8080
   session {
     secret env("SESSION_SECRET", "dev-secret")
   }
@@ -212,9 +241,9 @@ route GET "/api/data" {
 Run it:
 
 ```bash
-./myapp --port 8080 --verbose
+./myapp -p 3000 --verbose
 ./myapp -e production.env
-./myapp -e none --port 3000
+./myapp -e none -p 3000
 ```
 
 ### Database Connection

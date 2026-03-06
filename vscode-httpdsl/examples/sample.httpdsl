@@ -2,7 +2,7 @@
 
 help `
 My API Server
-Usage: ./myapp [--port 8080] [--debug true]
+Usage: ./myapp [-p 8080] [--debug true]
 `
 
 server {

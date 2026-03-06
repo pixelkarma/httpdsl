@@ -64,6 +64,18 @@ server {
 
 Both `ssl_cert` and `ssl_key` must be set. The server will use Go's `ListenAndServeTLS` which supports TLS 1.2+ with modern cipher suites by default.
 
+These settings accept string literals or runtime expressions like `env()`:
+
+```httpdsl
+server {
+  port 443
+  ssl_cert env("SSL_CERT", "/etc/ssl/cert.pem")
+  ssl_key env("SSL_KEY", "/etc/ssl/key.pem")
+}
+```
+
+You can also skip these entirely and enable TLS at runtime with `SSL_CERT`/`SSL_KEY` environment variables — see [Runtime Overrides](#runtime-overrides).
+
 This works with any PEM-encoded certificate — self-signed, CA-issued, or Let's Encrypt.
 
 ### Self-Signed Certificate (Development)
