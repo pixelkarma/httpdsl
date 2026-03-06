@@ -297,7 +297,7 @@ fn unauthorized_error() {
 
 route POST "/api/posts" json {
   try {
-    if !session.user_id {
+    if !request.session.user_id {
       throw unauthorized_error()
     }
     
@@ -310,7 +310,7 @@ route POST "/api/posts" json {
     post = {
       id: cuid2(),
       title: title,
-      author_id: session.user_id,
+      author_id: request.session.user_id,
       created_at: date()
     }
     

@@ -398,7 +398,7 @@ fn require_auth() {
 }
 
 fn require_role(required_role) {
-  user_role = session.role ?? "guest"
+  user_role = request.session.role ?? "guest"
   
   if user_role != required_role {
     response.status = 403

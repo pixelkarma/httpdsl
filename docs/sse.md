@@ -241,7 +241,7 @@ server {
 }
 
 route SSE "/notifications" {
-  user_id = session.user_id
+  user_id = request.session.user_id
   
   if !user_id {
     stream.send("error", {message: "Authentication required"})

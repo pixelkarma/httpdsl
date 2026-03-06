@@ -104,10 +104,10 @@ Template:
 
 ```httpdsl
 route GET "/dashboard" {
-  is_admin = session.role == "admin"
+  is_admin = request.session.role == "admin"
   
   render("dashboard.gohtml", {
-    username: session.username ?? "Guest",
+    username: request.session.username ?? "Guest",
     is_admin: is_admin,
     notifications: 5
   })
@@ -318,8 +318,8 @@ server {
 route GET "/" {
   render("home.gohtml", {
     title: "Home",
-    logged_in: session.user_id != null,
-    username: session.username ?? "Guest"
+    logged_in: request.session.user_id != null,
+    username: request.session.username ?? "Guest"
   })
 }
 
@@ -361,8 +361,8 @@ route POST "/login" form {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     redirect("/dashboard")
   } else {
     render("login.gohtml", {
@@ -373,13 +373,13 @@ route POST "/login" form {
 }
 
 route GET "/dashboard" {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
   render("dashboard.gohtml", {
     title: "Dashboard",
-    username: session.username
+    username: request.session.username
   })
 }
 ```

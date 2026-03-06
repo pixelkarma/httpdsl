@@ -265,8 +265,8 @@ route POST "/auth/login" json {
   if username == "admin" && password == "secret" {
     log_info(`Successful login: ${username}`)
     
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     
     response.body = {success: true}
   } else {
@@ -297,7 +297,7 @@ route POST "/api/events" json {
   
   log_event("api_event", {
     event_type: event.type,
-    user_id: session.user_id,
+    user_id: request.session.user_id,
     ip: request.ip
   })
   

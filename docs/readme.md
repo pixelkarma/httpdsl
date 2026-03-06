@@ -129,8 +129,8 @@ This is the complete language reference.
 
 - [**Sessions**](sessions.md) — Server-side session management
   - Configuration (`cookie`, `expires`, `secret`)
-  - `session.key` — reading session values
-  - `session.key = value` — writing session values
+  - `request.session.key` — reading session values
+  - `request.session.key = value` — writing session values
   - Cookie-based session IDs with HMAC signing
 
 - [**CSRF Protection**](csrf.md) — Cross-site request forgery prevention

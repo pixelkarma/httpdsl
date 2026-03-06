@@ -31,8 +31,8 @@ Access session values:
 
 ```httpdsl
 route GET "/profile" {
-  user_id = session.user_id
-  username = session.username
+  user_id = request.session.user_id
+  username = request.session.username
   
   if user_id == null {
     response.status = 401
@@ -55,9 +55,9 @@ route POST "/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
-    session.role = "admin"
+    request.session.user_id = 1
+    request.session.username = username
+    request.session.role = "admin"
     
     response.body = {success: true}
   } else {
@@ -73,7 +73,7 @@ Clear all session data:
 
 ```httpdsl
 route POST "/logout" {
-  session.destroy()
+  request.session.destroy()
   response.body = {message: "Logged out successfully"}
 }
 ```
@@ -100,9 +100,9 @@ route POST "/auth/login" json {
   }
   
   if email == "user@example.com" && password == "password123" {
-    session.user_id = 1
-    session.email = email
-    session.logged_in_at = date()
+    request.session.user_id = 1
+    request.session.email = email
+    request.session.logged_in_at = date()
     
     response.body = {
       success: true,
@@ -115,21 +115,21 @@ route POST "/auth/login" json {
 }
 
 route GET "/auth/me" {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Not authenticated"}
     return
   }
   
   response.body = {
-    user_id: session.user_id,
-    email: session.email,
-    logged_in_at: session.logged_in_at
+    user_id: request.session.user_id,
+    email: request.session.email,
+    logged_in_at: request.session.logged_in_at
   }
 }
 
 route POST "/auth/logout" {
-  session.destroy()
+  request.session.destroy()
   response.body = {message: "Logged out"}
 }
 ```
@@ -147,7 +147,7 @@ server {
 }
 
 fn require_auth() {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Authentication required"}
     return false
@@ -166,7 +166,7 @@ route GET "/protected" {
   
   response.body = {
     message: "Protected data",
-    user: session.username
+    user: request.session.username
   }
 }
 
@@ -175,8 +175,8 @@ route DELETE "/account" {
     return
   }
   
-  user_id = session.user_id
-  session.destroy()
+  user_id = request.session.user_id
+  request.session.destroy()
   
   response.body = {deleted: user_id}
 }
@@ -198,9 +198,9 @@ route POST "/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
-    session.created_at = date("unix")
+    request.session.user_id = 1
+    request.session.username = username
+    request.session.created_at = date("unix")
     
     response.body = {success: true}
   } else {
@@ -210,17 +210,17 @@ route POST "/login" json {
 }
 
 route GET "/dashboard" {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Not authenticated"}
     return
   }
   
-  created_at = session.created_at ?? 0
+  created_at = request.session.created_at ?? 0
   age = date("unix") - created_at
   
   response.body = {
-    user: session.username,
+    user: request.session.username,
     session_age: age
   }
 }
@@ -256,8 +256,8 @@ route POST "/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     
     response.body = {success: true}
   } else {
@@ -267,15 +267,15 @@ route POST "/login" json {
 }
 
 route GET "/profile" {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Not authenticated"}
     return
   }
   
   response.body = {
-    user_id: session.user_id,
-    username: session.username
+    user_id: request.session.user_id,
+    username: request.session.username
   }
 }
 ```
@@ -293,7 +293,7 @@ server {
 }
 
 route GET "/cart" {
-  cart = session.cart ?? []
+  cart = request.session.cart ?? []
   
   response.body = {
     items: cart,
@@ -302,12 +302,12 @@ route GET "/cart" {
 }
 
 route POST "/cart/add" json {
-  cart = session.cart ?? []
+  cart = request.session.cart ?? []
   
   item = request.data
   cart = append(cart, item)
   
-  session.cart = cart
+  request.session.cart = cart
   
   response.body = {
     items: cart,
@@ -316,12 +316,12 @@ route POST "/cart/add" json {
 }
 
 route DELETE "/cart/clear" {
-  session.cart = []
+  request.session.cart = []
   response.body = {message: "Cart cleared"}
 }
 
 route DELETE "/cart/item/:index" {
-  cart = session.cart ?? []
+  cart = request.session.cart ?? []
   index = int(request.params.index)
   
   if index < 0 || index >= len(cart) {
@@ -340,7 +340,7 @@ route DELETE "/cart/item/:index" {
     i += 1
   }
   
-  session.cart = new_cart
+  request.session.cart = new_cart
   
   response.body = {
     items: new_cart,
@@ -363,9 +363,9 @@ server {
 
 route GET "/preferences" {
   prefs = {
-    theme: session.theme ?? "light",
-    language: session.language ?? "en",
-    notifications: session.notifications ?? true
+    theme: request.session.theme ?? "light",
+    language: request.session.language ?? "en",
+    notifications: request.session.notifications ?? true
   }
   
   response.body = prefs
@@ -375,21 +375,21 @@ route PUT "/preferences" json {
   {theme, language, notifications} = request.data
   
   if theme != null {
-    session.theme = theme
+    request.session.theme = theme
   }
   
   if language != null {
-    session.language = language
+    request.session.language = language
   }
   
   if notifications != null {
-    session.notifications = notifications
+    request.session.notifications = notifications
   }
   
   response.body = {
-    theme: session.theme,
-    language: session.language,
-    notifications: session.notifications
+    theme: request.session.theme,
+    language: request.session.language,
+    notifications: request.session.notifications
   }
 }
 ```
@@ -407,18 +407,18 @@ server {
 }
 
 route POST "/submit" form {
-  session.flash_message = "Form submitted successfully!"
-  session.flash_type = "success"
+  request.session.flash_message = "Form submitted successfully!"
+  request.session.flash_type = "success"
   
   redirect("/form")
 }
 
 route GET "/form" {
-  flash = session.flash_message ?? ""
-  flash_type = session.flash_type ?? ""
+  flash = request.session.flash_message ?? ""
+  flash_type = request.session.flash_type ?? ""
   
-  session.flash_message = null
-  session.flash_type = null
+  request.session.flash_message = null
+  request.session.flash_type = null
   
   response.body = {
     flash: flash,
@@ -445,9 +445,9 @@ route POST "/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
-    session.login_time = date()
+    request.session.user_id = 1
+    request.session.username = username
+    request.session.login_time = date()
     
     response.body = {success: true}
   } else {

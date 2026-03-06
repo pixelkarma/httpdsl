@@ -279,7 +279,7 @@ route GET "/api/users/search" {
 
 ```httpdsl
 allowed_roles = ["admin", "moderator", "editor"]
-user_role = session.role ?? "guest"
+user_role = request.session.role ?? "guest"
 has_permission = false
 
 each role in allowed_roles {
