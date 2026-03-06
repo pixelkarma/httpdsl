@@ -231,13 +231,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 				}
 			}
 		default:
-			// Top-level statements (assignments, expressions, etc.) are treated as init code
-			block := &BlockStatement{Statements: []Statement{stmt}}
-			c.initBlocks = append(c.initBlocks, block)
-			c.scanBlock(block)
-			for name := range c.collectVars(block) {
-				c.globalVars[name] = true
-			}
+			return "", fmt.Errorf("unexpected top-level statement — use init {} for startup code")
 		}
 	}
 	c.usedImports["context"] = true
