@@ -24,6 +24,11 @@ This is the complete language reference.
 
 ### II. Language Fundamentals
 
+- [**File Structure**](structure.md) — How `.httpdsl` files are organized
+  - All top-level blocks at a glance
+  - Execution order
+  - Globals vs locals
+
 - [**Server Configuration**](server.md) — The `server { }` block
   - `port` — listen port
   - `ssl_cert` / `ssl_key` — TLS encryption
