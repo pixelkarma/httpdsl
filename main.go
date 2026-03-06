@@ -368,48 +368,76 @@ func doRunWatch(target string) {
 	var debounceTimer *time.Timer
 	var changedFiles []string
 	var changeMu sync.Mutex
+	var building sync.Mutex
+	var rebuildPending bool
 
-	rebuild := func() {
-		changeMu.Lock()
-		files := changedFiles
-		changedFiles = nil
-		changeMu.Unlock()
-
-		if len(files) == 0 {
+	var rebuild func()
+	rebuild = func() {
+		// If already building, mark pending and return — the current build
+		// will check for pending changes when it finishes.
+		if !building.TryLock() {
+			changeMu.Lock()
+			rebuildPending = true
+			changeMu.Unlock()
 			return
 		}
+		defer building.Unlock()
 
-		// Deduplicate
-		seen := make(map[string]bool)
-		var unique []string
-		for _, f := range files {
-			if !seen[f] {
-				seen[f] = true
-				unique = append(unique, f)
+		for {
+			changeMu.Lock()
+			files := changedFiles
+			changedFiles = nil
+			rebuildPending = false
+			changeMu.Unlock()
+
+			if len(files) == 0 {
+				return
 			}
+
+			// Deduplicate
+			seen := make(map[string]bool)
+			var unique []string
+			for _, f := range files {
+				if !seen[f] {
+					seen[f] = true
+					unique = append(unique, f)
+				}
+			}
+
+			printRebuild(unique, watchDir)
+
+			stopServer()
+
+			p, bt, err := buildSoft(target, binPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\n  %sBuild error:%s %s\n\n", colorRed, colorReset, err)
+				fmt.Printf("  %s[watch]%s waiting for changes...\n\n", colorYellow, colorReset)
+			} else {
+				port := extractPort(p)
+				ssl := extractSSL(p)
+				protocol := "http"
+				if ssl {
+					protocol = "https"
+				}
+
+				fmt.Printf("  %s➜%s  %sServer:%s   %s%s://localhost:%d/%s\n", colorGreen, colorReset, colorBold, colorReset, colorCyan, protocol, port, colorReset)
+				fmt.Printf("  %s➜%s  %sBuilt in:%s  %s\n\n", colorGreen, colorReset, colorBold, colorReset, bt.Round(time.Millisecond))
+
+				startServer()
+
+				// Re-add any new directories that may have appeared
+				addWatchDirs(watcher, watchDir, tmpDir)
+			}
+
+			// Check if more changes arrived while we were building
+			changeMu.Lock()
+			pending := rebuildPending || len(changedFiles) > 0
+			changeMu.Unlock()
+			if !pending {
+				return
+			}
+			// Loop around to pick up the new changes
 		}
-
-		printRebuild(unique, watchDir)
-
-		stopServer()
-
-		p, bt, err := buildSoft(target, binPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "\n  %sBuild error:%s %s\n\n", colorRed, colorReset, err)
-			fmt.Printf("  %s[watch]%s waiting for changes...\n\n", colorYellow, colorReset)
-			return
-		}
-
-		port := extractPort(p)
-		ssl := extractSSL(p)
-
-		fmt.Printf("  %s➜%s  %sServer:%s   %s%s://localhost:%d/%s\n", colorGreen, colorReset, colorBold, colorReset, colorCyan, func() string { if ssl { return "https" }; return "http" }(), port, colorReset)
-		fmt.Printf("  %s➜%s  %sBuilt in:%s  %s\n\n", colorGreen, colorReset, colorBold, colorReset, bt.Round(time.Millisecond))
-
-		startServer()
-
-		// Re-add any new directories that may have appeared
-		addWatchDirs(watcher, watchDir, tmpDir)
 	}
 
 	for {
