@@ -130,7 +130,7 @@ Cannot be used as variable names:
 - `server`, `json`, `text`, `true`, `false`, `null`
 - `env`, `file`, `db`, `break`, `continue`
 - `try`, `catch`, `throw`, `async`
-- `group`, `jwt`, `switch`, `case`, `default`, `every`
+- `group`, `jwt`, `switch`, `case`, `default`
 
 ## Built-in Variables
 

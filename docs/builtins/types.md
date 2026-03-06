@@ -17,7 +17,7 @@ type({name: "Alice"})
 type(fn() {})
 ```
 
-Returns: `"string"`, `"int"`, `"float"`, `"bool"`, `"null"`, `"array"`, `"hash"`, `"function"`
+Returns: `"string"`, `"int"`, `"float"`, `"bool"`, `"null"`, `"array"`, `"object"`, `"unknown"`
 
 ## str()
 
@@ -132,7 +132,7 @@ route POST "/process" json {
     case "array" {
       result = len(input)
     }
-    case "hash" {
+    case "object" {
       result = keys(input)
     }
     default {
@@ -157,7 +157,7 @@ fn safe_int(value, default_val) {
   if type(value) == "string" {
     try {
       return int(value)
-    } catch err {
+    } catch(err) {
       return default_val
     }
   }

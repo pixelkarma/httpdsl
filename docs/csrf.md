@@ -32,10 +32,10 @@ GET, HEAD, OPTIONS requests are not validated.
 
 CSRF tokens are checked in this order:
 
-1. `_csrf` form field
-2. `X-CSRF-Token` header
-3. `X-XSRF-Token` header
-4. `_csrf` query parameter
+1. `X-CSRF-Token` header
+2. `X-XSRF-Token` header
+3. `_csrf` query parameter
+4. `_csrf` form field
 5. `_csrf` JSON body field
 
 ## Form Usage
@@ -384,7 +384,7 @@ route GET "/app" {
 route POST "/api/data" json {
   response.body = {
     received: request.data,
-    timestamp: date()
+    timestamp: now()
   }
 }
 ```

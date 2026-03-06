@@ -39,7 +39,7 @@ route GET "/config" {
   try {
     config = file.read_json("./config.json")
     response.body = config
-  } catch err {
+  } catch(err) {
     response.status = 500
     response.body = {error: "Failed to load configuration"}
   }
@@ -74,7 +74,7 @@ route POST "/save" json {
 Append to file:
 
 ```httpdsl
-file.append("./log.txt", `${date()}: New entry\n`)
+file.append("./log.txt", `${date_format(now(), "2006-01-02T15:04:05Z")}: New entry\n`)
 ```
 
 Logging example:
@@ -82,7 +82,7 @@ Logging example:
 ```httpdsl
 route POST "/log" json {
   message = request.data.message
-  log_entry = `${date()} - ${message}\n`
+  log_entry = `${date_format(now(), "2006-01-02T15:04:05Z")} - ${message}\n`
   
   file.append("./app.log", log_entry)
   
@@ -173,7 +173,7 @@ route DELETE "/files/:name" {
   try {
     file.delete(path)
     response.body = {deleted: filename}
-  } catch err {
+  } catch(err) {
     response.status = 500
     response.body = {error: "Failed to delete file"}
   }
@@ -182,13 +182,13 @@ route DELETE "/files/:name" {
 
 ### file.list()
 
-List directory contents:
+List directory contents. Returns an array of objects with `name`, `is_dir`, and `size` fields:
 
 ```httpdsl
-files = file.list("./uploads")
+entries = file.list("./uploads")
 
-each filename in files {
-  log_info(filename)
+each entry in entries {
+  log_info(entry.name + " (" + str(entry.size) + " bytes)")
 }
 ```
 
@@ -196,12 +196,12 @@ With filtering:
 
 ```httpdsl
 route GET "/files" {
-  all_files = file.list("./uploads")
+  all_entries = file.list("./uploads")
   json_files = []
   
-  each filename in all_files {
-    if ends_with(filename, ".json") {
-      json_files = append(json_files, filename)
+  each entry in all_entries {
+    if ends_with(entry.name, ".json") {
+      json_files = append(json_files, entry.name)
     }
   }
   
@@ -240,8 +240,8 @@ route POST "/upload" json {
 Change file permissions:
 
 ```httpdsl
-file.chmod("./script.sh", "0755")
-file.chmod("./config.json", "0644")
+file.chmod("./script.sh", 0755)
+file.chmod("./config.json", 0644)
 ```
 
 ## Complete Examples
@@ -382,7 +382,7 @@ route GET "/logs" {
 
 route POST "/logs" json {
   message = request.data.message
-  entry = `${date()}: ${message}\n`
+  entry = `${date_format(now(), "2006-01-02T15:04:05Z")}: ${message}\n`
   
   file.append(log_file, entry)
   
@@ -411,11 +411,11 @@ route POST "/backup" {
   users = db_conn.query("SELECT * FROM users", [])
   
   backup_data = {
-    timestamp: date(),
+    timestamp: now(),
     users: users
   }
   
-  filename = `backup_${date("unix")}.json`
+  filename = `backup_${now()}.json`
   
   if !file.exists("./backups") {
     file.mkdir("./backups")
@@ -435,12 +435,12 @@ route GET "/backups" {
     return
   }
   
-  files = file.list("./backups")
+  entries = file.list("./backups")
   backups = []
   
-  each filename in files {
-    if ends_with(filename, ".json") {
-      backups = append(backups, filename)
+  each entry in entries {
+    if ends_with(entry.name, ".json") {
+      backups = append(backups, entry.name)
     }
   }
   
@@ -467,7 +467,7 @@ route POST "/restore/:filename" {
         [user.id, user.name, user.email]
       )
       restored += 1
-    } catch err {
+    } catch(err) {
       log_error(`Failed to restore user ${user.id}: ${err}`)
     }
   }

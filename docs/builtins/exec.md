@@ -140,7 +140,7 @@ route GET "/files" {
 
 ```httpdsl
 route POST "/backup" {
-  timestamp = date("unix")
+  timestamp = now()
   filename = `backup_${timestamp}.tar.gz`
   
   result = exec(`tar -czf /backups/${filename} ./data`, 60)
@@ -221,7 +221,7 @@ route GET "/health" {
 
 ```httpdsl
 route POST "/db/dump" {
-  timestamp = date("unix")
+  timestamp = now()
   filename = `dump_${timestamp}.sql`
   
   result = exec(`mysqldump -u user -ppassword dbname > /backups/${filename}`, 120)

@@ -135,8 +135,8 @@ From highest to lowest:
 4. **Comparison**: `<`, `>`, `<=`, `>=`
 5. **Equality**: `==`, `!=`
 6. **Logical AND**: `&&`
-7. **Logical OR**: `||`
-8. **Nullish**: `??`
+7. **Nullish coalescing**: `??`
+8. **Logical OR**: `||`
 9. **Ternary**: `? :`
 
 ### Grouping with Parentheses

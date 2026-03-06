@@ -87,7 +87,7 @@ error 404 {
     error: "Not found",
     method: request.method,
     path: request.path,
-    timestamp: date()
+    timestamp: now()
   }
 }
 
@@ -270,7 +270,7 @@ error 500 {
       path: request.path,
       method: request.method,
       headers: request.headers,
-      timestamp: date()
+      timestamp: now()
     }
   }
 }
@@ -379,7 +379,7 @@ error 404 {
 }
 
 error 429 {
-  reset_time = date("unix") + 60
+  reset_time = now() + 60
   
   response.headers = {
     "Retry-After": "60",

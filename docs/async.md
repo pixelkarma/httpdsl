@@ -197,7 +197,7 @@ route GET "/safe-fetch" {
       users: users_res.body,
       posts: posts_res.body
     }
-  } catch err {
+  } catch(err) {
     response.status = 500
     response.body = {error: "Failed to fetch data"}
   }

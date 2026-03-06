@@ -319,7 +319,7 @@ route POST "/api/batch" json {
     processed = {
       id: item.id,
       status: "processed",
-      timestamp: date()
+      timestamp: now()
     }
     
     results = append(results, processed)

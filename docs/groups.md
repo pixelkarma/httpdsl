@@ -26,33 +26,29 @@ The routes become:
 - `/api/users`
 - `/api/posts`
 
-## Nested Groups
+## Multiple Groups
 
-Groups can be nested:
+Use separate groups for versioned APIs:
 
 ```httpdsl
 server {
   port 3000
 }
 
-group "/api" {
-  group "/v1" {
-    route GET "/users" {
-      response.body = {version: "v1", users: []}
-    }
+group "/api/v1" {
+  route GET "/users" {
+    response.body = {version: "v1", users: []}
   }
-  
-  group "/v2" {
-    route GET "/users" {
-      response.body = {version: "v2", users: []}
-    }
+}
+
+group "/api/v2" {
+  route GET "/users" {
+    response.body = {version: "v2", users: []}
   }
 }
 ```
 
-The routes become:
-- `/api/v1/users`
-- `/api/v2/users`
+> **Note:** Groups cannot be nested. Define each group at the top level.
 
 ## Group Middleware
 
@@ -283,13 +279,13 @@ server {
 group "/api" {
   before {
     request_id = cuid2()
-    start_time = date("unix")
+    start_time = now()
     
     log_info(`[${request_id}] ${request.method} ${request.path} from ${request.ip}`)
   }
   
   after {
-    duration = date("unix") - start_time
+    duration = now() - start_time
     log_info(`[${request_id}] Completed in ${duration}s with status ${response.status}`)
   }
   

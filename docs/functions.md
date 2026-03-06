@@ -363,7 +363,7 @@ route POST "/api/users" json {
     id: cuid2(),
     name: name,
     email: email,
-    created_at: date()
+    created_at: now()
   }
   
   created(user)

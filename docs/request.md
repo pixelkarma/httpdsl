@@ -287,7 +287,7 @@ route POST "/api/posts/:id/comments" json {
     author: author,
     content: content,
     ip: client_ip,
-    created_at: date()
+    created_at: now()
   }
   
   response.status = 201

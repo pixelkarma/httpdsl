@@ -64,29 +64,27 @@ max_upload = env("MAX_UPLOAD", "10")
 The `args` built-in is a read-only map populated from `--key value` CLI flags:
 
 ```bash
-./myapp --port 8080 --mode production --verbose
+./myapp --port 8080 --mode production
 ```
 
 ```httpdsl
 port = int(args["port"] ?? "3000")
 mode = args["mode"] ?? "development"
-
-if args["verbose"] {
-  log_info("Verbose mode enabled")
-}
 ```
 
-Flags without a value are set to `true`:
+Every `--key` consumes the next argument as its value. A `--key` at the end of the command line (with no following argument) is set to `true`:
 
 ```bash
-./myapp --verbose --debug
+./myapp --port 8080 --verbose
 ```
 
 ```httpdsl
 if args["verbose"] {
-  log_info("verbose is true")
+  log_info("verbose is on")
 }
 ```
+
+> **Note:** `--key` always consumes the next argument as its value. `--foo --bar` sets `args["foo"]` to the string `"--bar"`, not `true`. Put value-less flags last.
 
 ## help Block
 

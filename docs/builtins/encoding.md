@@ -218,7 +218,7 @@ route POST "/webhook" json {
   secret = env("WEBHOOK_SECRET")
   
   payload_json = json.stringify(payload)
-  signature = hmac("sha256", payload_json, secret)
+  signature = hmac_hash("sha256", secret, payload_json)
   signature_b64 = base64_encode(signature)
   
   response.headers = {
@@ -294,7 +294,7 @@ route POST "/decode" json {
       encoding: encoding,
       decoded: result
     }
-  } catch err {
+  } catch(err) {
     response.status = 400
     response.body = {error: "Decoding failed"}
   }
@@ -307,7 +307,7 @@ route POST "/decode" json {
 fn safe_json_parse(str, default_value) {
   try {
     return json.parse(str)
-  } catch err {
+  } catch(err) {
     return default_value
   }
 }

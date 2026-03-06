@@ -23,7 +23,7 @@ route SSE "/notifications" {
   stream.send("notification", {
     id: 1,
     message: "New notification",
-    timestamp: date()
+    timestamp: now()
   })
 }
 ```
@@ -173,7 +173,7 @@ route POST "/room/:id/message" json {
   broadcast("message", {
     username: username,
     message: message,
-    timestamp: date()
+    timestamp: now()
   }, room_id)
   
   response.body = {sent: true}
@@ -259,7 +259,7 @@ route POST "/notify/:user_id" json {
   
   broadcast("notification", {
     message: message,
-    timestamp: date()
+    timestamp: now()
   }, `user:${user_id}`)
   
   response.body = {notified: user_id}
@@ -327,7 +327,7 @@ before {
       method: request.method,
       path: request.path,
       ip: request.ip,
-      timestamp: date()
+      timestamp: now()
     }
     
     broadcast("log", log_entry, "logs")
@@ -360,7 +360,7 @@ every 2 s {
   broadcast("price", {
     symbol: "ACME",
     price: price,
-    timestamp: date()
+    timestamp: now()
   })
 }
 
