@@ -251,9 +251,85 @@ server {
 
 See [Sessions](sessions.md) and [CSRF](csrf.md) for details.
 
-## Runtime Configuration
+## Runtime Overrides
 
-Most `server {}` settings are **compile-time literals** — you cannot use `env()` or `args` in them. The exception is `session.secret`, which supports runtime expressions:
+Compiled binaries accept flags and environment variables that override `server {}` settings at runtime.
+
+### Port
+
+Precedence: `-p` flag → `PORT` env var → compiled default.
+
+```bash
+# Use compiled default (8080)
+./myapp
+
+# Override with flag
+./myapp -p 3000
+
+# Override with env var
+PORT=3000 ./myapp
+
+# Flag wins over env var
+PORT=3000 ./myapp -p 4000   # listens on 4000
+```
+
+### SSL / TLS (Runtime)
+
+Precedence: `SSL_CERT`/`SSL_KEY` env vars → compiled default → no TLS.
+
+```bash
+# Enable TLS at runtime (no ssl_cert/ssl_key in server block needed)
+SSL_CERT=/path/to/cert.pem SSL_KEY=/path/to/key.pem ./myapp
+
+# Override compiled-in cert paths
+SSL_CERT=/new/cert.pem SSL_KEY=/new/key.pem ./myapp
+```
+
+The `ssl_cert` and `ssl_key` settings also support runtime expressions:
+
+```httpdsl
+server {
+  port 443
+  ssl_cert env("MY_CERT", "/etc/ssl/cert.pem")
+  ssl_key env("MY_KEY", "/etc/ssl/key.pem")
+}
+```
+
+### Static Directory
+
+Precedence: `-s` flag → compiled default.
+
+```bash
+# Use compiled default
+./myapp
+
+# Override the primary static directory
+./myapp -s /var/www/static
+```
+
+The `-s` flag overrides the first `static` mount's directory.
+
+### All Flags
+
+```
+Flags:
+  -p <port>   Listen port (default: 8080, or PORT env var)
+  -s <dir>    Static file directory (default: ./public)
+  -e <path>   Load env file (default: .env, "none" to skip)
+  -v          Show version
+  -h          Show this help
+
+Environment variables:
+  PORT        Override listen port
+  SSL_CERT    Path to TLS certificate file
+  SSL_KEY     Path to TLS private key file
+```
+
+Run `./myapp -h` to see the defaults from your `server {}` block.
+
+### Other Runtime Configuration
+
+Most `server {}` settings are **compile-time literals** — you cannot use `env()` or `args` in them. The exceptions are `session.secret`, `ssl_cert`, and `ssl_key`, which support runtime expressions:
 
 ```httpdsl
 server {
@@ -267,7 +343,7 @@ server {
 }
 ```
 
-For runtime configuration, use CLI args and `.env` files in your `init` block. See [Configuration](env.md) for details.
+For other runtime configuration, use CLI args and `.env` files in your `init` block. See [Configuration](env.md) for details.
 
 ## Complete Example
 
