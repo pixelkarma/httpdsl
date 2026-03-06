@@ -7,132 +7,14 @@
   <title>{{.Page.title}} — Task Board</title>
   <link rel="stylesheet" href="/css/app.css">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{csrf_token}}"}'>
 {{end}}
 
 {{define "foot"}}
   <div id="toast-container" class="toast-container"></div>
-
-  <script>
-  function showToast(msg) {
-    var c = document.getElementById('toast-container');
-    var t = document.createElement('div');
-    t.className = 'toast';
-    t.textContent = msg;
-    c.appendChild(t);
-    setTimeout(function() {
-      t.classList.add('removing');
-      t.addEventListener('animationend', function() { t.remove(); });
-    }, 3000);
-  }
-
-  function updateCounts() {
-    document.querySelectorAll('.column').forEach(function(col) {
-      var count = col.querySelectorAll('.task-card').length;
-      var badge = col.querySelector('.count');
-      if (badge) badge.textContent = count;
-    });
-  }
-
-  function updateEmptyStates() {
-    document.querySelectorAll('.column-body').forEach(function(body) {
-      var cards = body.querySelectorAll('.task-card');
-      var empty = body.querySelector('.empty-state');
-      if (cards.length === 0 && !empty) {
-        empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.textContent = 'No tasks';
-        body.appendChild(empty);
-      } else if (cards.length > 0 && empty) {
-        empty.remove();
-      }
-    });
-  }
-
-  document.body.addEventListener('htmx:afterSwap', function(e) {
-    setTimeout(function() {
-      updateCounts();
-      updateEmptyStates();
-    }, 10);
-  });
-  document.body.addEventListener('htmx:afterSettle', function(e) {
-    setTimeout(function() {
-      updateCounts();
-      updateEmptyStates();
-    }, 10);
-  });
-
-  document.body.addEventListener('htmx:afterRequest', function(e) {
-    if (e.detail.elt && e.detail.elt.id === 'new-task-form' && e.detail.successful) {
-      e.detail.elt.querySelector('input[name=title]').value = '';
-      e.detail.elt.querySelector('input[name=title]').focus();
-    }
-  });
-
-  // Handle task move via HX-Trigger
-  document.body.addEventListener('moveTask', function(e) {
-    var data = e.detail;
-    var card = document.getElementById('task-' + data.id);
-    if (card) card.remove();
-    var col = document.getElementById('col-' + data.status);
-    if (col) {
-      var empty = col.querySelector('.empty-state');
-      if (empty) empty.remove();
-      col.insertAdjacentHTML('beforeend', data.html);
-      // Make new card's actions visible briefly
-      var newCard = document.getElementById('task-' + data.id);
-      if (newCard) {
-        htmx.process(newCard);
-      }
-      updateCounts();
-      updateEmptyStates();
-    }
-  });
-
-  document.body.addEventListener('task-created', function(e) {
-    var data = JSON.parse(e.detail.value);
-    if (document.getElementById('task-' + data.id)) return;
-    var col = document.getElementById('col-todo');
-    if (col) {
-      var empty = col.querySelector('.empty-state');
-      if (empty) empty.remove();
-      col.insertAdjacentHTML('beforeend', data.html);
-      updateCounts();
-      showToast(data.user + ' added: ' + data.title);
-    }
-  });
-
-  document.body.addEventListener('task-moved', function(e) {
-    var data = JSON.parse(e.detail.value);
-    var card = document.getElementById('task-' + data.id);
-    if (card) card.remove();
-    var col = document.getElementById('col-' + data.status);
-    if (col) {
-      var empty = col.querySelector('.empty-state');
-      if (empty) empty.remove();
-      col.insertAdjacentHTML('beforeend', data.html);
-      updateCounts();
-      updateEmptyStates();
-      showToast(data.user + ' moved task to ' + data.status);
-    }
-  });
-
-  document.body.addEventListener('task-deleted', function(e) {
-    var data = JSON.parse(e.detail.value);
-    var card = document.getElementById('task-' + data.id);
-    if (card) {
-      card.classList.add('anim-card-out');
-      card.addEventListener('animationend', function() {
-        card.remove();
-        updateCounts();
-        updateEmptyStates();
-      });
-      showToast(data.user + ' deleted a task');
-    }
-  });
-  </script>
+  <script src="/css/board.js"></script>
 </body>
 </html>
 {{end}}
