@@ -1379,19 +1379,19 @@ func writeResponse(_w http.ResponseWriter, resp Value) {
 	switch respType {
 	case "json":
 		if _w.Header().Get("Content-Type") == "" {
-			_w.Header().Set("Content-Type", "application/json")
+			_w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		}
 		_w.WriteHeader(status)
 		if body != nil { json.NewEncoder(_w).Encode(valueToGo(body)) }
 	case "text":
 		if _w.Header().Get("Content-Type") == "" {
-			_w.Header().Set("Content-Type", "text/plain")
+			_w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		}
 		_w.WriteHeader(status)
 		if body != nil { fmt.Fprint(_w, valueToString(body)) }
 	case "html":
 		if _w.Header().Get("Content-Type") == "" {
-			_w.Header().Set("Content-Type", "text/html")
+			_w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		}
 		_w.WriteHeader(status)
 		if body != nil { fmt.Fprint(_w, valueToString(body)) }
