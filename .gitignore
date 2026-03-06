@@ -8,5 +8,6 @@ runtime.bin
 examples/taskboard/taskboard
 examples/taskboard/taskboard.db
 examples/taskboard/taskboard_store.json
+examples/checkers/checkers
 .DS_Store
 
