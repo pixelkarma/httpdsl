@@ -54,6 +54,8 @@ type NativeCompiler struct {
 	hasCron        bool                // whether any cron expressions are used
 	hasExec        bool                // whether exec() builtin is used
 	helpText       string              // help text from help block
+	sslCert        string              // path to SSL certificate file
+	sslKey         string              // path to SSL private key file
 }
 
 type staticMount struct {
@@ -165,6 +167,17 @@ func GenerateNativeCode(program *Program) (string, error) {
 						case "headers": c.corsHeaders = val
 						}
 					}
+				}
+			}
+			// SSL/TLS config
+			if cert, ok := s.Settings["ssl_cert"]; ok {
+				if sv, ok := cert.(*StringLiteral); ok {
+					c.sslCert = sv.Value
+				}
+			}
+			if key, ok := s.Settings["ssl_key"]; ok {
+				if sv, ok := key.(*StringLiteral); ok {
+					c.sslKey = sv.Value
 				}
 			}
 			// Templates config
@@ -5502,7 +5515,11 @@ func (c *NativeCompiler) emitMain() {
 	}
 
 	c.lnf("addr := \":%d\"", c.port)
-	c.ln(`fmt.Printf("httpdsl native server on %s\n", addr)`)
+	if c.sslCert != "" && c.sslKey != "" {
+		c.ln(`fmt.Printf("httpdsl native server (TLS) on %s\n", addr)`)
+	} else {
+		c.ln(`fmt.Printf("httpdsl native server on %s\n", addr)`)
+	}
 	if c.corsOrigins != "" {
 		c.ln("var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {")
 		c.indent++
@@ -5558,7 +5575,12 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("")
 	}
 
-	c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
+	if c.sslCert != "" && c.sslKey != "" {
+		c.lnf(`fmt.Printf("httpdsl TLS enabled (cert: %s)\n")`, c.sslCert)
+		c.lnf("if err := http.ListenAndServeTLS(addr, %q, %q, handler); err != nil {", c.sslCert, c.sslKey)
+	} else {
+		c.ln("if err := http.ListenAndServe(addr, handler); err != nil {")
+	}
 
 	c.indent++
 	c.ln(`fmt.Printf("Server error: %s\n", err)`)
