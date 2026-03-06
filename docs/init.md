@@ -2,6 +2,8 @@
 
 The `init` block runs once at startup, after the `.env` file is loaded but before the server starts accepting requests. Variables assigned in `init` become **globals** — accessible from every route, middleware, scheduled task, and shutdown handler.
 
+All startup logic and variable initialization should go inside an `init` block.
+
 ## Basic Usage
 
 ```httpdsl
@@ -20,7 +22,7 @@ route GET "/" {
 
 ## Global Variables
 
-Any variable assigned in `init` (or at the top level) is emitted as a package-level Go variable. This means:
+Any variable assigned in `init` is emitted as a package-level Go variable. This means:
 
 - **Routes** can read and write them
 - **Middleware** (`before`/`after`) can read and write them
@@ -146,41 +148,6 @@ init {
   set_session_store(db, "sessions", 5)
 }
 ```
-
-## Top-Level Statements
-
-Statements written at the top level (outside any block) are treated as implicit init code:
-
-```httpdsl
-server { port 8080 }
-
-# These are equivalent to being inside init { }
-app_name = "My App"
-db = db.open("sqlite", "./app.db")
-log_info("Ready")
-
-route GET "/" {
-  response.body = {name: app_name}
-}
-```
-
-This is equivalent to:
-
-```httpdsl
-server { port 8080 }
-
-init {
-  app_name = "My App"
-  db = db.open("sqlite", "./app.db")
-  log_info("Ready")
-}
-
-route GET "/" {
-  response.body = {name: app_name}
-}
-```
-
-Using an explicit `init` block is recommended for clarity, especially in larger files.
 
 ## Multiple Init Blocks
 
