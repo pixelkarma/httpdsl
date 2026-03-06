@@ -158,9 +158,9 @@ This is the complete language reference.
 - [**Databases**](databases.md) — SQL and MongoDB
   - `db.open(driver, connection_string)` — connect to a database
   - Supported drivers: `sqlite`, `postgres`, `mysql`, `mongo`
-  - `db.query(conn, sql, ...params)` — query rows
-  - `db.exec(conn, sql, ...params)` — execute statements
-  - `db.close(conn)` — close connection
+  - `conn.query(sql, params)` — query rows
+  - `conn.exec(sql, params)` — execute statements
+  - `conn.close()` — close connection
   - MongoDB operations (`find`, `insert`, `update`, `delete`, `count`)
   - Parameterized queries
 
