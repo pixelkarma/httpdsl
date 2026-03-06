@@ -70,27 +70,67 @@ document.body.addEventListener('moveTask', function(e) {
   var dot = document.getElementById('conn-dot');
   var container = document.querySelector('[data-username]');
   var currentUser = container ? container.dataset.username : '';
-  var es;
+  var es = null;
+  var retryDelay = 1000; // start at 1s
+  var maxRetryDelay = 30000; // cap at 30s
+  var retryTimer = null;
+
+  function setConnected(connected) {
+    if (dot) {
+      if (connected) {
+        dot.classList.add('connected');
+        dot.title = 'Live connected';
+      } else {
+        dot.classList.remove('connected');
+        dot.title = 'Disconnected \u2014 retrying...';
+      }
+    }
+  }
 
   function connect() {
+    // Clean up previous connection
+    if (es) {
+      es.close();
+      es = null;
+    }
+
+    console.log('[SSE] connecting to /events...');
     es = new EventSource('/events');
 
     es.onopen = function() {
-      if (dot) { dot.classList.add('connected'); dot.title = 'Live connected'; }
+      console.log('[SSE] connected');
+      retryDelay = 1000; // reset backoff on success
+      setConnected(true);
     };
 
     es.onerror = function() {
-      if (dot) { dot.classList.remove('connected'); dot.title = 'Disconnected \u2014 retrying...'; }
-      // EventSource auto-reconnects, but update the UI
+      // readyState 2 = CLOSED — browser gave up, we must reconnect manually
+      // readyState 0 = CONNECTING — browser is auto-retrying (but we don't trust it)
+      var wasClosed = es.readyState === 2;
+      console.log('[SSE] ' + (wasClosed ? 'disconnected' : 'connection error') + ', retrying in ' + (retryDelay / 1000) + 's...');
+      setConnected(false);
+
+      // Always take control of reconnection
+      es.close();
+      es = null;
+
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(function() {
+        retryTimer = null;
+        connect();
+      }, retryDelay);
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
+      retryDelay = Math.min(retryDelay * 2, maxRetryDelay);
     };
 
     es.addEventListener('connected', function() {
-      // Initial handshake confirmed
+      // Server confirmed the SSE handshake
     });
 
     es.addEventListener('task-created', function(e) {
       var data = JSON.parse(e.data);
-      if (data.user === currentUser) return; // own action — already handled by HTMX
+      if (data.user === currentUser) return;
       if (document.getElementById('task-' + data.id)) return;
       var col = document.getElementById('col-todo');
       if (col) {
