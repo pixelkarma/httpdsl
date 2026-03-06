@@ -169,15 +169,14 @@ route GET "/" {
 ### Authentication Guard
 
 ```httpdsl
-fn require_auth() {
-  if !request.session.user_id {
+before {
+  is_public = request.path == "/login" || request.path == "/register"
+  if !is_public && !request.session.user_id {
     redirect("/login")
   }
 }
 
 route GET "/profile" {
-  require_auth()
-  
   response.body = {
     user_id: request.session.user_id,
     username: request.session.username
@@ -185,8 +184,6 @@ route GET "/profile" {
 }
 
 route GET "/settings" {
-  require_auth()
-  
   response.body = {settings: {}}
 }
 ```

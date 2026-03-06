@@ -239,9 +239,9 @@ fn verify_token(token) {
   }
   
   secret = env("JWT_SECRET")
-  payload = jwt.verify(token, secret)
-  
-  if payload == null {
+  try {
+    payload = jwt.verify(token, secret)
+  } catch(err) {
     throw {code: 401, message: "Invalid or expired token"}
   }
   

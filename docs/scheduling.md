@@ -362,7 +362,7 @@ route SSE "/events" {
 every 30 s {
   broadcast("heartbeat", {
     timestamp: now(),
-    uptime: server_stats().uptime_formatted
+    uptime: server_stats().uptime_human
   })
 }
 ```

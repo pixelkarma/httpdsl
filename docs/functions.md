@@ -143,13 +143,13 @@ Capturing route context:
 ```httpdsl
 api_key = env("API_KEY")
 
-fn check_auth() {
-  token = request.headers["authorization"] ?? ""
+fn check_auth(headers) {
+  token = headers["authorization"] ?? ""
   return token == `Bearer ${api_key}`
 }
 
 route GET "/api/protected" {
-  if !check_auth() {
+  if !check_auth(request.headers) {
     response.status = 401
     response.body = {error: "Unauthorized"}
     return
@@ -333,29 +333,26 @@ route GET "/api/items" {
 }
 ```
 
-### Response Helpers
+### Data Helpers
+
+Functions work best for data transformation, not request/response manipulation
+(which are only available inside route handlers):
 
 ```httpdsl
-fn success(data) {
-  response.status = 200
-  response.body = {success: true, data: data}
+fn success_response(data) {
+  return {success: true, data: data}
 }
 
-fn error(code, message) {
-  response.status = code
-  response.body = {success: false, error: message}
-}
-
-fn created(data) {
-  response.status = 201
-  response.body = {success: true, data: data}
+fn error_response(message) {
+  return {success: false, error: message}
 }
 
 route POST "/api/users" json {
   {name, email} = request.data
   
   if name == "" || email == "" {
-    error(400, "Missing required fields")
+    response.status = 400
+    response.body = error_response("Missing required fields")
     return
   }
   
@@ -366,59 +363,49 @@ route POST "/api/users" json {
     created_at: now()
   }
   
-  created(user)
+  response.status = 201
+  response.body = success_response(user)
 }
 
 route GET "/api/users/:id" {
   user_id = request.params.id
-  
   user = {id: user_id, name: "Sample User"}
-  
-  if user == null {
-    error(404, "User not found")
-  } else {
-    success(user)
-  }
+  response.body = success_response(user)
 }
 ```
 
-### Middleware Functions
+### Auth with Before Blocks
+
+`request` and `response` are only available inside route handlers and `before`/`after` blocks — not in standalone functions. Use `before` blocks for auth checks:
 
 ```httpdsl
-fn require_auth() {
-  token = request.bearer
-  
-  if token == "" {
+before {
+  if request.bearer == "" {
     response.status = 401
     response.body = {error: "Missing authentication token"}
-    return false
   }
-  
-  return true
-}
-
-fn require_role(required_role) {
-  user_role = request.session.role ?? "guest"
-  
-  if user_role != required_role {
-    response.status = 403
-    response.body = {error: "Insufficient permissions"}
-    return false
-  }
-  
-  return true
 }
 
 route DELETE "/api/users/:id" {
-  if !require_auth() {
-    return
-  }
-  
-  if !require_role("admin") {
-    return
-  }
-  
   user_id = request.params.id
   response.body = {deleted: user_id}
+}
+```
+
+Functions that need request data should receive it as parameters:
+
+```httpdsl
+fn check_role(role, required) {
+  return role == required
+}
+
+route DELETE "/api/admin/:id" {
+  if !check_role(request.session.role, "admin") {
+    response.status = 403
+    response.body = {error: "Admin required"}
+    return
+  }
+  
+  response.body = {deleted: request.params.id}
 }
 ```

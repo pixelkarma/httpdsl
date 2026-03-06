@@ -229,9 +229,7 @@ route POST "/auth/login" json {
   }
 }
 
-fn get_current_user() {
-  token = request.bearer
-  
+fn get_current_user(token) {
   if token == "" {
     return null
   }
@@ -246,7 +244,7 @@ fn get_current_user() {
 }
 
 route GET "/auth/me" {
-  user = get_current_user()
+  user = get_current_user(request.bearer)
   
   if user == null {
     response.status = 401

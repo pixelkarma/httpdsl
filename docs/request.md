@@ -202,9 +202,9 @@ route GET "/api/protected" {
   }
   
   secret = env("JWT_SECRET")
-  payload = jwt.verify(token, secret)
-  
-  if payload == null {
+  try {
+    payload = jwt.verify(token, secret)
+  } catch(err) {
     response.status = 401
     response.body = {error: "Invalid token"}
     return
@@ -297,34 +297,21 @@ route POST "/api/posts/:id/comments" json {
 
 ## Validation Example
 
+Use a `before` block for cross-cutting request validation:
+
 ```httpdsl
-fn validate_request() {
-  if request.method == "POST" || request.method == "PUT" {
-    content_type = request.headers["content-type"] ?? ""
-    
-    if !starts_with(content_type, "application/json") {
-      response.status = 415
-      response.body = {error: "Content-Type must be application/json"}
-      return false
-    }
-  }
+api_key = env("API_KEY")
+
+before {
+  key = request.headers["x-api-key"] ?? ""
   
-  api_key = request.headers["x-api-key"] ?? ""
-  
-  if api_key != env("API_KEY") {
+  if key != api_key {
     response.status = 401
     response.body = {error: "Invalid API key"}
-    return false
   }
-  
-  return true
 }
 
 route POST "/api/data" json {
-  if !validate_request() {
-    return
-  }
-  
   response.body = {success: true, data: request.data}
 }
 ```
