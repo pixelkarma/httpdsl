@@ -171,8 +171,7 @@ This is the complete language reference.
   - `store.has(key)` — check existence
   - `store.delete(key)` — remove
   - `store.incr(key, amount)` / `store.incr(key, amount, ttl)` — atomic increment
-  - `store.keys()` — list all keys
-  - `store.clear()` — remove all
+  - `keys(store.all())` — list all keys
   - `store.sync("file.json")` — persist to JSON file
   - `store.sync(db, table)` — persist to SQL database
   - TTL expiration and background sweeper

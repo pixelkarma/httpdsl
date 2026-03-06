@@ -76,24 +76,16 @@ With TTL:
 store.incr("rate_limit", 1, 60)
 ```
 
-### keys()
+### Getting All Keys
 
-Get all keys:
+Use `keys()` on `store.all()` to list all non-expired keys:
 
 ```httpdsl
-all_keys = store.keys()
+all_keys = keys(store.all())
 
 each key in all_keys {
   log_info(key)
 }
-```
-
-### clear()
-
-Remove all keys:
-
-```httpdsl
-store.clear()
 ```
 
 ## Persistence
@@ -311,7 +303,7 @@ store.set("feature_new_ui", true)
 store.set("feature_beta", false)
 
 route GET "/api/features" {
-  all_keys = store.keys()
+  all_keys = keys(store.all())
   features = {}
   
   each key in all_keys {
@@ -367,7 +359,7 @@ route GET "/about" {
 }
 
 route GET "/admin/stats" {
-  all_keys = store.keys()
+  all_keys = keys(store.all())
   views = {}
   
   each key in all_keys {
