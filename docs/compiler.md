@@ -38,13 +38,35 @@ httpdsl build
 
 ### `httpdsl run`
 
-Compile and immediately execute — useful during development:
+Compile, execute, and **watch for changes** — the development workflow:
 
 ```bash
 httpdsl run server.httpdsl
 ```
 
-This compiles to a temp directory, runs the binary, and forwards SIGINT/SIGTERM for clean shutdown.
+This compiles to a temp directory, starts the server, and watches all files in the project directory recursively. When any file changes (`.httpdsl`, `.gohtml`, `.css`, etc.), it automatically rebuilds and restarts the server.
+
+```
+  httpdsl v0.1.0
+
+  ➜  Server:   http://localhost:8080/
+  ➜  Built in: 606ms
+  ➜  Watching: ./
+
+  [watch] 2 files changed:
+    modified  app.httpdsl
+    modified  templates/index.gohtml
+
+  ➜  Rebuilding...
+  ➜  Server:   http://localhost:8080/
+  ➜  Built in: 547ms
+```
+
+- Changes are debounced (500ms) so bulk writes don't trigger multiple rebuilds
+- The running server receives SIGTERM before restart (triggers your `shutdown {}` block)
+- Build errors are displayed inline — the watcher stays active and rebuilds on the next save
+- Hidden directories (`.git`), `node_modules`, and `vendor` are excluded from watching
+- Ctrl+C cleanly shuts down both the watcher and the server
 
 ## Compilation Model
 
