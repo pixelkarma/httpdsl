@@ -166,13 +166,13 @@ server {
 
 See [Sessions](sessions.md) and [CSRF](csrf.md) for details.
 
-## Environment-Based Configuration
+## Runtime Configuration
 
-Use environment variables for configuration:
+Most `server {}` settings are **compile-time literals** — you cannot use `env()` or `args` in them. The exception is `session.secret`, which supports runtime expressions:
 
 ```httpdsl
 server {
-  port int(env("PORT", "3000"))
+  port 3000
   
   session {
     cookie "sid"
@@ -182,18 +182,20 @@ server {
 }
 ```
 
+For runtime configuration, use CLI args and `.env` files in your `init` block. See [Configuration](env.md) for details.
+
 ## Complete Example
 
 ```httpdsl
 server {
-  port int(env("PORT", "3000"))
+  port 3000
   gzip true
   throttle_requests_per_second 100
   static "/public" "./static"
   templates "./views"
   
   cors {
-    origins env("CORS_ORIGINS", "*")
+    origins "*"
     methods "GET,POST,PUT,DELETE,PATCH"
     headers "Content-Type, Authorization"
   }
@@ -201,7 +203,7 @@ server {
   session {
     cookie "sid"
     expires 7 d
-    secret env("SESSION_SECRET")
+    secret env("SESSION_SECRET", "dev-secret")
     csrf true
     csrf_safe_origins ["https://trusted.example.com"]
   }

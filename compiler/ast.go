@@ -412,6 +412,14 @@ type ShutdownStatement struct {
 func (s *ShutdownStatement) statementNode()       {}
 func (s *ShutdownStatement) TokenLiteral() string { return s.Token.Literal }
 
+type HelpStatement struct {
+	Token Token
+	Text  string
+}
+
+func (s *HelpStatement) statementNode()       {}
+func (s *HelpStatement) TokenLiteral() string { return s.Token.Literal }
+
 type ErrorStatement struct {
 	Token      Token
 	StatusCode int

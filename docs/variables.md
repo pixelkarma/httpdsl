@@ -132,6 +132,14 @@ Cannot be used as variable names:
 - `try`, `catch`, `throw`, `async`
 - `group`, `jwt`, `switch`, `case`, `default`, `every`
 
+## Built-in Variables
+
+These identifiers have special meaning and should not be reassigned:
+
+- `args` — read-only map of `--key value` CLI flags (see [Configuration](env.md))
+- `request` — the current HTTP request (available in route handlers)
+- `response` — the current HTTP response (available in route handlers)
+
 ## Builtin Name Collision
 
 Builtin function names compile to `builtin_X` internally. Avoid using these as variable names:

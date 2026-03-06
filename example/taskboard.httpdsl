@@ -4,8 +4,16 @@
 // A real-time collaborative task board demonstrating:
 //   SQLite, templates, sessions, CSRF, auth, SSE, route groups,
 //   middleware, validation, store, cron, static files, error
-//   pages, shutdown, env vars, redirect, and HTMX integration.
+//   pages, shutdown, env vars, redirect, HTMX integration,
+//   CLI args, .env file loading, and the help block.
 // ============================================================
+
+help `Team Task Board — A real-time collaborative task board
+
+Options:
+  --db-path   Path to SQLite database (default: ./taskboard.db)
+  --secret    Session secret key (default: change-me-in-production)
+  --store     Path to store JSON file (default: ./taskboard_store.json)`
 
 server {
     port 8000
@@ -15,14 +23,15 @@ server {
     session {
         cookie "taskboard_sid"
         expires 24 h
-        secret "change-me-in-production"
+        secret env("SESSION_SECRET", "change-me-in-production")
         csrf true
     }
 }
 
 // ===== Database setup =====
 init {
-    app_db = db.open("sqlite", "./taskboard.db")
+    db_path = args["db-path"] ?? env("DB_PATH", "./taskboard.db")
+    app_db = db.open("sqlite", db_path)
 
     app_db.exec(`
         CREATE TABLE IF NOT EXISTS users (
@@ -47,7 +56,8 @@ init {
     `, [])
 
     // In-memory store for online user tracking
-    store.sync("./taskboard_store.json", 5)
+    store_path = args["store"] ?? env("STORE_PATH", "./taskboard_store.json")
+    store.sync(store_path, 5)
 
     log_info("Task Board ready")
 }

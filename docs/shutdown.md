@@ -324,12 +324,12 @@ kill -SIGTERM <pid>
 
 ```httpdsl
 server {
-  port int(env("PORT", "3000"))
+  port 3000
 }
 
 is_production = env("ENV") == "production"
 
-db_conn = db.open("postgres", env("DATABASE_URL"))
+db_conn = db.open("postgres", env("DATABASE_URL", "postgres://localhost/myapp"))
 
 store.sync(db_conn, "kv_store", 30)
 

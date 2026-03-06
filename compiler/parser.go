@@ -147,6 +147,10 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseSwitchStatement()
 
 	case TOKEN_IDENT:
+		// help `...` — contextual keyword
+		if p.curTok.Literal == "help" && p.peekTokenIs(TOKEN_TEMPLATE_STRING) {
+			return p.parseHelpStatement()
+		}
 		// error <status_code> { ... } — contextual keyword
 		if p.curTok.Literal == "error" && p.peekTokenIs(TOKEN_INT) {
 			return p.parseErrorStatement()
@@ -327,6 +331,18 @@ func (p *Parser) parseInitStatement() Statement {
 		return nil
 	}
 	stmt.Body = p.parseBlockStatement()
+	return stmt
+}
+
+func (p *Parser) parseHelpStatement() Statement {
+	stmt := &HelpStatement{Token: p.curTok}
+	p.nextToken() // skip 'help'
+	if !p.curTokenIs(TOKEN_TEMPLATE_STRING) {
+		p.addError("expected backtick string after help")
+		return stmt
+	}
+	stmt.Text = p.curTok.Literal
+	p.nextToken()
 	return stmt
 }
 
