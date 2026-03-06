@@ -213,8 +213,8 @@ server {
 
 route GET "/" {
   render("home.gohtml", {
-    logged_in: session.user_id != null,
-    username: session.username ?? "Guest"
+    logged_in: request.session.user_id != null,
+    username: request.session.username ?? "Guest"
   })
 }
 
@@ -226,8 +226,8 @@ route POST "/login" form {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     redirect("/dashboard")
   } else {
     render("login.gohtml", {error: "Invalid credentials"})
@@ -235,36 +235,36 @@ route POST "/login" form {
 }
 
 route GET "/dashboard" {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
-  render("dashboard.gohtml", {username: session.username})
+  render("dashboard.gohtml", {username: request.session.username})
 }
 
 route POST "/logout" form {
-  session.destroy()
+  request.session.destroy()
   redirect("/")
 }
 
 route GET "/settings" {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
   render("settings.gohtml", {
-    email: session.email ?? "",
-    notifications: session.notifications ?? true
+    email: request.session.email ?? "",
+    notifications: request.session.notifications ?? true
   })
 }
 
 route POST "/settings" form {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
-  session.email = request.data.email
-  session.notifications = request.data.notifications == "on"
+  request.session.email = request.data.email
+  request.session.notifications = request.data.notifications == "on"
   
   redirect("/settings")
 }

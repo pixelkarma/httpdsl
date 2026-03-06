@@ -53,7 +53,7 @@ route GET "/old-url" {
 
 ```httpdsl
 route GET "/dashboard" {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
@@ -68,8 +68,8 @@ route POST "/auth/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     
     redirect("/dashboard")
   } else {
@@ -83,7 +83,7 @@ route POST "/auth/login" json {
 
 ```httpdsl
 route POST "/auth/logout" {
-  session.destroy()
+  request.session.destroy()
   redirect("/")
 }
 ```
@@ -138,7 +138,7 @@ route POST "/shorten" json {
 
 ```httpdsl
 route GET "/" {
-  lang = request.query.lang ?? session.lang ?? "en"
+  lang = request.query.lang ?? request.session.lang ?? "en"
   
   if lang == "es" {
     redirect("/es/")
@@ -170,7 +170,7 @@ route GET "/" {
 
 ```httpdsl
 fn require_auth() {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
 }
@@ -179,8 +179,8 @@ route GET "/profile" {
   require_auth()
   
   response.body = {
-    user_id: session.user_id,
-    username: session.username
+    user_id: request.session.user_id,
+    username: request.session.username
   }
 }
 
@@ -195,11 +195,11 @@ route GET "/settings" {
 
 ```httpdsl
 route GET "/admin" {
-  if !session.user_id {
+  if !request.session.user_id {
     redirect("/login")
   }
   
-  if session.role != "admin" {
+  if request.session.role != "admin" {
     redirect("/dashboard")
   }
   
@@ -219,14 +219,14 @@ route POST "/contact" form {
     return
   }
   
-  session.flash_message = "Thank you for your message!"
+  request.session.flash_message = "Thank you for your message!"
   
   redirect("/contact/success")
 }
 
 route GET "/contact/success" {
-  message = session.flash_message ?? ""
-  session.flash_message = null
+  message = request.session.flash_message ?? ""
+  request.session.flash_message = null
   
   response.body = {message: message}
 }
@@ -281,7 +281,7 @@ route GET "/auth/callback" {
     redirect("/login")
   }
   
-  session.access_token = result.body.access_token
+  request.session.access_token = result.body.access_token
   
   redirect("/dashboard")
 }
@@ -324,8 +324,8 @@ route POST "/auth/register" json {
     return
   }
   
-  session.user_id = 1
-  session.username = username
+  request.session.user_id = 1
+  request.session.username = username
   
   redirect("/welcome")
 }

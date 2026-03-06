@@ -46,7 +46,7 @@ server {
 }
 ```
 
-Default: `3000`
+Default: `8080`
 
 ## Gzip Compression
 

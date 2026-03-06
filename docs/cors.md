@@ -361,8 +361,8 @@ route POST "/auth/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     response.body = {success: true}
   } else {
     response.status = 401
@@ -371,15 +371,15 @@ route POST "/auth/login" json {
 }
 
 route GET "/api/profile" {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Not authenticated"}
     return
   }
   
   response.body = {
-    user_id: session.user_id,
-    username: session.username
+    user_id: request.session.user_id,
+    username: request.session.username
   }
 }
 ```

@@ -104,8 +104,8 @@ route POST "/login" json {
   {username, password} = request.data
   
   if username == "admin" && password == "secret" {
-    session.user_id = 1
-    session.username = username
+    request.session.user_id = 1
+    request.session.username = username
     response.body = {success: true}
   } else {
     response.status = 401
@@ -115,7 +115,7 @@ route POST "/login" json {
 
 group "/admin" {
   before {
-    if !session.user_id {
+    if !request.session.user_id {
       response.status = 401
       response.body = {error: "Authentication required"}
       redirect("/login")
@@ -125,7 +125,7 @@ group "/admin" {
   route GET "/dashboard" {
     response.body = {
       message: "Admin dashboard",
-      user: session.username
+      user: request.session.username
     }
   }
   
@@ -225,7 +225,7 @@ server {
 }
 
 fn require_role(role) {
-  user_role = session.role ?? "guest"
+  user_role = request.session.role ?? "guest"
   
   if user_role != role {
     response.status = 403
@@ -254,7 +254,7 @@ group "/admin" {
 
 group "/moderator" {
   before {
-    user_role = session.role ?? "guest"
+    user_role = request.session.role ?? "guest"
     
     if user_role != "moderator" && user_role != "admin" {
       response.status = 403
@@ -369,7 +369,7 @@ group "/api" {
 
 group "/admin" {
   before {
-    if !session.admin {
+    if !request.session.admin {
       response.status = 403
       response.body = {error: "Admin access required"}
       return

@@ -80,8 +80,8 @@ default_config = {
 
 route GET "/config" {
   user_config = {
-    theme: session.theme ?? null,
-    language: session.language ?? null
+    theme: request.session.theme ?? null,
+    language: request.session.language ?? null
   }
   
   clean_user = {}

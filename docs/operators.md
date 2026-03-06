@@ -189,7 +189,7 @@ route GET "/api/items" {
 
 ```httpdsl
 route DELETE "/api/users/:id" {
-  role = session.role ?? "guest"
+  role = request.session.role ?? "guest"
   
   if role != "admin" && role != "moderator" {
     response.status = 403
@@ -251,8 +251,8 @@ route GET "/api/config" {
 
 ```httpdsl
 route POST "/api/submit" json {
-  user_role = session.role ?? "guest"
-  is_owner = request.data.user_id == session.user_id
+  user_role = request.session.role ?? "guest"
+  is_owner = request.data.user_id == request.session.user_id
   is_admin = user_role == "admin"
   
   can_edit = is_owner || is_admin

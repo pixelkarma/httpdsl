@@ -352,19 +352,19 @@ route POST "/login" json {
     return
   }
   
-  session.user_id = user.id
-  session.username = user.username
+  request.session.user_id = user.id
+  request.session.username = user.username
   
   response.body = {success: true}
 }
 
 route POST "/logout" {
-  session.destroy()
+  request.session.destroy()
   response.body = {success: true}
 }
 
 route GET "/protected" {
-  if !session.user_id {
+  if !request.session.user_id {
     response.status = 401
     response.body = {error: "Not authenticated"}
     return
@@ -372,7 +372,7 @@ route GET "/protected" {
   
   response.body = {
     message: "Protected resource",
-    user: session.username
+    user: request.session.username
   }
 }
 ```
