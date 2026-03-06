@@ -26,6 +26,7 @@ This is the complete language reference.
 
 - [**Server Configuration**](server.md) — The `server { }` block
   - `port` — listen port
+  - `ssl_cert` / `ssl_key` — TLS encryption
   - `gzip` — response compression
   - `throttle_requests_per_second` — per-IP rate limiting
   - `static` — file serving mounts
