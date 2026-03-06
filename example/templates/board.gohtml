@@ -1,0 +1,81 @@
+{{template "head" .}}
+<header class="app-header anim-slide-down">
+  <h1>✅ Task Board</h1>
+  <div class="user-info">
+    <span class="conn-dot connected" id="conn-dot" title="Live connected"></span>
+    <span>{{.Page.username}}</span>
+    <form method="POST" action="/logout" style="display:inline">
+      {{csrf_field}}
+      <button type="submit" class="btn btn-ghost" style="color: rgba(255,255,255,.8)">Logout</button>
+    </form>
+  </div>
+</header>
+
+<div class="container" hx-ext="sse" sse-connect="/events">
+
+  <!-- New task form -->
+  <div class="form-card anim-slide-up" style="margin-bottom: 20px">
+    <form id="new-task-form"
+          hx-post="/tasks"
+          hx-target="#col-todo"
+          hx-swap="beforeend"
+          hx-indicator="#create-spinner">
+      {{csrf_field}}
+      <div class="form-row">
+        <div class="form-group" style="flex:3">
+          <label for="title">New Task</label>
+          <input type="text" id="title" name="title" placeholder="What needs to be done?" required>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label for="priority">Priority</label>
+          <select id="priority" name="priority">
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:0 0 auto; align-self: flex-end">
+          <button type="submit" class="btn btn-primary">
+            Add Task
+            <span class="spinner htmx-indicator" id="create-spinner"></span>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Board columns -->
+  <div class="board anim-fade-in">
+    <!-- To Do -->
+    <div class="column">
+      <div class="column-header">
+        To Do <span class="count">{{.Page.todo_count}}</span>
+      </div>
+      <div class="column-body" id="col-todo">
+        {{if .Page.todo_html}}{{.Page.todo_html | safe}}{{else}}<div class="empty-state">No tasks</div>{{end}}
+      </div>
+    </div>
+
+    <!-- In Progress -->
+    <div class="column">
+      <div class="column-header">
+        In Progress <span class="count">{{.Page.doing_count}}</span>
+      </div>
+      <div class="column-body" id="col-doing">
+        {{if .Page.doing_html}}{{.Page.doing_html | safe}}{{else}}<div class="empty-state">No tasks</div>{{end}}
+      </div>
+    </div>
+
+    <!-- Done -->
+    <div class="column">
+      <div class="column-header">
+        Done <span class="count">{{.Page.done_count}}</span>
+      </div>
+      <div class="column-body" id="col-done">
+        {{if .Page.done_html}}{{.Page.done_html | safe}}{{else}}<div class="empty-state">No tasks</div>{{end}}
+      </div>
+    </div>
+  </div>
+
+</div>
+{{template "foot" .}}

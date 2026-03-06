@@ -1,0 +1,26 @@
+{{template "head" .}}
+<div class="auth-wrapper anim-fade-in">
+  <div class="auth-card anim-slide-up">
+    <h2>✅ Task Board</h2>
+    <p class="subtitle">Sign in to your team</p>
+    {{if .Page.error}}
+    <div class="alert alert-error">{{.Page.error}}</div>
+    {{end}}
+    <form method="POST" action="/login">
+      {{csrf_field}}
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="Enter username" required autofocus>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="Enter password" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Sign In</button>
+    </form>
+    <div class="auth-footer">
+      Don't have an account? <a href="/register">Sign up</a>
+    </div>
+  </div>
+</div>
+{{template "foot" .}}

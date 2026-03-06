@@ -1,0 +1,47 @@
+<div class="task-card anim-card-in" id="task-{{.id}}">
+  <div class="task-title">{{.title}}</div>
+  <div class="task-meta">
+    <div style="display:flex; align-items:center; gap:8px">
+      <span class="priority priority-{{.priority}}">{{.priority}}</span>
+      <span class="avatar" title="{{.username}}">{{.initials}}</span>
+    </div>
+    <div class="task-actions">
+      {{if eq .status "todo"}}
+      <button class="btn btn-ghost btn-sm"
+              hx-patch="/tasks/{{.id}}"
+              hx-vals='{"status":"doing"}'
+              hx-target="#task-{{.id}}"
+              hx-swap="outerHTML"
+              title="Start">▶</button>
+      {{end}}
+      {{if eq .status "doing"}}
+      <button class="btn btn-ghost btn-sm"
+              hx-patch="/tasks/{{.id}}"
+              hx-vals='{"status":"todo"}'
+              hx-target="#task-{{.id}}"
+              hx-swap="outerHTML"
+              title="Back to To Do">◀</button>
+      <button class="btn btn-ghost btn-sm"
+              hx-patch="/tasks/{{.id}}"
+              hx-vals='{"status":"done"}'
+              hx-target="#task-{{.id}}"
+              hx-swap="outerHTML"
+              title="Complete">✔</button>
+      {{end}}
+      {{if eq .status "done"}}
+      <button class="btn btn-ghost btn-sm"
+              hx-patch="/tasks/{{.id}}"
+              hx-vals='{"status":"doing"}'
+              hx-target="#task-{{.id}}"
+              hx-swap="outerHTML"
+              title="Reopen">↩</button>
+      {{end}}
+      <button class="btn btn-danger btn-sm"
+              hx-delete="/tasks/{{.id}}"
+              hx-target="#task-{{.id}}"
+              hx-swap="outerHTML"
+              hx-confirm="Delete this task?"
+              title="Delete">✕</button>
+    </div>
+  </div>
+</div>

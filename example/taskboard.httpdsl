@@ -1,0 +1,361 @@
+// ============================================================
+// Team Task Board — HTTPDSL Example Application
+// ============================================================
+// A real-time collaborative task board demonstrating:
+//   SQLite, templates, sessions, CSRF, auth, SSE, route groups,
+//   middleware, validation, store, cron, static files, error
+//   pages, shutdown, env vars, redirect, and HTMX integration.
+// ============================================================
+
+server {
+    port 8000
+    templates "./templates"
+    static "/css" "./static/css"
+    gzip true
+    session {
+        cookie "taskboard_sid"
+        expires 24 h
+        secret "change-me-in-production"
+        csrf true
+    }
+}
+
+// ===== Database setup =====
+init {
+    app_db = db.open("sqlite", "./taskboard.db")
+
+    app_db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created  TEXT DEFAULT (datetime('now'))
+        )
+    `, [])
+
+    app_db.exec(`
+        CREATE TABLE IF NOT EXISTS tasks (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            title    TEXT NOT NULL,
+            status   TEXT NOT NULL DEFAULT 'todo',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            user_id  INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            created  TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    `, [])
+
+    // In-memory store for online user tracking
+    store.sync("./taskboard_store.json", 5)
+
+    log_info("Task Board ready")
+}
+
+shutdown {
+    app_db.close()
+    log_info("Task Board shut down cleanly")
+}
+
+// ===== Cron: clean up completed tasks older than 7 days =====
+every "0 3 * * *" {
+    app_db.exec("DELETE FROM tasks WHERE status = 'done' AND created < datetime('now', '-7 days')", [])
+    log_info("Cleaned up old completed tasks")
+}
+
+// ===== Error pages =====
+error 404 {
+    response.type = "html"
+    response.body = "<!DOCTYPE html><html><head><title>Not Found</title><link rel='stylesheet' href='/css/app.css'></head><body><div class='auth-wrapper'><div class='auth-card' style='text-align:center'><h2>404</h2><p class='subtitle'>Page not found</p><a href='/board'>Back to Board</a></div></div></body></html>"
+}
+
+error 500 {
+    response.type = "html"
+    response.body = "<!DOCTYPE html><html><head><title>Error</title><link rel='stylesheet' href='/css/app.css'></head><body><div class='auth-wrapper'><div class='auth-card' style='text-align:center'><h2>500</h2><p class='subtitle'>Something went wrong</p><a href='/board'>Back to Board</a></div></div></body></html>"
+}
+
+// ===== Helper functions =====
+fn get_initials(name) {
+    s = str(name)
+    if len(s) == 0 {
+        return "?"
+    }
+    return upper(slice(s, 0, 1))
+}
+
+fn get_tasks_by_status(status) {
+    rows = app_db.query(
+        "SELECT id, title, status, priority, user_id, username FROM tasks WHERE status = ? ORDER BY id DESC",
+        [status]
+    )
+    result = []
+    each row in rows {
+        row.initials = get_initials(row.username)
+        row.html = build_card_html(row)
+        result = append(result, row)
+    }
+    return result
+}
+
+fn build_card_actions(task) {
+    actions = ""
+    if task.status == "todo" {
+        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"doing"}' hx-swap="none" title="Start">▶</button>`
+    }
+    if task.status == "doing" {
+        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"todo"}' hx-swap="none" title="Back to To Do">◀</button>`
+        actions = actions + `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"done"}' hx-swap="none" title="Complete">✔</button>`
+    }
+    if task.status == "done" {
+        actions = `<button class="btn btn-ghost btn-sm" hx-patch="/tasks/${task.id}" hx-vals='{"status":"doing"}' hx-swap="none" title="Reopen">↩</button>`
+    }
+    actions = actions + `<button class="btn btn-danger btn-sm" hx-delete="/tasks/${task.id}" hx-target="#task-${task.id}" hx-swap="outerHTML" hx-confirm="Delete this task?" title="Delete">✕</button>`
+    return actions
+}
+
+fn build_card_html(task) {
+    actions = build_card_actions(task)
+    return `<div class="task-card anim-card-in" id="task-${task.id}"><div class="task-title">${task.title}</div><div class="task-meta"><div style="display:flex;align-items:center;gap:8px"><span class="priority priority-${task.priority}">${task.priority}</span><span class="avatar" title="${task.username}">${task.initials}</span></div><div class="task-actions">${actions}</div></div></div>`
+}
+
+
+// ===== Global middleware: auth check =====
+before {
+    // Public routes — skip auth; everyone else must be logged in
+    is_public = request.path == "/login" || request.path == "/register" || starts_with(request.path, "/css/")
+    needs_auth = !is_public && request.session.user_id == null
+    if needs_auth {
+        redirect("/login")
+    }
+}
+
+// ===== Auth routes =====
+route GET "/login" {
+    if request.session.user_id != null {
+        redirect("/board")
+        return
+    }
+    render("login.gohtml", { title: "Sign In", error: request.query.error })
+}
+
+route POST "/login" {
+    errors = validate(request.data, {
+        username: "required",
+        password: "required"
+    })
+    if errors != null {
+        render("login.gohtml", { title: "Sign In", error: "Username and password required" })
+        return
+    }
+
+    user = app_db.query_one(
+        "SELECT id, username, password FROM users WHERE username = ?",
+        [request.data.username]
+    )
+    if user == null || !verify_password(request.data.password, user.password) {
+        render("login.gohtml", { title: "Sign In", error: "Invalid username or password" })
+        return
+    }
+
+    request.session.user_id = user.id
+    request.session.username = user.username
+    response.status = 302
+    response.headers["Location"] = "/board"
+}
+
+route GET "/register" {
+    if request.session.user_id != null {
+        redirect("/board")
+        return
+    }
+    render("register.gohtml", { title: "Sign Up", error: request.query.error, username: "" })
+}
+
+route POST "/register" {
+    errors = validate(request.data, {
+        username: "required|min:3|max:20",
+        password: "required|min:6"
+    })
+    if errors != null {
+        msg = "Username (3-20 chars) and password (6+ chars) required"
+        render("register.gohtml", { title: "Sign Up", error: msg, username: request.data.username })
+        return
+    }
+
+    existing = app_db.query_one(
+        "SELECT id FROM users WHERE username = ?",
+        [request.data.username]
+    )
+    if existing != null {
+        render("register.gohtml", { title: "Sign Up", error: "Username already taken", username: request.data.username })
+        return
+    }
+
+    hashed = hash_password(request.data.password)
+    app_db.exec(
+        "INSERT INTO users (username, password) VALUES (?, ?)",
+        [request.data.username, hashed]
+    )
+
+    user = app_db.query_one(
+        "SELECT id, username FROM users WHERE username = ?",
+        [request.data.username]
+    )
+    request.session.user_id = user.id
+    request.session.username = user.username
+    response.status = 302
+    response.headers["Location"] = "/board"
+}
+
+route POST "/logout" {
+    request.session.destroy()
+    response.status = 302
+    response.headers["Location"] = "/login"
+}
+
+// ===== Main board =====
+route GET "/" {
+    redirect("/board")
+}
+
+route GET "/board" {
+    todo  = get_tasks_by_status("todo")
+    doing = get_tasks_by_status("doing")
+    done  = get_tasks_by_status("done")
+
+    // Pre-render card HTML for each column
+    todo_html = ""
+    each t in todo {
+        todo_html = todo_html + t.html
+    }
+    doing_html = ""
+    each t in doing {
+        doing_html = doing_html + t.html
+    }
+    done_html = ""
+    each t in done {
+        done_html = done_html + t.html
+    }
+
+    render("board.gohtml", {
+        title: "Board",
+        username: request.session.username,
+        todo_html:   todo_html,
+        doing_html:  doing_html,
+        done_html:   done_html,
+        todo_count:  len(todo),
+        doing_count: len(doing),
+        done_count:  len(done)
+    })
+}
+
+// ===== Task CRUD (HTMX partials) =====
+route POST "/tasks" {
+    errors = validate(request.data, {
+        title: "required|min:1|max:200"
+    })
+    if errors != null {
+        response.status = 422
+        response.body = ""
+        return
+    }
+
+    priority = request.data.priority
+    if priority != "high" && priority != "medium" && priority != "low" {
+        priority = "medium"
+    }
+
+    app_db.exec(
+        "INSERT INTO tasks (title, status, priority, user_id, username) VALUES (?, 'todo', ?, ?, ?)",
+        [request.data.title, priority, request.session.user_id, request.session.username]
+    )
+
+    task = app_db.query_one(
+        "SELECT id, title, status, priority, user_id, username FROM tasks WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        [request.session.user_id]
+    )
+    task.initials = get_initials(task.username)
+
+    html = build_card_html(task)
+
+    // Broadcast to other clients
+    broadcast("task-created", {
+        id: task.id,
+        title: task.title,
+        user: task.username,
+        html: html
+    })
+
+    response.type = "html"
+    response.body = html
+}
+
+route PATCH "/tasks/:id" {
+    task_id = int(request.params.id)
+    new_status = request.data.status
+
+    if new_status != "todo" && new_status != "doing" && new_status != "done" {
+        response.status = 400
+        response.body = ""
+        return
+    }
+
+    app_db.exec(
+        "UPDATE tasks SET status = ? WHERE id = ?",
+        [new_status, task_id]
+    )
+
+    task = app_db.query_one(
+        "SELECT id, title, status, priority, user_id, username FROM tasks WHERE id = ?",
+        [task_id]
+    )
+    if task == null {
+        response.status = 404
+        response.body = ""
+        return
+    }
+    task.initials = get_initials(task.username)
+
+    html = build_card_html(task)
+
+    // Broadcast move to other clients
+    broadcast("task-moved", {
+        id: task.id,
+        status: task.status,
+        user: request.session.username,
+        html: html
+    })
+
+    // Use HX-Trigger to tell the client to move the card via JS
+    response.headers["HX-Trigger"] = json.stringify({
+        "moveTask": {
+            id: task.id,
+            status: task.status,
+            html: html
+        }
+    })
+    response.type = "html"
+    response.body = ""
+}
+
+route DELETE "/tasks/:id" {
+    task_id = int(request.params.id)
+
+    app_db.exec("DELETE FROM tasks WHERE id = ?", [task_id])
+
+    // Broadcast deletion
+    broadcast("task-deleted", {
+        id: task_id,
+        user: request.session.username
+    })
+
+    // Return empty — HTMX outerHTML swap removes the element
+    response.type = "html"
+    response.body = ""
+}
+
+// ===== SSE: live updates =====
+route SSE "/events" {
+    stream.join("board")
+    stream.send("connected", { ok: true })
+}

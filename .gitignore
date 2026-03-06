@@ -3,3 +3,8 @@ runtime.bin
 *-server
 *-native
 *.gen.go
+
+# Example app build artifacts
+example/taskboard
+example/taskboard.db
+example/taskboard_store.json

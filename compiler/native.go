@@ -3965,7 +3965,14 @@ func (c *NativeCompiler) emitTemplateRuntime() {
 	c.raw(`var _templates *template.Template
 
 func _initTemplates() {
-	funcMap := template.FuncMap{`)
+	funcMap := template.FuncMap{
+		"safe": func(s interface{}) template.HTML {
+			switch v := s.(type) {
+			case string: return template.HTML(v)
+			case template.HTML: return v
+			default: return template.HTML(fmt.Sprint(v))
+			}
+		},`)
 	if c.csrfEnabled {
 		c.raw(`
 		"csrf_field": func() template.HTML { return "" },
