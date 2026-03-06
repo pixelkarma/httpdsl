@@ -49,7 +49,7 @@ shutdown {
   
   state = {
     counter: counter,
-    shutdown_time: date()
+    shutdown_time: now()
   }
   
   file.write_json("./state.json", state)
@@ -76,7 +76,7 @@ shutdown {
   db_conn.close()
   
   log_info("Saving final state")
-  file.write("./shutdown.log", `Shutdown at ${date()}\n`)
+  file.write("./shutdown.log", `Shutdown at ${date_format(now(), "2006-01-02T15:04:05Z")}\n`)
   
   log_info("Shutdown complete")
 }
@@ -98,11 +98,11 @@ shutdown {
       headers: {"Content-Type": "application/json"},
       body: {
         server: "api-server",
-        timestamp: date()
+        timestamp: now()
       }
     })
     log_info("Monitoring service notified")
-  } catch err {
+  } catch(err) {
     log_error(`Failed to notify monitoring: ${err}`)
   }
 }
@@ -124,14 +124,14 @@ shutdown {
   try {
     db_conn.close()
     log_info("PostgreSQL connection closed")
-  } catch err {
+  } catch(err) {
     log_error(`Failed to close PostgreSQL: ${err}`)
   }
   
   try {
     redis_conn.close()
     log_info("Redis connection closed")
-  } catch err {
+  } catch(err) {
     log_error(`Failed to close Redis: ${err}`)
   }
   
@@ -155,7 +155,7 @@ shutdown {
   
   broadcast("shutdown", {
     message: "Server is shutting down",
-    timestamp: date()
+    timestamp: now()
   })
   
   sleep(2000)
@@ -193,7 +193,7 @@ shutdown {
   final_stats = {
     uptime: stats.uptime,
     total_visits: store.get("visits", 0),
-    shutdown_time: date()
+    shutdown_time: now()
   }
   file.write_json("./shutdown_stats.json", final_stats)
   
@@ -203,12 +203,12 @@ shutdown {
   try {
     db_conn.close()
     log_info("Database connection closed successfully")
-  } catch err {
+  } catch(err) {
     log_error(`Database close error: ${err}`)
   }
   
   log_info("5. Writing shutdown log")
-  file.append("./app.log", `${date()}: Server shutdown\n`)
+  file.append("./app.log", `${date_format(now(), "2006-01-02T15:04:05Z")}: Server shutdown\n`)
   
   log_info("=== Graceful shutdown complete ===")
 }
@@ -243,7 +243,7 @@ shutdown {
     try {
       db_conn.exec("ROLLBACK", [])
       log_info("Transaction rolled back")
-    } catch err {
+    } catch(err) {
       log_error(`Rollback failed: ${err}`)
     }
   }
@@ -269,7 +269,7 @@ shutdown {
       try {
         file.delete(`./temp/${filename}`)
         log_info(`Deleted temp file: ${filename}`)
-      } catch err {
+      } catch(err) {
         log_error(`Failed to delete ${filename}: ${err}`)
       }
     }
@@ -288,7 +288,7 @@ server {
 
 lock_file = "./server.lock"
 
-file.write(lock_file, str(date("unix")))
+file.write(lock_file, str(now()))
 
 shutdown {
   log_info("Removing lock file")
@@ -334,7 +334,7 @@ db_conn = db.open("postgres", env("DATABASE_URL", "postgres://localhost/myapp"))
 store.sync(db_conn, "kv_store", 30)
 
 shutdown {
-  timestamp = date()
+  timestamp = date_format(now(), "2006-01-02T15:04:05Z")
   
   log_info(`[${timestamp}] Graceful shutdown initiated`)
   
@@ -345,7 +345,7 @@ shutdown {
         method: "POST",
         body: {status: "shutting_down"}
       })
-    } catch err {
+    } catch(err) {
       log_error(`LB notification failed: ${err}`)
     }
     
@@ -372,6 +372,6 @@ shutdown {
   log_info("Closing database")
   db_conn.close()
   
-  log_info(`[${date()}] Shutdown complete`)
+  log_info(`[${date_format(now(), "2006-01-02T15:04:05Z")}] Shutdown complete`)
 }
 ```

@@ -344,7 +344,7 @@ route GET "/posts/:id" {
     title: "Post " + str(post_id),
     content: "This is the content of post " + str(post_id),
     author: "Alice",
-    created_at: date()
+    created_at: now()
   }
   
   render("post.gohtml", {

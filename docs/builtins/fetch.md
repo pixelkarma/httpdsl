@@ -12,11 +12,14 @@ Returns:
 ```httpdsl
 {
   status: 200,
+  type: "json",
   body: {...},
   headers: {...},
   cookies: {...}
 }
 ```
+
+- `type`: Response content type (`"json"`, `"text"`, or `"html"`)
 
 ## With Options
 
@@ -36,6 +39,7 @@ fetch("https://api.example.com/data", {
 - `method`: HTTP method (default: `"GET"`)
 - `headers`: Request headers (hash)
 - `body`: Request body (string, hash, or array)
+- `timeout`: Request timeout in milliseconds (default: 30000)
 - Hash/array bodies are automatically JSON-encoded
 
 ## Complete Examples
@@ -114,7 +118,7 @@ route GET "/api/safe-fetch" {
     }
     
     response.body = result.body
-  } catch err {
+  } catch(err) {
     response.status = 502
     response.body = {
       error: "Failed to connect to external API",

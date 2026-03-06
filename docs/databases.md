@@ -188,7 +188,7 @@ route POST "/users" json {
   try {
     result = db_conn.exec(
       "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)",
-      [name, email, date()]
+      [name, email, now()]
     )
     
     user = db_conn.query_one(
@@ -198,7 +198,7 @@ route POST "/users" json {
     
     response.status = 201
     response.body = user
-  } catch err {
+  } catch(err) {
     response.status = 409
     response.body = {error: "Email already exists"}
   }
@@ -262,6 +262,12 @@ each user in users {
 }
 ```
 
+With options (limit, skip, sort):
+
+```httpdsl
+users = conn.find("users", {active: true}, {limit: 10, skip: 20, sort: {name: 1}})
+```
+
 ### find_one()
 
 ```httpdsl
@@ -284,6 +290,17 @@ result = conn.insert("users", {
 log_info(`Inserted ID: ${result.inserted_id}`)
 ```
 
+### insert_many()
+
+```httpdsl
+result = conn.insert_many("users", [
+  {name: "Alice", age: 30},
+  {name: "Bob", age: 25}
+])
+
+log_info(`Inserted ${len(result.inserted_ids)} documents`)
+```
+
 ### update()
 
 ```httpdsl
@@ -293,7 +310,7 @@ result = conn.update(
   {"$set": {age: 31}}
 )
 
-log_info(`Modified: ${result.modified_count}`)
+log_info(`Modified: ${result.modified}`)
 ```
 
 ### delete()
@@ -301,7 +318,7 @@ log_info(`Modified: ${result.modified_count}`)
 ```httpdsl
 result = conn.delete("users", {age: {"$lt": 18}})
 
-log_info(`Deleted: ${result.deleted_count}`)
+log_info(`Deleted: ${result.deleted}`)
 ```
 
 ### count()
@@ -344,7 +361,7 @@ route POST "/products" json {
     name: name,
     price: price,
     category: category,
-    created_at: date()
+    created_at: now()
   })
   
   response.status = 201
@@ -361,7 +378,7 @@ route PUT "/products/:id" json {
     {"$set": {name: name, price: price}}
   )
   
-  if result.modified_count == 0 {
+  if result.modified == 0 {
     response.status = 404
     response.body = {error: "Product not found"}
   } else {
@@ -374,7 +391,7 @@ route DELETE "/products/:id" {
   
   result = mongo.delete("products", {_id: product_id})
   
-  if result.deleted_count == 0 {
+  if result.deleted == 0 {
     response.status = 404
     response.body = {error: "Product not found"}
   } else {
@@ -424,7 +441,7 @@ route POST "/transfer" json {
     db_conn.exec("COMMIT", [])
     
     response.body = {success: true}
-  } catch err {
+  } catch(err) {
     db_conn.exec("ROLLBACK", [])
     
     response.status = 500

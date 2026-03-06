@@ -24,13 +24,13 @@ route POST "/register" json {
 With argon2:
 
 ```httpdsl
-hashed = hash_password(password, {algorithm: "argon2"})
+hashed = hash_password(password, "argon2")
 ```
 
 With custom bcrypt cost:
 
 ```httpdsl
-hashed = hash_password(password, {cost: 12})
+hashed = hash_password(password, "bcrypt", {cost: 14})
 ```
 
 ### verify_password()
@@ -68,7 +68,7 @@ route POST "/auth/login" json {
     payload = {
       user_id: 1,
       email: email,
-      exp: date("unix") + 3600
+      exp: now() + 3600
     }
     
     token = jwt.sign(payload, secret)
@@ -106,9 +106,9 @@ route GET "/api/profile" {
     return
   }
   
-  payload = jwt.verify(token, secret)
-  
-  if payload == null {
+  try {
+    payload = jwt.verify(token, secret)
+  } catch(err) {
     response.status = 401
     response.body = {error: "Invalid token"}
     return
@@ -120,6 +120,8 @@ route GET "/api/profile" {
   }
 }
 ```
+
+> **Note:** `jwt.verify()` throws on invalid or expired tokens. Always wrap in `try/catch`.
 
 ## Complete Auth System
 
@@ -174,7 +176,7 @@ route POST "/auth/register" json {
   
   result = db_conn.exec(
     "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-    [email, hashed, date()]
+    [email, hashed, now()]
   )
   
   response.status = 201
@@ -213,7 +215,7 @@ route POST "/auth/login" json {
   payload = {
     user_id: user.id,
     email: user.email,
-    exp: date("unix") + 86400
+    exp: now() + 86400
   }
   
   token = jwt.sign(payload, jwt_secret)
@@ -234,13 +236,9 @@ fn get_current_user() {
     return null
   }
   
-  payload = jwt.verify(token, jwt_secret)
-  
-  if payload == null {
-    return null
-  }
-  
-  if payload.exp < date("unix") {
+  try {
+    payload = jwt.verify(token, jwt_secret)
+  } catch(err) {
     return null
   }
   
@@ -332,7 +330,7 @@ route POST "/register" json {
     
     response.status = 201
     response.body = {id: result.last_insert_id}
-  } catch err {
+  } catch(err) {
     response.status = 409
     response.body = {error: "Username already exists"}
   }
@@ -468,13 +466,13 @@ route POST "/oauth/token" json {
   
   access_token = jwt.sign({
     user_id: 1,
-    exp: date("unix") + 3600
+    exp: now() + 3600
   }, jwt_secret)
   
   refresh_token = jwt.sign({
     user_id: 1,
     type: "refresh",
-    exp: date("unix") + 604800
+    exp: now() + 604800
   }, jwt_secret)
   
   response.body = {

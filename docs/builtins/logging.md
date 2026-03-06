@@ -78,9 +78,9 @@ Returns:
   mem_alloc: 12345678,
   mem_alloc_mb: 11.77,
   goroutines: 42,
-  gc_cycles: 10,
+  gc_count: 10,
   uptime: 3600,
-  uptime_formatted: "1h0m0s"
+  uptime_human: "1h0m0s"
 }
 ```
 
@@ -116,7 +116,7 @@ route POST "/api/data" json {
     log_info("Processing data")
     
     response.body = {success: true}
-  } catch err {
+  } catch(err) {
     log_error("Failed to process data:", err)
     
     response.status = 500
@@ -171,7 +171,7 @@ route GET "/stats" {
 every 1 m {
   stats = server_stats()
   
-  log_info(`Health check - Memory: ${stats.mem_alloc_mb} MB, Goroutines: ${stats.goroutines}, Uptime: ${stats.uptime_formatted}`)
+  log_info(`Health check - Memory: ${stats.mem_alloc_mb} MB, Goroutines: ${stats.goroutines}, Uptime: ${stats.uptime_human}`)
   
   if stats.mem_alloc_mb > 1000 {
     log_error("Critical memory usage!")
@@ -235,13 +235,13 @@ route GET "/aggregate" {
 
 ```httpdsl
 route GET "/api/slow-query" {
-  start = date("unix")
+  start = now()
   
   log_info("Query started")
   
   sleep(2000)
   
-  end = date("unix")
+  end = now()
   duration = end - start
   
   if duration > 1 {
@@ -283,10 +283,10 @@ route POST "/auth/login" json {
 ```httpdsl
 fn log_event(event_type, data) {
   log_entry = {
-    timestamp: date(),
+    timestamp: now(),
     type: event_type,
     data: data,
-    server: server_stats().uptime_formatted
+    server: server_stats().uptime_human
   }
   
   log_info(json.stringify(log_entry))
@@ -326,7 +326,7 @@ route GET "/slow-response" {
 every 5 m {
   stats = server_stats()
   
-  log_info(`Server stats - Memory: ${stats.mem_alloc_mb}MB, GC cycles: ${stats.gc_cycles}, Uptime: ${stats.uptime_formatted}`)
+  log_info(`Server stats - Memory: ${stats.mem_alloc_mb}MB, GC cycles: ${stats.gc_count}, Uptime: ${stats.uptime_human}`)
   
   if stats.mem_alloc_mb > 512 {
     log_warn("High memory usage detected")
@@ -342,16 +342,16 @@ every 5 m {
 
 ```httpdsl
 before {
-  store.set(`req_start:${cuid2()}`, date("unix"))
+  store.set(`req_start:${cuid2()}`, now())
 }
 
 after {
-  all_keys = store.keys()
+  all_keys = keys(store.all())
   
   each key in all_keys {
     if starts_with(key, "req_start:") {
       start = store.get(key)
-      duration = date("unix") - start
+      duration = now() - start
       
       if duration > 2 {
         log_warn(`Slow request: ${request.path} took ${duration}s`)
@@ -371,7 +371,7 @@ shutdown {
   stats = server_stats()
   
   log_info("Server shutting down...")
-  log_info(`Final stats - Uptime: ${stats.uptime_formatted}, Total GC cycles: ${stats.gc_cycles}`)
+  log_info(`Final stats - Uptime: ${stats.uptime_human}, Total GC cycles: ${stats.gc_count}`)
   log_info("Cleanup complete")
 }
 ```

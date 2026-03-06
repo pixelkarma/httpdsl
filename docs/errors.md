@@ -9,7 +9,7 @@ Handle errors gracefully:
 ```httpdsl
 try {
   risky_operation()
-} catch err {
+} catch(err) {
   log_error(err)
 }
 ```
@@ -28,7 +28,7 @@ fn divide(a, b) {
 
 try {
   result = divide(10, 0)
-} catch err {
+} catch(err) {
   log_error(err)
 }
 ```
@@ -50,7 +50,7 @@ fn get_user(id) {
 
 try {
   user = get_user(9999)
-} catch err {
+} catch(err) {
   log_error(err.message)
 }
 ```
@@ -72,7 +72,7 @@ route POST "/api/divide" json {
     result = a / b
     
     response.body = {result: result}
-  } catch err {
+  } catch(err) {
     response.status = 400
     response.body = {error: err}
   }
@@ -95,8 +95,8 @@ route GET "/api/users/:id" {
     }
     
     response.body = user
-  } catch err {
-    if type(err) == "hash" {
+  } catch(err) {
+    if type(err) == "object" {
       response.status = err.code
       response.body = {error: err.message}
     } else {
@@ -114,7 +114,7 @@ route GET "/api/config" {
   try {
     config = file.read_json("./config.json")
     response.body = config
-  } catch err {
+  } catch(err) {
     response.status = 500
     response.body = {error: "Failed to load configuration"}
     log_error(err)
@@ -156,7 +156,7 @@ route POST "/api/users" json {
     
     response.status = 201
     response.body = user
-  } catch err {
+  } catch(err) {
     response.status = 400
     response.body = {error: err}
   }
@@ -176,11 +176,11 @@ route POST "/api/process" json {
       conn.close()
       
       response.body = {id: result.last_insert_id}
-    } catch db_err {
+    } catch(db_err) {
       log_error("Database error: " + str(db_err))
       throw "Failed to save item"
     }
-  } catch err {
+  } catch(err) {
     response.status = 500
     response.body = {error: err}
   }
@@ -207,7 +207,7 @@ route GET "/api/proxy" {
     }
     
     response.body = result.body
-  } catch err {
+  } catch(err) {
     response.status = 502
     response.body = {error: "Failed to fetch external resource", details: err}
   }
@@ -223,7 +223,7 @@ route POST "/api/parse" text {
   try {
     data = json.parse(json_string)
     response.body = {parsed: data}
-  } catch err {
+  } catch(err) {
     response.status = 400
     response.body = {error: "Invalid JSON", details: err}
   }
@@ -257,8 +257,8 @@ route GET "/api/profile" {
       user_id: payload.user_id,
       email: payload.email
     }
-  } catch err {
-    if type(err) == "hash" {
+  } catch(err) {
+    if type(err) == "object" {
       response.status = err.code
       response.body = {error: err.message}
     } else {
@@ -311,12 +311,12 @@ route POST "/api/posts" json {
       id: cuid2(),
       title: title,
       author_id: request.session.user_id,
-      created_at: date()
+      created_at: now()
     }
     
     response.status = 201
     response.body = post
-  } catch err {
+  } catch(err) {
     switch err.type {
       case "validation_error" {
         response.status = 400
@@ -344,7 +344,7 @@ route GET "/api/data" {
   try {
     data = file.read_json("./data.json")
     response.body = data
-  } catch err {
+  } catch(err) {
     log_warn("Failed to read data file, using defaults")
     
     response.body = {

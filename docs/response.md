@@ -89,7 +89,7 @@ route GET "/plain" {
 }
 ```
 
-**Note**: When `response.body` is a hash or array, type is automatically set to `"json"`. Explicit type setting is rarely needed.
+**Note**: The default response type is `"json"`. When returning a string as `response.body`, set `response.type = "text"` or `response.type = "html"` explicitly — otherwise the string will be JSON-encoded (wrapped in quotes).
 
 ### headers
 
@@ -138,10 +138,10 @@ route POST "/login" json {
     session_id: {
       value: cuid2(),
       path: "/",
-      httponly: true,
+      httpOnly: true,
       secure: true,
-      maxage: 3600,
-      samesite: "Strict"
+      maxAge: 3600,
+      sameSite: "strict"
     }
   }
   response.body = {success: true}
@@ -152,10 +152,10 @@ Cookie options:
 
 - `value`: Cookie value (required)
 - `path`: Cookie path (default: `/`)
-- `httponly`: HttpOnly flag (default: `false`)
+- `httpOnly`: HttpOnly flag (default: `false`)
 - `secure`: Secure flag (default: `false`)
-- `maxage`: Max age in seconds
-- `samesite`: SameSite attribute (`"Strict"`, `"Lax"`, or `"None"`)
+- `maxAge`: Max age in seconds
+- `sameSite`: SameSite attribute (`"strict"`, `"lax"`, or `"none"`)
 
 Simple cookie:
 
@@ -166,7 +166,7 @@ route GET "/set-theme" {
   response.cookies = {
     theme: {
       value: theme,
-      maxage: 86400
+      maxAge: 86400
     }
   }
   
@@ -181,11 +181,11 @@ route POST "/preferences" json {
   response.cookies = {
     lang: {
       value: request.data.lang,
-      maxage: 31536000
+      maxAge: 31536000
     },
     theme: {
       value: request.data.theme,
-      maxage: 31536000
+      maxAge: 31536000
     }
   }
   
@@ -193,14 +193,14 @@ route POST "/preferences" json {
 }
 ```
 
-Delete cookie (set maxage to -1):
+Delete cookie (set maxAge to -1):
 
 ```httpdsl
 route POST "/logout" {
   response.cookies = {
     session_id: {
       value: "",
-      maxage: -1
+      maxAge: -1
     }
   }
   response.body = {logged_out: true}
@@ -339,7 +339,7 @@ route GET "/download/:filename" {
 route GET "/api/data" {
   format = request.query.format ?? "json"
   
-  data = {message: "Hello", timestamp: date()}
+  data = {message: "Hello", timestamp: now()}
   
   if format == "json" {
     response.type = "json"
@@ -360,7 +360,7 @@ route GET "/api/data" {
 route GET "/api/limited" {
   remaining = 100
   limit = 100
-  reset = date("unix") + 3600
+  reset = now() + 3600
   
   response.headers = {
     "X-RateLimit-Limit": str(limit),

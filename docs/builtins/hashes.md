@@ -199,7 +199,7 @@ route POST "/create-user" json {
   
   final_user = merge(defaults, user_data)
   final_user.id = cuid2()
-  final_user.created_at = date()
+  final_user.created_at = now()
   
   response.status = 201
   response.body = final_user

@@ -106,19 +106,10 @@ store.sync("./store.json", 60)
 
 ### Database Sync
 
-Persist to database:
+Persist to database (table is auto-created):
 
 ```httpdsl
 db_conn = db.open("sqlite", "./app.db")
-
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS store (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    expires_at INTEGER
-  )
-`, [])
-
 store.sync(db_conn, "store")
 ```
 
@@ -143,15 +134,6 @@ server {
 }
 
 db_conn = db.open("sqlite", "./app.db")
-
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    expires_at INTEGER
-  )
-`, [])
-
 set_session_store(db_conn, "sessions", 60)
 
 route GET "/" {

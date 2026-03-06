@@ -351,3 +351,29 @@ route POST "/parse-csv" text {
   response.body = {rows: rows, count: len(rows)}
 }
 ```
+
+## regex_match()
+
+Find all matches of a regex pattern in a string:
+
+```httpdsl
+matches = regex_match("abc 123 def 456", "[0-9]+")
+// ["123", "456"]
+
+emails = regex_match(text, "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")
+```
+
+Returns an array of matches, or `null` if no matches found.
+
+## regex_replace()
+
+Replace all matches of a regex pattern:
+
+```httpdsl
+result = regex_replace("abc 123 def 456", "[0-9]+", "#")
+// "abc # def #"
+
+cleaned = regex_replace(input, "<[^>]+>", "")
+```
+
+Returns the modified string.

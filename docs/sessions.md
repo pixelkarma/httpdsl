@@ -102,7 +102,7 @@ route POST "/auth/login" json {
   if email == "user@example.com" && password == "password123" {
     request.session.user_id = 1
     request.session.email = email
-    request.session.logged_in_at = date()
+    request.session.logged_in_at = now()
     
     response.body = {
       success: true,
@@ -200,7 +200,7 @@ route POST "/login" json {
   if username == "admin" && password == "secret" {
     request.session.user_id = 1
     request.session.username = username
-    request.session.created_at = date("unix")
+    request.session.created_at = now()
     
     response.body = {success: true}
   } else {
@@ -217,7 +217,7 @@ route GET "/dashboard" {
   }
   
   created_at = request.session.created_at ?? 0
-  age = date("unix") - created_at
+  age = now() - created_at
   
   response.body = {
     user: request.session.username,
@@ -447,7 +447,7 @@ route POST "/login" json {
   if username == "admin" && password == "secret" {
     request.session.user_id = 1
     request.session.username = username
-    request.session.login_time = date()
+    request.session.login_time = now()
     
     response.body = {success: true}
   } else {

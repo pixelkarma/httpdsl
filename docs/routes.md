@@ -176,7 +176,7 @@ route POST "/api/posts/:id/comments" json {
     post_id: post_id,
     author: author,
     content: content,
-    created_at: date()
+    created_at: now()
   }
   
   response.status = 201
@@ -252,7 +252,7 @@ route POST "/api/items" json {
   item = {
     id: cuid2(),
     name: name,
-    created_at: date()
+    created_at: now()
   }
   
   items = append(items, item)
@@ -296,7 +296,7 @@ route PUT "/api/items/:id" json {
   each item in items {
     if item.id == item_id {
       items[i].name = new_name
-      items[i].updated_at = date()
+      items[i].updated_at = now()
       updated = true
       break
     }

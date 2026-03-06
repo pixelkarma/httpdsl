@@ -48,9 +48,7 @@ Decimal, hexadecimal, octal, and binary literals:
 
 ```httpdsl
 dec = 42
-hex = 0xFF
 oct = 0o77
-bin = 0b1010
 negative = -100
 ```
 
@@ -61,7 +59,6 @@ Floating-point numbers:
 ```httpdsl
 pi = 3.14159
 negative = -2.5
-scientific = 1.23e-4
 ```
 
 ## Booleans
@@ -271,7 +268,7 @@ if null {
 Parse JSON strings:
 
 ```httpdsl
-json_string = '{"name":"Alice","age":30}'
+json_string = `{"name":"Alice","age":30}`
 data = json.parse(json_string)
 name = data.name
 ```

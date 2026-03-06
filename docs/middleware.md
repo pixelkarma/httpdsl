@@ -39,7 +39,7 @@ server {
 
 before {
   request_id = cuid2()
-  start_time = date("unix")
+  start_time = now()
   
   log_info(`[${request_id}] Request started`)
 }
@@ -61,7 +61,7 @@ server {
 after {
   response.headers = {
     "X-Powered-By": "HTTPDSL",
-    "X-Response-Time": str(date("unix"))
+    "X-Response-Time": str(now())
   }
 }
 
@@ -241,7 +241,7 @@ route POST "/auth/login" json {
     payload = {
       user_id: 1,
       email: email,
-      exp: date("unix") + 3600
+      exp: now() + 3600
     }
     
     token = jwt.sign(payload, jwt_secret)
@@ -271,7 +271,7 @@ group "/api" {
       return
     }
     
-    if payload.exp < date("unix") {
+    if payload.exp < now() {
       response.status = 401
       response.body = {error: "Token expired"}
       return
@@ -296,7 +296,7 @@ server {
 
 before {
   request_id = cuid2()
-  start_time = date("unix")
+  start_time = now()
   
   log_info(`[${request_id}] ${request.method} ${request.path} from ${request.ip}`)
   
@@ -305,7 +305,7 @@ before {
 }
 
 after {
-  duration = date("unix") - start_time
+  duration = now() - start_time
   
   log_info(`[${request_id}] Completed with status ${response.status} in ${duration}s`)
 }
@@ -468,7 +468,7 @@ before {
         log_info(`Authenticated user: ${payload.user_id}`)
       }
     }
-  } catch err {
+  } catch(err) {
     log_warn(`Authentication check failed: ${err}`)
   }
 }

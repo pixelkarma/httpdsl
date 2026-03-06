@@ -8,6 +8,7 @@ server {
 }
 
 route GET "/" {
+  response.type = "text"
   response.body = "Hello, World!"
 }
 ```

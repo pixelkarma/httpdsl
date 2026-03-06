@@ -92,7 +92,7 @@ every 1 h {
   log_info("Running cleanup task")
   
   expired_keys = []
-  all_keys = store.keys()
+  all_keys = keys(store.all())
   
   each key in all_keys {
     if starts_with(key, "temp:") {
@@ -124,12 +124,12 @@ every "0 2 * * *" {
   posts = db_conn.query("SELECT * FROM posts", [])
   
   backup = {
-    timestamp: date(),
+    timestamp: now(),
     users: users,
     posts: posts
   }
   
-  filename = `backup_${date("unix")}.json`
+  filename = `backup_${now()}.json`
   
   if !file.exists("./backups") {
     file.mkdir("./backups")
@@ -204,7 +204,7 @@ db_conn = db.open("sqlite", "./app.db")
 every 1 m {
   pending = db_conn.query(
     "SELECT * FROM notifications WHERE sent = 0 AND scheduled_at <= ?",
-    [date("unix")]
+    [now()]
   )
   
   each notification in pending {
@@ -226,7 +226,7 @@ every 1 m {
         )
         log_info(`Sent notification ${notification.id}`)
       }
-    } catch err {
+    } catch(err) {
       log_error(`Failed to send notification ${notification.id}: ${err}`)
     }
   }
@@ -284,12 +284,12 @@ every "0 8 * * 1" {
   )
   
   report = {
-    week: date(),
+    week: now(),
     new_users: user_count,
     new_posts: post_count
   }
   
-  file.write_json(`./reports/weekly_${date("unix")}.json`, report)
+  file.write_json(`./reports/weekly_${now()}.json`, report)
   
   log_info(`Weekly report generated: ${user_count} users, ${post_count} posts`)
 }
@@ -314,7 +314,7 @@ every 1 h {
   
   result = db_conn.exec(
     "DELETE FROM sessions WHERE expires_at < ?",
-    [date("unix")]
+    [now()]
   )
   
   log_info(`Deleted ${result.rows_affected} expired sessions`)
@@ -331,7 +331,7 @@ server {
 every 1 h {
   log_info("Resetting rate limits")
   
-  all_keys = store.keys()
+  all_keys = keys(store.all())
   rate_limit_keys = []
   
   each key in all_keys {
@@ -361,7 +361,7 @@ route SSE "/events" {
 
 every 30 s {
   broadcast("heartbeat", {
-    timestamp: date(),
+    timestamp: now(),
     uptime: server_stats().uptime_formatted
   })
 }
@@ -402,11 +402,11 @@ server {
   port 3000
 }
 
-store.set("last_sync", date("unix"))
+store.set("last_sync", now())
 
 every 1 m {
   last_sync = store.get("last_sync", 0)
-  now = date("unix")
+  now = now()
   
   if now - last_sync >= 300 {
     log_info("Running sync task")

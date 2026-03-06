@@ -161,7 +161,7 @@ This is the complete language reference.
   - `conn.query(sql, params)` — query rows
   - `conn.exec(sql, params)` — execute statements
   - `conn.close()` — close connection
-  - MongoDB operations (`find`, `insert`, `update`, `delete`, `count`)
+  - MongoDB operations (`find`, `find_one`, `insert`, `insert_many`, `update`, `delete`, `count`)
   - Parameterized queries
 
 - [**Key-Value Store**](store.md) — In-memory key-value storage
@@ -233,6 +233,7 @@ This is the complete language reference.
   - `len`, `trim`, `upper`, `lower`, `split`, `join`, `replace`
   - `starts_with`, `ends_with`, `contains`, `index_of`
   - `repeat`, `slice`, `pad_left`, `pad_right`
+  - `regex_match`, `regex_replace`
   - `truncate`, `capitalize`
 
 - [**Array Functions**](builtins/arrays.md)
@@ -262,7 +263,8 @@ This is the complete language reference.
 
 - [**Crypto Functions**](builtins/crypto.md)
   - `hash(algo, data)` — SHA-256, SHA-512, MD5
-  - `hmac(algo, data, key)` — HMAC signing
+  - `hmac_hash(algo, key, data)` — HMAC signing
+  - `hash_password(plain)` / `verify_password(plain, hash)` — bcrypt/argon2
   - `uuid()`, `cuid2()` — ID generation
 
 - [**Validation Functions**](builtins/validation.md)
@@ -270,7 +272,7 @@ This is the complete language reference.
   - `is_email`, `is_url`, `is_uuid`, `is_numeric`
 
 - [**Date & Time Functions**](builtins/datetime.md)
-  - `date()`, `date(format)`
+  - `date()`, `now()`, `now_ms()`
   - `date_format(timestamp, format)`
   - `date_parse(string, format)`
   - `strtotime(expression)` — relative time parsing
