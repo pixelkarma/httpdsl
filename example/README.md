@@ -22,7 +22,9 @@ nearly every language feature in a single, practical application.
 | **Shutdown** | Graceful DB close on shutdown |
 | **Functions** | Reusable card HTML builder, helpers |
 | **Redirect** | `redirect()` + manual 302 for session-preserving redirects |
-| **Env vars** | `env()` for configuration |
+| **CLI args** | `args["db-path"]` with `??` fallback defaults |
+| **Env file** | `env()` reads from `.env` file, not OS env |
+| **Help block** | `help` with backtick string for `--help` output |
 | **HTMX** | Partial HTML swaps for all interactions |
 
 ## Architecture
@@ -44,9 +46,42 @@ page reloads.
 # Build
 ../httpdsl build taskboard.httpdsl
 
-# Run
+# Run with defaults
 ./taskboard
 # → http://localhost:8000
+
+# Run with CLI args
+./taskboard --db-path /tmp/mydb.db --secret my-production-key
+
+# Run with a custom .env file
+./taskboard -e production.env
+
+# Show help
+./taskboard -h
+```
+
+### CLI Options
+
+```
+Team Task Board — A real-time collaborative task board
+
+Options:
+  --db-path   Path to SQLite database (default: ./taskboard.db)
+  --secret    Session secret key (default: change-me-in-production)
+  --store     Path to store JSON file (default: ./taskboard_store.json)
+
+Flags:
+  -e <path>   Load env file (default: .env, "none" to skip)
+  -v          Show version
+  -h          Show this help
+```
+
+### Example .env File
+
+```env
+DB_PATH=./taskboard.db
+SESSION_SECRET=change-me-in-production
+STORE_PATH=./taskboard_store.json
 ```
 
 Register an account, create tasks, move them between columns. Open a second

@@ -53,6 +53,7 @@ type NativeCompiler struct {
 	hasSSE         bool                // whether any SSE routes exist
 	hasCron        bool                // whether any cron expressions are used
 	hasExec        bool                // whether exec() builtin is used
+	helpText       string              // help text from help block
 }
 
 type staticMount struct {
@@ -122,6 +123,8 @@ func GenerateNativeCode(program *Program) (string, error) {
 		case *ShutdownStatement:
 			c.shutdownBlocks = append(c.shutdownBlocks, s.Body)
 			c.scanBlock(s.Body)
+		case *HelpStatement:
+			c.helpText = s.Text
 		case *ServerStatement:
 			if pe, ok := s.Settings["port"]; ok {
 				if lit, ok := pe.(*IntegerLiteral); ok {
@@ -236,9 +239,6 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["encoding/base64"] = true
 	c.usedImports["hash"] = true
 	// Import tracking for builtins
-	if c.usedBuiltins["env"] {
-		c.usedImports["os"] = true
-	}
 	if c.usedBuiltins["sleep"] || c.usedBuiltins["now"] || c.usedBuiltins["now_ms"] || c.usedBuiltins["date"] || c.usedBuiltins["date_format"] || c.usedBuiltins["date_parse"] || c.usedBuiltins["strtotime"] || c.usedBuiltins["cuid2"] {
 		c.usedImports["time"] = true
 	}
@@ -345,6 +345,7 @@ func GenerateNativeCode(program *Program) (string, error) {
 
 	c.emitHeader()
 	c.emitGlobalVars()
+	c.emitEnvRuntime()
 	c.emitRuntime()
 	c.emitBuiltinFuncs()
 	c.emitCronRuntime()
@@ -808,11 +809,9 @@ func storeSync(args ...Value) Value {
 }
 
 func (c *NativeCompiler) emitGlobalVars() {
-	hasGlobals := len(c.globalVars) > 0 || c.usedBuiltins["server_stats"]
-	if !hasGlobals {
-		return
-	}
 	c.ln("// ===== Global Variables =====")
+	c.ln("var _envMap = map[string]string{}")
+	c.ln("var _argsMap = map[string]Value{}")
 	// Sort for deterministic output
 	names := make([]string, 0, len(c.globalVars))
 	for name := range c.globalVars {
@@ -820,12 +819,54 @@ func (c *NativeCompiler) emitGlobalVars() {
 	}
 	sort.Strings(names)
 	for _, name := range names {
+		if name == "args" { continue } // handled by _argsMap
 		c.lnf("var %s Value = null", safeIdent(name))
 	}
 	if c.usedBuiltins["server_stats"] {
 		c.ln("var _startTime = time.Now()")
 	}
 	c.ln("")
+}
+
+func (c *NativeCompiler) emitEnvRuntime() {
+	c.raw(`func _loadEnvFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Strip optional "export " prefix
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(line[7:])
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		// Handle quoted values
+		if len(val) >= 2 {
+			if val[0] == '"' && val[len(val)-1] == '"' {
+				val = val[1 : len(val)-1]
+				// Process escape sequences in double-quoted strings
+				val = strings.ReplaceAll(val, "\\n", "\n")
+				val = strings.ReplaceAll(val, "\\t", "\t")
+				val = strings.ReplaceAll(val, "\\\"", "\"")
+				val = strings.ReplaceAll(val, "\\\\", "\\")
+			} else if val[0] == '\'' && val[len(val)-1] == '\'' {
+				val = val[1 : len(val)-1]
+			}
+		}
+		_envMap[key] = val
+	}
+}
+
+`)
 }
 
 func (c *NativeCompiler) emitRuntime() {
@@ -1655,8 +1696,8 @@ func builtin_print(args ...Value) Value {
 
 func builtin_env(args ...Value) Value {
 	if len(args) == 0 { return null }
-	v := os.Getenv(valueToString(args[0]))
-	if v == "" { if len(args) >= 2 { return args[1] }; return null }
+	v, ok := _envMap[valueToString(args[0])]
+	if !ok || v == "" { if len(args) >= 2 { return args[1] }; return null }
 	return Value(v)
 }
 
@@ -4408,6 +4449,8 @@ func (c *NativeCompiler) emitUntypedFn(fn *FnStatement, tenv *TypeEnv) {
 }
 
 func safeIdent(name string) string {
+	// Map DSL 'args' to the built-in _argsMap
+	if name == "args" { return "_argsMap" }
 	// Avoid Go keywords
 	switch name {
 	case "type", "map", "func", "var", "range", "select", "case", "default", "chan", "go", "defer", "interface", "struct", "package", "import", "return", "break", "continue", "for", "if", "else", "switch":
@@ -5293,6 +5336,78 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("// ===== Main =====")
 	c.ln("func main() {")
 	c.indent++
+
+	// CLI flags and env loading
+	c.ln("// CLI flags")
+	c.ln(`_envFile := ".env"`)
+	c.ln("_showHelp := false")
+	c.ln("_showVersion := false")
+	c.ln("{")
+	c.indent++
+	c.ln("i := 1")
+	c.ln("for i < len(os.Args) {")
+	c.indent++
+	c.ln("a := os.Args[i]")
+	c.ln(`switch a {`)
+	c.ln(`case "-h":`)
+	c.indent++
+	c.ln("_showHelp = true")
+	c.ln("i++")
+	c.indent--
+	c.ln(`case "-v":`)
+	c.indent++
+	c.ln("_showVersion = true")
+	c.ln("i++")
+	c.indent--
+	c.ln(`case "-e":`)
+	c.indent++
+	c.ln("if i+1 < len(os.Args) { _envFile = os.Args[i+1]; i += 2 } else { i++ }")
+	c.indent--
+	c.ln("default:")
+	c.indent++
+	c.ln(`if strings.HasPrefix(a, "--") && len(a) > 2 {`)
+	c.indent++
+	c.ln("key := a[2:]")
+	c.ln(`if i+1 < len(os.Args) { _argsMap[key] = Value(os.Args[i+1]); i += 2 } else { _argsMap[key] = Value(true); i++ }`)
+	c.indent--
+	c.ln("} else { i++ }")
+	c.indent--
+	c.ln("}")  // end switch
+	c.indent--
+	c.ln("}")  // end for
+	c.indent--
+	c.ln("}")  // end block scope
+	c.ln("")
+
+	// Handle -v
+	c.ln("if _showVersion {")
+	c.indent++
+	c.ln(`fmt.Println("Built with httpdsl")`)
+	c.ln("os.Exit(0)")
+	c.indent--
+	c.ln("}")
+	c.ln("")
+
+	// Handle -h
+	c.ln("if _showHelp {")
+	c.indent++
+	if c.helpText != "" {
+		c.lnf("fmt.Println(%s)", strconv.Quote(c.helpText))
+		c.ln(`fmt.Println("")`)
+	}
+	c.ln(`fmt.Println("Flags:")`)
+	c.ln(`fmt.Println("  -e <path>   Load env file (default: .env, \"none\" to skip)")`)
+	c.ln(`fmt.Println("  -v          Show version")`)
+	c.ln(`fmt.Println("  -h          Show this help")`)
+	c.ln("os.Exit(0)")
+	c.indent--
+	c.ln("}")
+	c.ln("")
+
+	// Load .env file
+	c.ln(`if _envFile != "none" { _loadEnvFile(_envFile) }`)
+	c.ln("")
+
 	// Run init blocks
 	if len(c.initBlocks) > 0 {
 		c.ln("// init blocks")

@@ -1,44 +1,229 @@
-# Environment Variables
+# Configuration
 
-Access environment variables with the `env()` function.
+Runtime configuration through `.env` files, CLI arguments, and built-in flags.
 
-## Basic Usage
+## .env File
 
-```httpdsl
-port = env("PORT")
-log_info(port)
+HTTPDSL automatically loads a `.env` file from the working directory when the compiled binary starts. The file uses standard dotenv format:
+
+```env
+# Database
+DATABASE_URL=sqlite:./app.db
+DB_POOL_SIZE=5
+
+# Server
+SESSION_SECRET=change-me-in-production
+API_KEY=sk_live_abc123
+
+# Feature flags
+FEATURE_BETA=true
+
+# Quoted values
+APP_NAME="My Application"
+GREETING='Hello, world!'
+
+# Export prefix (ignored, for shell compatibility)
+export LOG_LEVEL=debug
 ```
 
-## Default Values
+### Format Rules
 
-Provide a default if the variable is not set:
+- **Comments**: Lines starting with `#` are ignored
+- **Empty lines**: Ignored
+- **`export` prefix**: Optional, stripped automatically
+- **Double quotes**: Supports escape sequences (`\n`, `\t`, `\"`, `\\`)
+- **Single quotes**: Literal strings, no escape processing
+- **Unquoted values**: Taken as-is after trimming whitespace
+- **No variable interpolation**: `$VAR` or `${VAR}` are treated as literal text
+
+## env()
+
+Read values from the `.env` file map:
 
 ```httpdsl
-port = env("PORT", "3000")
-db_url = env("DATABASE_URL", "sqlite::memory:")
+db_url = env("DATABASE_URL")
+log_info(db_url)
+```
+
+Returns `null` if the key is not found.
+
+### Default Values
+
+Provide a fallback for missing keys:
+
+```httpdsl
+db_url = env("DATABASE_URL", "sqlite:./app.db")
 log_level = env("LOG_LEVEL", "info")
+max_upload = env("MAX_UPLOAD", "10")
 ```
 
-## Server Configuration
+> **Note:** `env()` reads from the `.env` file map only. It does **not** access OS environment variables.
+
+## args Map
+
+The `args` built-in is a read-only map populated from `--key value` CLI flags:
+
+```bash
+./myapp --port 8080 --mode production --verbose
+```
+
+```httpdsl
+port = int(args["port"] ?? "3000")
+mode = args["mode"] ?? "development"
+
+if args["verbose"] {
+  log_info("Verbose mode enabled")
+}
+```
+
+Flags without a value are set to `true`:
+
+```bash
+./myapp --verbose --debug
+```
+
+```httpdsl
+if args["verbose"] {
+  log_info("verbose is true")
+}
+```
+
+## help Block
+
+Define help text shown when the binary is run with `-h`:
+
+```httpdsl
+help `My API Server
+
+A REST API for managing widgets.
+
+Usage:
+  ./myapp --port 8080 --db postgres://localhost/mydb
+
+Options:
+  --port <n>     Port to listen on (default: 3000)
+  --db <url>     Database connection URL
+  --verbose      Enable verbose logging`
+```
+
+The `help` keyword takes a backtick string. This text is printed before the built-in flags when `-h` is used.
+
+## Built-in Flags
+
+Every compiled binary supports these flags:
+
+| Flag | Description |
+|------|-------------|
+| `-h` | Print help text (if defined) and list built-in flags, then exit |
+| `-v` | Print `Built with httpdsl` and exit |
+| `-e <path>` | Load a specific `.env` file instead of `.env` |
+| `-e none` | Skip `.env` loading entirely |
+
+Example output of `-h` with a help block:
+
+```
+My API Server
+
+A REST API for managing widgets.
+
+Flags:
+  -e <path>   Load env file (default: .env, "none" to skip)
+  -v          Show version
+  -h          Show this help
+```
+
+## Load Order
+
+Configuration sources from weakest to strongest:
+
+1. **`.env` file** — loaded at startup, populates the `env()` map
+2. **CLI `args`** — `--key value` flags, available via `args["key"]`
+
+These are separate namespaces. `env()` reads from `.env`, `args` reads from CLI flags. Your code decides how to combine them:
+
+```httpdsl
+# CLI args override .env values
+port = int(args["port"] ?? env("PORT", "3000"))
+db_url = args["db"] ?? env("DATABASE_URL", "sqlite:./app.db")
+```
+
+## Server Block Limitations
+
+Settings in the `server {}` block (port, templates, static, etc.) are parsed at **compile time** as literal values. You cannot use runtime expressions like `env()` in most settings.
+
+The one exception is `session.secret`, which supports runtime expressions:
 
 ```httpdsl
 server {
-  port int(env("PORT", "3000"))
-  gzip env("GZIP_ENABLED", "true") == "true"
-  
+  port 3000
+  templates "./templates"
+  static "/assets" "./public"
+
   session {
     cookie "sid"
     expires 24 h
-    secret env("SESSION_SECRET")
+    secret env("SESSION_SECRET")  # this works — evaluated at runtime
   }
 }
 ```
 
-## Database Connection
+## Examples
+
+### API with CLI Configuration
 
 ```httpdsl
-db_type = env("DB_TYPE", "sqlite")
-db_url = env("DATABASE_URL", "./app.db")
+help `Widget API
+
+Options:
+  --port <n>     Port to listen on
+  --verbose      Enable request logging`
+
+server {
+  port 3000
+  session {
+    secret env("SESSION_SECRET", "dev-secret")
+  }
+}
+
+verbose = args["verbose"]
+api_key = env("API_KEY")
+
+before {
+  if verbose {
+    log_info(`${request.method} ${request.path}`)
+  }
+}
+
+route GET "/health" {
+  response.body = {status: "ok"}
+}
+
+route GET "/api/data" {
+  key = request.headers["x-api-key"] ?? ""
+
+  if key != api_key {
+    response.status = 401
+    response.body = {error: "Invalid API key"}
+    return
+  }
+
+  response.body = {data: "Protected data"}
+}
+```
+
+Run it:
+
+```bash
+./myapp --port 8080 --verbose
+./myapp -e production.env
+./myapp -e none --port 3000
+```
+
+### Database Connection
+
+```httpdsl
+db_type = args["db-type"] ?? env("DB_TYPE", "sqlite")
+db_url = args["db"] ?? env("DATABASE_URL", "./app.db")
 
 db_conn = db.open(db_type, db_url)
 
@@ -48,90 +233,15 @@ route GET "/stats" {
 }
 ```
 
-## API Keys
+### Environment Detection
 
 ```httpdsl
-server {
-  port 3000
-}
-
-api_key = env("API_KEY")
-
-route GET "/api/data" {
-  provided_key = request.headers["x-api-key"] ?? ""
-  
-  if provided_key != api_key {
-    response.status = 401
-    response.body = {error: "Invalid API key"}
-    return
-  }
-  
-  response.body = {data: "Protected data"}
-}
-```
-
-## JWT Secret
-
-```httpdsl
-server {
-  port 3000
-}
-
-jwt_secret = env("JWT_SECRET")
-
-route POST "/auth/login" json {
-  {email, password} = request.data
-  
-  if email == "user@example.com" && password == "password" {
-    payload = {
-      user_id: 1,
-      email: email,
-      exp: date("unix") + 3600
-    }
-    
-    token = jwt.sign(payload, jwt_secret)
-    
-    response.body = {token: token}
-  } else {
-    response.status = 401
-    response.body = {error: "Invalid credentials"}
-  }
-}
-
-route GET "/api/profile" {
-  token = request.bearer
-  
-  if token == "" {
-    response.status = 401
-    response.body = {error: "Missing token"}
-    return
-  }
-  
-  payload = jwt.verify(token, jwt_secret)
-  
-  if payload == null {
-    response.status = 401
-    response.body = {error: "Invalid token"}
-    return
-  }
-  
-  response.body = {user_id: payload.user_id}
-}
-```
-
-## Environment Detection
-
-```httpdsl
-server {
-  port 3000
-}
-
-is_production = env("ENV") == "production"
-is_development = env("ENV", "development") == "development"
+mode = args["mode"] ?? env("MODE", "development")
+is_production = mode == "production"
 
 route GET "/" {
   response.body = {
-    environment: env("ENV", "development"),
+    mode: mode,
     debug: !is_production
   }
 }
@@ -143,219 +253,19 @@ error 500 {
     response.body = {
       error: "Internal server error",
       path: request.path,
-      method: request.method,
-      timestamp: date()
+      method: request.method
     }
   }
 }
 ```
 
-## External Services
-
-```httpdsl
-server {
-  port 3000
-}
-
-stripe_key = env("STRIPE_SECRET_KEY")
-sendgrid_key = env("SENDGRID_API_KEY")
-aws_key = env("AWS_ACCESS_KEY_ID")
-aws_secret = env("AWS_SECRET_ACCESS_KEY")
-
-route POST "/payment" json {
-  amount = request.data.amount
-  
-  result = fetch("https://api.stripe.com/v1/charges", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${stripe_key}`,
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: `amount=${amount}&currency=usd`
-  })
-  
-  response.body = result.body
-}
-```
-
-## CORS Configuration
-
-```httpdsl
-server {
-  port 3000
-}
-
-allowed_origins = split(env("CORS_ORIGINS", "*"), ",")
-
-before {
-  origin = request.headers["origin"] ?? ""
-  
-  is_allowed = false
-  
-  each allowed in allowed_origins {
-    if trim(allowed) == "*" || trim(allowed) == origin {
-      is_allowed = true
-      break
-    }
-  }
-  
-  if is_allowed {
-    response.headers = {
-      "Access-Control-Allow-Origin": origin == "" ? "*" : origin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE"
-    }
-  }
-}
-
-route GET "/api/data" {
-  response.body = {data: "value"}
-}
-```
-
-## Feature Flags
-
-```httpdsl
-server {
-  port 3000
-}
-
-feature_beta = env("FEATURE_BETA", "false") == "true"
-feature_new_ui = env("FEATURE_NEW_UI", "false") == "true"
-
-route GET "/features" {
-  response.body = {
-    beta: feature_beta,
-    new_ui: feature_new_ui
-  }
-}
-
-route GET "/" {
-  if feature_new_ui {
-    response.body = "New UI"
-  } else {
-    response.body = "Classic UI"
-  }
-}
-```
-
-## Rate Limits
-
-```httpdsl
-server {
-  port 3000
-}
-
-max_requests = int(env("RATE_LIMIT", "100"))
-rate_window = int(env("RATE_WINDOW", "60"))
-
-before {
-  client_ip = request.ip
-  key = `rate:${client_ip}`
-  
-  count = store.get(key, 0)
-  
-  if count >= max_requests {
-    response.status = 429
-    response.body = {error: "Rate limit exceeded"}
-    return
-  }
-  
-  store.incr(key, 1, rate_window)
-}
-
-route GET "/api/data" {
-  response.body = {data: "value"}
-}
-```
-
-## Complete Example
-
-```httpdsl
-server {
-  port int(env("PORT", "3000"))
-  gzip env("GZIP", "true") == "true"
-  
-  session {
-    cookie env("SESSION_COOKIE", "sid")
-    expires 24 h
-    secret env("SESSION_SECRET")
-    csrf env("CSRF_ENABLED", "true") == "true"
-  }
-}
-
-is_production = env("ENV") == "production"
-log_level = env("LOG_LEVEL", "info")
-
-db_conn = db.open(
-  env("DB_TYPE", "sqlite"),
-  env("DATABASE_URL", "./app.db")
-)
-
-jwt_secret = env("JWT_SECRET")
-api_key = env("API_KEY")
-
-before {
-  if log_level == "debug" {
-    log_info(`${request.method} ${request.path} from ${request.ip}`)
-  }
-}
-
-route GET "/" {
-  response.body = {
-    app: env("APP_NAME", "HTTPDSL App"),
-    version: env("VERSION", "1.0.0"),
-    environment: env("ENV", "development")
-  }
-}
-
-route GET "/health" {
-  response.body = {
-    status: "ok",
-    timestamp: date()
-  }
-}
-
-error 500 {
-  error_id = cuid2()
-  
-  log_error(`Error ${error_id}: ${request.method} ${request.path}`)
-  
-  if is_production {
-    response.body = {
-      error: "Internal server error",
-      error_id: error_id
-    }
-  } else {
-    response.body = {
-      error: "Internal server error",
-      error_id: error_id,
-      path: request.path,
-      method: request.method,
-      debug: true
-    }
-  }
-}
-```
-
-## .env File Example
-
-Create a `.env` file:
+### .env File
 
 ```env
-PORT=3000
-ENV=development
+MODE=development
 DATABASE_URL=sqlite:./app.db
 SESSION_SECRET=your-secret-key-here
-JWT_SECRET=jwt-secret-key
-API_KEY=api-key-here
+API_KEY=sk_live_abc123
 LOG_LEVEL=debug
-GZIP=true
-CSRF_ENABLED=true
-```
-
-Load with environment loader or export:
-
-```bash
-export $(cat .env | xargs)
-httpdsl run server.httpdsl
+FEATURE_BETA=true
 ```

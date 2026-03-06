@@ -1241,12 +1241,12 @@ group "/test/builtins" {
     }
 
     route GET "env-fn" {
-        // PATH should always be set
-        path_val = env("PATH")
+        // Reads from .env file (not OS environment)
+        env_val = env("TEST_ENV_VALUE")
         missing = env("HTTPDSL_NONEXISTENT_VAR")
         with_default = env("HTTPDSL_NONEXISTENT_VAR", "fallback")
         response.body = results([
-            assert_true(len(path_val) > 0, "env PATH exists"),
+            assert_eq(env_val, "hello-from-dotenv", "env reads from .env file"),
             assert_eq(missing, null, "env missing returns null"),
             assert_eq(with_default, "fallback", "env missing with default")
         ])

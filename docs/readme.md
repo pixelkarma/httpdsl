@@ -185,9 +185,13 @@ This is the complete language reference.
   - `file.list(path)` / `file.mkdir(path)`
   - `file.chmod(path, mode)`
 
-- [**Environment Variables**](env.md) — Runtime configuration
-  - `env("NAME")` — read environment variable
-  - `env("NAME", "default")` — read with fallback
+- [**Configuration**](env.md) — Runtime configuration
+  - `.env` file loading (dotenv format, auto-loaded from working directory)
+  - `env("NAME")` / `env("NAME", "default")` — read from `.env` file
+  - `args` map — read `--key value` CLI flags
+  - `help` block — define `-h` output
+  - Built-in flags: `-h`, `-v`, `-e <path>`
+  - Load order and precedence
 
 ### VI. Async & Concurrency
 
