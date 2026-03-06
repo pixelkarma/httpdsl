@@ -43,15 +43,18 @@ page reloads.
 ## Running
 
 ```bash
+# From the repo root
+cd examples/taskboard
+
 # Build
-../httpdsl build taskboard.httpdsl
+../../httpdsl build app.httpdsl
 
 # Run with defaults
 ./taskboard
 # → http://localhost:8000
 
 # Run with CLI args
-./taskboard --db-path /tmp/mydb.db --secret my-production-key
+./taskboard -p 3000 --db-path /tmp/mydb.db --secret my-production-key
 
 # Run with a custom .env file
 ./taskboard -e production.env
@@ -71,9 +74,16 @@ Options:
   --store     Path to store JSON file (default: ./taskboard_store.json)
 
 Flags:
+  -p <port>   Listen port (default: 8000, or PORT env var)
+  -s <dir>    Static file directory (default: ./static/css)
   -e <path>   Load env file (default: .env, "none" to skip)
   -v          Show version
   -h          Show this help
+
+Environment variables:
+  PORT        Override listen port
+  SSL_CERT    Path to TLS certificate file
+  SSL_KEY     Path to TLS private key file
 ```
 
 ### Example .env File
@@ -90,18 +100,20 @@ browser tab to see real-time SSE updates.
 ## File Structure
 
 ```
-example/
-├── taskboard.httpdsl          # Main application (single file)
+examples/taskboard/
+├── app.httpdsl                # Main application (single file)
 ├── templates/
 │   ├── layout.gohtml          # Head/foot template defines
 │   ├── login.gohtml           # Sign in page
 │   ├── register.gohtml        # Registration page
 │   ├── board.gohtml           # Main board page
 │   └── partials/
-│       └── task_card.gohtml   # (reserved for future template use)
+│       ├── error.gohtml       # Error page partial
+│       └── task_card.gohtml   # Task card partial
 └── static/
     └── css/
-        └── app.css            # Complete stylesheet (~330 lines)
+        ├── app.css            # Stylesheet (~330 lines)
+        └── board.js           # SSE client with auto-reconnect
 ```
 
 ## CSS Highlights
