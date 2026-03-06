@@ -197,7 +197,7 @@ every 5 s {
   broadcast("stats", {
     memory: stats.mem_alloc_mb,
     goroutines: stats.goroutines,
-    uptime: stats.uptime_formatted
+    uptime: stats.uptime_human
   })
 }
 

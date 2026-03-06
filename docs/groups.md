@@ -220,22 +220,12 @@ server {
   }
 }
 
-fn require_role(role) {
-  user_role = request.session.role ?? "guest"
-  
-  if user_role != role {
-    response.status = 403
-    response.body = {error: "Insufficient permissions"}
-    return false
-  }
-  
-  return true
-}
-
 group "/admin" {
   before {
-    if !require_role("admin") {
-      return
+    user_role = request.session.role ?? "guest"
+    if user_role != "admin" {
+      response.status = 403
+      response.body = {error: "Insufficient permissions"}
     }
   }
   

@@ -146,13 +146,12 @@ server {
   }
 }
 
-fn require_auth() {
-  if !request.session.user_id {
+before {
+  is_public = request.path == "/public"
+  if !is_public && !request.session.user_id {
     response.status = 401
     response.body = {error: "Authentication required"}
-    return false
   }
-  return true
 }
 
 route GET "/public" {
@@ -160,10 +159,6 @@ route GET "/public" {
 }
 
 route GET "/protected" {
-  if !require_auth() {
-    return
-  }
-  
   response.body = {
     message: "Protected data",
     user: request.session.username
@@ -171,8 +166,6 @@ route GET "/protected" {
 }
 
 route DELETE "/account" {
-  if !require_auth() {
-    return
   }
   
   user_id = request.session.user_id
