@@ -161,7 +161,7 @@ This is the complete language reference.
   - `db.query(conn, sql, ...params)` — query rows
   - `db.exec(conn, sql, ...params)` — execute statements
   - `db.close(conn)` — close connection
-  - MongoDB operations (`find`, `insert`, `update`, `delete`, `aggregate`)
+  - MongoDB operations (`find`, `insert`, `update`, `delete`, `count`)
   - Parameterized queries
 
 - [**Key-Value Store**](store.md) — In-memory key-value storage

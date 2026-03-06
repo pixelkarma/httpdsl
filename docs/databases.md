@@ -304,15 +304,6 @@ result = conn.delete("users", {age: {"$lt": 18}})
 log_info(`Deleted: ${result.deleted_count}`)
 ```
 
-### aggregate()
-
-```httpdsl
-results = conn.aggregate("users", [
-  {"$match": {age: {"$gte": 18}}},
-  {"$group": {"_id": "$city", "count": {"$sum": 1}}}
-])
-```
-
 ### count()
 
 ```httpdsl
