@@ -6,6 +6,7 @@
   var validMoves = [];
   var myTurn = false;
   var gameActive = false;
+  var mustJumpFrom = null;
   var es = null;
 
   var statusEl = document.getElementById('status');
@@ -94,6 +95,9 @@
       }
     }
 
+    // If must continue jumping, don't allow selecting other pieces
+    if (mustJumpFrom) return;
+
     // If clicking own piece, select it
     if (piece === myPiece || piece === myKing) {
       selected = [r, c];
@@ -104,6 +108,30 @@
       validMoves = [];
       renderBoard();
     }
+  }
+
+  function getJumpMoves(r, c) {
+    var piece = board[r][c];
+    var moves = [];
+    var dirs = [];
+    if (piece === 'r' || piece === 'R') dirs.push([-1, -1], [-1, 1]);
+    if (piece === 'b' || piece === 'B') dirs.push([1, -1], [1, 1]);
+    if (piece === 'R') dirs.push([1, -1], [1, 1]);
+    if (piece === 'B') dirs.push([-1, -1], [-1, 1]);
+    var enemy = (piece === 'r' || piece === 'R') ? 'b' : 'r';
+    var enemyKing = enemy.toUpperCase();
+    for (var d = 0; d < dirs.length; d++) {
+      var dr = dirs[d][0], dc = dirs[d][1];
+      var nr = r + dr, nc = c + dc;
+      var jr = r + dr * 2, jc = c + dc * 2;
+      if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 &&
+          jr >= 0 && jr < 8 && jc >= 0 && jc < 8 &&
+          (board[nr][nc] === enemy || board[nr][nc] === enemyKing) &&
+          board[jr][jc] === '.') {
+        moves.push([jr, jc]);
+      }
+    }
+    return moves;
   }
 
   function getValidMoves(r, c) {
@@ -168,9 +196,15 @@
       gameActive = true;
       var turnColor = data.turn;
       myTurn = (turnColor === G.color);
+      mustJumpFrom = data.must_jump_from || null;
       selected = null;
       validMoves = [];
-      if (myTurn) {
+      if (myTurn && mustJumpFrom) {
+        // Auto-select the piece that must continue jumping
+        selected = [mustJumpFrom[0], mustJumpFrom[1]];
+        validMoves = getJumpMoves(selected[0], selected[1]);
+        setStatus("Continue jumping!");
+      } else if (myTurn) {
         setStatus("It's your turn");
       } else {
         setStatus("It's their turn");
