@@ -168,18 +168,46 @@ route GET "/game/:key" {
         return
     }
 
+    // Check cookie for reconnect — cookie stores "KEY:PLAYER_NUM"
+    cookie_val = request.cookies.checkers ?? ""
+    cookie_parts = split(cookie_val, ":")
     player_num = 0
     color = ""
-    if game.player1 == null {
-        player_num = 1
-        color = "red"
-    } else if game.player2 == null {
-        player_num = 2
-        color = "black"
-    } else {
-        // Game full, could be reconnect
-        player_num = 1
-        color = "red"
+
+    if len(cookie_parts) == 2 && cookie_parts[0] == key {
+        saved_num = int(cookie_parts[1])
+        if saved_num == 1 {
+            player_num = 1
+            color = "red"
+        } else if saved_num == 2 {
+            player_num = 2
+            color = "black"
+        }
+    }
+
+    if player_num == 0 {
+        if game.player1 == null {
+            player_num = 1
+            color = "red"
+            game.player1 = "assigned"
+        } else if game.player2 == null {
+            player_num = 2
+            color = "black"
+            game.player2 = "assigned"
+        } else {
+            response.status = 409
+            response.body = "Game is full"
+            return
+        }
+    }
+
+    // Set cookie so refresh preserves assignment
+    response.cookies = {
+        checkers: {
+            value: key + ":" + str(player_num),
+            path: "/",
+            maxAge: 7200
+        }
     }
 
     render("game.gohtml", {key: key, color: color, player: player_num})
