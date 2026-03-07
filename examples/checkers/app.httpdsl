@@ -74,6 +74,53 @@ fn count_pieces(board, color) {
     return n
 }
 
+// Check if piece at (r,c) can make a jump capture
+fn can_jump_from(board, r, c) {
+    piece = board[r][c]
+    if piece == "." {
+        return false
+    }
+    dirs = []
+    if piece == "r" || piece == "R" {
+        push(dirs, [-1, -1])
+        push(dirs, [-1, 1])
+    }
+    if piece == "b" || piece == "B" {
+        push(dirs, [1, -1])
+        push(dirs, [1, 1])
+    }
+    if piece == "R" {
+        push(dirs, [1, -1])
+        push(dirs, [1, 1])
+    }
+    if piece == "B" {
+        push(dirs, [-1, -1])
+        push(dirs, [-1, 1])
+    }
+    enemy = "b"
+    if piece == "b" || piece == "B" {
+        enemy = "r"
+    }
+    enemy_king = upper(enemy)
+    d = 0
+    while d < len(dirs) {
+        dr = dirs[d][0]
+        dc = dirs[d][1]
+        nr = r + dr
+        nc = c + dc
+        jr = r + dr * 2
+        jc = c + dc * 2
+        if nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && jr >= 0 && jr < 8 && jc >= 0 && jc < 8 {
+            mid = board[nr][nc]
+            if (mid == enemy || mid == enemy_king) && board[jr][jc] == "." {
+                return true
+            }
+        }
+        d = d + 1
+    }
+    return false
+}
+
 // Check if a player can make any move
 fn has_moves(board, color) {
     king = upper(color)
@@ -152,6 +199,7 @@ route POST "/game/new" {
         rematch_p1: null,
         rematch_p2: null,
         winner: null,
+        must_jump_from: null,
         last_activity: now()
     }
     games[key] = game
@@ -291,6 +339,16 @@ route POST "/game/:key/move" {
         return
     }
 
+    // If must_jump_from is set, enforce that piece
+    if game.must_jump_from != null {
+        mj = game.must_jump_from
+        if fr != mj[0] || fc != mj[1] {
+            response.status = 400
+            response.body = {error: "Must continue jumping with the same piece"}
+            return
+        }
+    }
+
     // Execute move
     game.board[tr][tc] = piece
     game.board[fr][fc] = "."
@@ -298,19 +356,34 @@ route POST "/game/:key/move" {
     // Check for jump (capture)
     dr = tr - fr
     dc = tc - fc
+    was_jump = false
     if dr == 2 || dr == -2 {
         mr = fr + dr / 2
         mc = fc + dc / 2
         game.board[mr][mc] = "."
+        was_jump = true
     }
 
     // King promotion
+    promoted = false
     if piece == "r" && tr == 0 {
         game.board[tr][tc] = "R"
+        promoted = true
     }
     if piece == "b" && tr == 7 {
         game.board[tr][tc] = "B"
+        promoted = true
     }
+
+    // Multi-jump: if this was a jump and piece can jump again (and wasn't just promoted)
+    if was_jump && !promoted && can_jump_from(game.board, tr, tc) {
+        game.must_jump_from = [tr, tc]
+        broadcast("state", {board: game.board, turn: game.turn, must_jump_from: [tr, tc]}, key)
+        response.body = {ok: true}
+        return
+    }
+
+    game.must_jump_from = null
 
     // Check win condition
     next_turn = "black"
@@ -363,6 +436,7 @@ route POST "/game/:key/rematch" {
             game.turn = "red"
             game.status = "playing"
             game.winner = null
+            game.must_jump_from = null
             game.rematch_p1 = null
             game.rematch_p2 = null
             broadcast("state", {board: game.board, turn: game.turn}, key)
