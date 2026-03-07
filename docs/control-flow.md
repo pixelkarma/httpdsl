@@ -139,8 +139,8 @@ Iterate over arrays:
 ```httpdsl
 fruits = ["apple", "banana", "cherry"]
 
-each fruit in fruits {
-  log(fruit)
+each fruit, index in fruits {
+  log(index, fruit)
 }
 ```
 
