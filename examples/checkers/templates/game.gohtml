@@ -10,10 +10,8 @@
     <div class="container">
         <div class="room-key">Room: <span id="room-key">{{.Page.key}}</span></div>
         <div id="status" class="status">Waiting for opponent...</div>
-        <div id="board" class="board"
-             data-key="{{.Page.key}}"
-             data-color="{{.Page.color}}"
-             data-player="{{.Page.player}}"></div>
+        <div id="board" class="board"></div>
+        <script>window.GAME={key:"{{.Page.key | safeJS}}",color:"{{.Page.color | safeJS}}",player:{{.Page.player | safeJS}}};</script>
         <div id="game-over" class="game-over hidden">
             <p id="game-over-msg"></p>
             <div class="game-over-buttons">

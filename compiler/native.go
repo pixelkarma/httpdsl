@@ -29,6 +29,7 @@ type NativeCompiler struct {
 	corsHeaders    string // CORS: allowed headers
 	errorHandlers  []*ErrorStatement
 	inRouteHandler bool // true when emitting code inside a route/error handler
+	inSSERoute     bool // true when emitting code inside an SSE route handler
 	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
 	defaultTimeout int  // server-level timeout in seconds; 0 = no timeout
 	gzipEnabled    bool // gzip compression
@@ -4046,6 +4047,12 @@ func _initTemplates() {
 			case template.HTML: return v
 			default: return template.HTML(fmt.Sprint(v))
 			}
+		},
+		"safeJS": func(s interface{}) template.JS {
+			switch v := s.(type) {
+			case string: return template.JS(v)
+			default: return template.JS(fmt.Sprint(v))
+			}
 		},`)
 	if c.csrfEnabled {
 		c.raw(`
@@ -4513,11 +4520,16 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 			c.lnf("go func() { _ = %s }()", inner)
 		} else if c.isRenderCall(s.Expression) {
 			c.emitRenderStmt(s.Expression)
+		} else if c.isPushCall(s.Expression) {
+			c.emitPushStmt(s.Expression)
 		} else {
 			c.lnf("_ = %s", c.expr(s.Expression))
 		}
 	case *ReturnStatement:
-		if isRoute && len(s.Values) == 0 {
+		if c.inSSERoute && isRoute {
+			// SSE routes have no response object — bare return exits the handler
+			c.ln("return")
+		} else if isRoute && len(s.Values) == 0 {
 			// In route context, bare return sends the response and exits
 			c.ln("writeResponse(_w, response)")
 			c.ln("return")
@@ -4580,6 +4592,24 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 			c.lnf("%s = indexValue(%s, int64(%d))", safeIdent(name), tmp, i)
 		}
 	}
+}
+
+func (c *NativeCompiler) isPushCall(e Expression) bool {
+	call, ok := e.(*CallExpression)
+	if !ok { return false }
+	ident, ok := call.Function.(*Identifier)
+	return ok && ident.Value == "push" && len(call.Arguments) >= 2
+}
+
+func (c *NativeCompiler) emitPushStmt(e Expression) {
+	call := e.(*CallExpression)
+	// push(arr, item) → arr = append(arr, item)
+	arrExpr := c.expr(call.Arguments[0])
+	itemExprs := make([]string, len(call.Arguments)-1)
+	for i := 1; i < len(call.Arguments); i++ {
+		itemExprs[i-1] = c.expr(call.Arguments[i])
+	}
+	c.lnf("%s = builtin_append(%s, %s)", arrExpr, arrExpr, strings.Join(itemExprs, ", "))
 }
 
 func (c *NativeCompiler) isRenderCall(e Expression) bool {
@@ -4878,7 +4908,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 	// Known builtins map to builtin_xxx functions
 	builtinNames := map[string]bool{
 		"print": true, "len": true, "str": true, "int": true, "float": true,
-		"bool": true, "type": true, "append": true, "keys": true, "values": true,
+		"bool": true, "type": true, "append": true, "push": true, "keys": true, "values": true,
 		"contains": true, "has": true, "includes": true, "trim": true, "split": true,
 		"join": true, "upper": true, "lower": true, "replace": true,
 		"starts_with": true, "ends_with": true, "slice": true, "reverse": true,
@@ -5172,6 +5202,9 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 		case "type":
 			return fmt.Sprintf("builtin_type(%s)", argStr)
 		case "append":
+			return fmt.Sprintf("builtin_append(%s)", argStr)
+		case "push":
+			// As expression, push behaves like append (returns new array)
 			return fmt.Sprintf("builtin_append(%s)", argStr)
 		case "keys":
 			return fmt.Sprintf("builtin_keys(%s)", argStr)
@@ -5832,6 +5865,8 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 	}
 }
 func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
+	c.inSSERoute = true
+	defer func() { c.inSSERoute = false }()
 	c.lnf(`rt.add("GET", %q, func(_w http.ResponseWriter, _r *http.Request) {`, route.Path)
 	c.indent++
 

@@ -87,6 +87,23 @@ route POST "/room/:id/message" json {
 }
 ```
 
+## Early Exit
+
+Use `return` to exit an SSE handler early (e.g., for auth checks):
+
+```httpdsl
+route SSE "/events/:key" {
+  game = games[request.params.key]
+  if game == null {
+    return
+  }
+  stream.join(request.params.key)
+  stream.send("state", {board: game.board})
+}
+```
+
+`return` in an SSE route cleanly disconnects the client. It does not write an HTTP response (SSE routes have no `response` object).
+
 ## Chat Room Example
 
 ```httpdsl

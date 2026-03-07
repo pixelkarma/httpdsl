@@ -1,10 +1,6 @@
 (function() {
+  var G = window.GAME;
   var boardEl = document.getElementById('board');
-  var G = {
-    key: boardEl.dataset.key,
-    color: boardEl.dataset.color,
-    player: parseInt(boardEl.dataset.player, 10)
-  };
   var board = [];
   var selected = null;
   var validMoves = [];

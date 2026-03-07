@@ -14,13 +14,36 @@ len(["a", "b", "c", "d"])
 
 ## append()
 
-Add element to array:
+Returns a **new** array with the element added. Does not modify the original:
 
 ```httpdsl
-append([1, 2, 3], 4)
-append([], "first")
-append(["a", "b"], "c")
+new_arr = append([1, 2, 3], 4)   // [1, 2, 3, 4]
+arr = append(arr, "item")         // must reassign
 ```
+
+## push()
+
+Append an element to an array **in place** (mutates the array):
+
+```httpdsl
+items = []
+push(items, "first")
+push(items, "second")
+// items is now ["first", "second"]
+```
+
+Use `push` when building arrays in loops:
+
+```httpdsl
+results = []
+each item in source {
+  if item.active {
+    push(results, item.name)
+  }
+}
+```
+
+`push(arr, item)` is equivalent to `arr = append(arr, item)` but more concise.
 
 ## slice()
 

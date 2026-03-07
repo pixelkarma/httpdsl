@@ -300,6 +300,28 @@ Go template functions available:
 {{.Page.text | print}}
 ```
 
+### safe / safeJS
+
+By default, Go's `html/template` escapes values based on context. Use `safe` and `safeJS` to bypass escaping when you trust the content:
+
+```html
+<!-- Render raw HTML (no escaping) -->
+{{.Page.html_content | safe}}
+
+<!-- Embed values in JavaScript -->
+<script>
+  var config = {
+    name: "{{.Page.name | safeJS}}",
+    count: {{.Page.count | safeJS}}
+  };
+</script>
+```
+
+- `safe` returns `template.HTML` — use for trusted HTML content
+- `safeJS` returns `template.JS` — use for embedding values in `<script>` tags
+
+> **Warning:** Only use these with trusted data. Never pipe user input through `safe` or `safeJS`.
+
 ## Complete Example
 
 ```httpdsl
