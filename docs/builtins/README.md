@@ -12,7 +12,7 @@ String manipulation and text processing functions.
 
 ### [Array Functions](./arrays.md)
 Functions for working with arrays (lists).
-- `len`, `append`, `slice`, `reverse`, `unique`, `flat`, `chunk`
+- `len`, `append`, `push`, `slice`, `reverse`, `unique`, `flat`, `chunk`
 - `sort`, `sort_by`, `contains`, `has`, `includes`, `index_of`
 
 ### [Hash Functions](./hashes.md)

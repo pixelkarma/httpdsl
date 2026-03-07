@@ -250,7 +250,7 @@ This is the complete language reference.
   - `truncate`, `capitalize`
 
 - [**Array Functions**](builtins/arrays.md)
-  - `len`, `append`, `slice`, `reverse`, `unique`, `flat`, `chunk`
+  - `len`, `append`, `push`, `slice`, `reverse`, `unique`, `flat`, `chunk`
   - `sort`, `sort_by`
   - `contains` / `has` / `includes`
   - `index_of`
