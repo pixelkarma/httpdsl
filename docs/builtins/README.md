@@ -13,11 +13,11 @@ String manipulation and text processing functions.
 ### [Array Functions](./arrays.md)
 Functions for working with arrays (lists).
 - `len`, `append`, `push`, `slice`, `reverse`, `unique`, `flat`, `chunk`
-- `sort`, `sort_by`, `contains`, `has`, `includes`, `index_of`
+- `sort`, `sort_by`, `contains`, `index_of`
 
 ### [Hash Functions](./hashes.md)
 Functions for manipulating hash maps (objects/dictionaries).
-- `keys`, `values`, `merge`, `delete`, `has`
+- `keys`, `values`, `merge`, `delete`, `contains`
 
 ### [Functional Iteration](./functional.md)
 Higher-order functions for functional programming patterns.
@@ -84,12 +84,6 @@ json.parse('{"age": 30}')         // {age: 30}
 base64_encode("hello")            // "aGVsbG8="
 url_encode("hello world")         // "hello+world"
 ```
-
-## Function Aliases
-
-Some functions have multiple names for convenience:
-- `contains` = `has` = `includes` (for arrays)
-- Array `has` vs Hash `has` (different purposes)
 
 ## Cross-Category Functions
 

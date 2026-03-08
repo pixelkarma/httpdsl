@@ -56,14 +56,14 @@ user = {id: 1, password: "secret", name: "Alice"}
 clean = delete(user, "password")
 ```
 
-## has()
+## contains()
 
 Check if hash has key:
 
 ```httpdsl
-has({name: "Alice", age: 30}, "name")
-has({a: 1, b: 2}, "c")
-has({}, "key")
+contains({name: "Alice", age: 30}, "name")
+contains({a: 1, b: 2}, "c")
+contains({}, "key")
 ```
 
 ## Complete Examples
