@@ -5753,11 +5753,13 @@ func (c *NativeCompiler) emitMain() {
 
 	c.ln(`if _autocertDomain != "" {`)
 	c.indent++
-	c.ln(`fmt.Printf("  autocert domain: %s\n  cache dir: %s\n", _autocertDomain, _autocertDir)`)
+	c.ln(`_autocertDomains := strings.Split(_autocertDomain, ",")`)
+	c.ln(`for i := range _autocertDomains { _autocertDomains[i] = strings.TrimSpace(_autocertDomains[i]) }`)
+	c.ln(`fmt.Printf("  autocert domains: %s\n  cache dir: %s\n", strings.Join(_autocertDomains, ", "), _autocertDir)`)
 	c.ln(`m := &autocert.Manager{`)
 	c.indent++
 	c.ln(`Prompt: autocert.AcceptTOS,`)
-	c.ln(`HostPolicy: autocert.HostWhitelist(_autocertDomain),`)
+	c.ln(`HostPolicy: autocert.HostWhitelist(_autocertDomains...),`)
 	c.ln(`Cache: autocert.DirCache(_autocertDir),`)
 	c.indent--
 	c.ln(`}`)

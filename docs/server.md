@@ -46,7 +46,7 @@ server {
   templates "./templates"
   ssl_cert "/path/to/cert.pem"
   ssl_key "/path/to/key.pem"
-  autocert "yourdomain.com"
+  autocert "yourdomain.com,www.yourdomain.com"
   autocert_dir "/var/lib/httpdsl/certs"
   
   cors {
@@ -99,12 +99,21 @@ That's it. On first request:
 3. An HTTP server on port 80 handles ACME challenges and redirects traffic to HTTPS
 4. Certificates auto-renew ~30 days before expiry
 
+Multiple domains are comma-separated:
+
+```httpdsl
+server {
+  port 443
+  autocert "yourdomain.com,www.yourdomain.com"
+}
+```
+
 Optionally specify a cache directory:
 
 ```httpdsl
 server {
   port 443
-  autocert "yourdomain.com"
+  autocert "yourdomain.com,www.yourdomain.com"
   autocert_dir "/var/lib/httpdsl/certs"
 }
 ```
