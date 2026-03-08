@@ -252,11 +252,11 @@ This is the complete language reference.
 - [**Array Functions**](builtins/arrays.md)
   - `len`, `append`, `push`, `slice`, `reverse`, `unique`, `flat`, `chunk`
   - `sort`, `sort_by`
-  - `contains` / `has` / `includes`
+  - `contains`
   - `index_of`
 
 - [**Hash Functions**](builtins/hashes.md)
-  - `keys`, `values`, `merge`, `delete`, `has`
+  - `keys`, `values`, `merge`, `delete`, `contains`
 
 - [**Functional Iteration**](builtins/functional.md)
   - `map`, `filter`, `reduce`, `find`, `some`, `every`

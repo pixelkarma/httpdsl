@@ -2051,8 +2051,6 @@ func builtin_unique(args ...Value) Value {
 	return []Value{}
 }
 
-func builtin_has(args ...Value) Value { return builtin_contains(args...) }
-func builtin_includes(args ...Value) Value { return builtin_contains(args...) }
 
 func builtin_merge(args ...Value) Value {
 	r := make(map[string]Value)
@@ -4909,7 +4907,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 	builtinNames := map[string]bool{
 		"print": true, "len": true, "str": true, "int": true, "float": true,
 		"bool": true, "type": true, "append": true, "push": true, "keys": true, "values": true,
-		"contains": true, "has": true, "includes": true, "trim": true, "split": true,
+		"contains": true, "trim": true, "split": true,
 		"join": true, "upper": true, "lower": true, "replace": true,
 		"starts_with": true, "ends_with": true, "slice": true, "reverse": true,
 		"unique": true, "merge": true, "delete": true, "index_of": true,
@@ -5212,10 +5210,6 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_values(%s)", argStr)
 		case "contains":
 			return fmt.Sprintf("builtin_contains(%s)", argStr)
-		case "has":
-			return fmt.Sprintf("builtin_has(%s)", argStr)
-		case "includes":
-			return fmt.Sprintf("builtin_includes(%s)", argStr)
 		case "trim":
 			return fmt.Sprintf("builtin_trim(%s)", argStr)
 		case "split":

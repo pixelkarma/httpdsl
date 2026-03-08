@@ -120,14 +120,14 @@ sort_by(users, "name")
 sort_by(users, "age")
 ```
 
-## contains() / has() / includes()
+## contains()
 
 Check if array contains value:
 
 ```httpdsl
 contains([1, 2, 3], 2)
-has(["a", "b", "c"], "b")
-includes([10, 20, 30], 40)
+contains(["a", "b", "c"], "b")
+contains([10, 20, 30], 40)
 ```
 
 ## index_of()
