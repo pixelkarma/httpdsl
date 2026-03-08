@@ -453,39 +453,46 @@ route PUT "/config" json {
 
 ### Log Viewer
 
+Using a file handle for repeated access to the same log file:
+
 ```httpdsl
 server {
   port 3000
 }
 
-log_file = "./app.log"
+log = file.open("./app.log")
 
 route GET "/logs" {
-  if !file.exists(log_file) {
+  if !log.exists() {
     response.body = {logs: []}
     return
   }
-  
-  content = file.read(log_file)
-  lines = split(content, "\n")
-  
+
+  // Query params for pagination
+  n = int(request.query.last ?? "50")
+  lines = log.lines(0 - n)
+
   response.body = {logs: lines, count: len(lines)}
+}
+
+route GET "/logs/tail" {
+  response.body = {last10: log.lines(-10)}
 }
 
 route POST "/logs" json {
   message = request.data.message
   entry = `${date_format(now(), "2006-01-02T15:04:05Z")}: ${message}\n`
-  
-  file.append(log_file, entry)
-  
+
+  log.append(entry)
+
   response.body = {logged: true}
 }
 
 route DELETE "/logs" {
-  if file.exists(log_file) {
-    file.delete(log_file)
+  if log.exists() {
+    log.delete()
   }
-  
+
   response.body = {cleared: true}
 }
 ```
