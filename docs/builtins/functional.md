@@ -116,11 +116,11 @@ sum([1, 2, 3, 4, 5])
 sum([10, 20, 30])
 ```
 
-With transform function:
+With `pluck` + `sum`:
 
 ```httpdsl
 items = [{price: 10}, {price: 20}, {price: 30}]
-sum(items, fn(item) { return item.price })
+sum(pluck(items, "price"))
 ```
 
 ## min()
@@ -132,11 +132,17 @@ min([3, 1, 4, 1, 5])
 min([10, 5, 8])
 ```
 
-With transform:
+With `pluck` + `min`:
 
 ```httpdsl
 items = [{value: 10}, {value: 5}, {value: 8}]
-min(items, fn(item) { return item.value })
+min(pluck(items, "value"))
+```
+
+Two-value form (returns the smaller):
+
+```httpdsl
+min(10, 20)  // 10
 ```
 
 ## max()
@@ -148,11 +154,17 @@ max([3, 1, 4, 1, 5])
 max([10, 5, 8])
 ```
 
-With transform:
+With `pluck` + `max`:
 
 ```httpdsl
 items = [{value: 10}, {value: 5}, {value: 8}]
-max(items, fn(item) { return item.value })
+max(pluck(items, "value"))
+```
+
+Two-value form (returns the larger):
+
+```httpdsl
+max(10, 20)  // 20
 ```
 
 ## Complete Examples
@@ -189,7 +201,7 @@ route GET "/stats" {
   
   paid_orders = filter(orders, fn(o) { return o.status == "paid" })
   
-  total = sum(paid_orders, fn(o) { return o.amount })
+  total = sum(pluck(paid_orders, "amount"))
   
   avg = total / len(paid_orders)
   

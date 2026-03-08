@@ -124,9 +124,8 @@ route POST "/login" json {
 group "/admin" {
   before {
     if !request.session.user_id {
-      response.status = 401
-      response.body = {error: "Authentication required"}
       redirect("/login")
+      return
     }
   }
   
@@ -238,6 +237,7 @@ group "/admin" {
     if user_role != "admin" {
       response.status = 403
       response.body = {error: "Insufficient permissions"}
+      return
     }
   }
   

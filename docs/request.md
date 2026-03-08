@@ -322,6 +322,7 @@ before {
   if key != api_key {
     response.status = 401
     response.body = {error: "Invalid API key"}
+    return
   }
 }
 

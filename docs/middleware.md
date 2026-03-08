@@ -183,9 +183,8 @@ route POST "/login" json {
 group "/protected" {
   before {
     if !request.session.user_id {
-      response.status = 401
-      response.body = {error: "Authentication required"}
       redirect("/login")
+      return
     }
   }
   
@@ -279,17 +278,11 @@ group "/api" {
       return
     }
     
-    payload = jwt.verify(token, jwt_secret)
-    
-    if payload == null {
+    try {
+      payload = jwt.verify(token, jwt_secret)
+    } catch(err) {
       response.status = 401
       response.body = {error: "Invalid or expired token"}
-      return
-    }
-    
-    if payload.exp < now() {
-      response.status = 401
-      response.body = {error: "Token expired"}
       return
     }
   }
@@ -479,10 +472,7 @@ before {
     
     if token != "" {
       payload = jwt.verify(token, env("JWT_SECRET"))
-      
-      if payload != null {
-        log_info(`Authenticated user: ${payload.user_id}`)
-      }
+      log_info(`Authenticated user: ${payload.user_id}`)
     }
   } catch(err) {
     log_warn(`Authentication check failed: ${err}`)

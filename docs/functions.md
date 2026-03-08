@@ -245,7 +245,7 @@ fn validate_password(password) {
     return false, "Password must be at least 8 characters"
   }
   
-  if !contains(password, "0123456789") {
+  if !regex_match(password, "[0-9]") {
     return false, "Password must contain at least one number"
   }
   
@@ -397,6 +397,7 @@ before {
   if request.bearer == "" {
     response.status = 401
     response.body = {error: "Missing authentication token"}
+    return
   }
 }
 

@@ -165,6 +165,7 @@ before {
   if !is_public && !request.session.user_id {
     response.status = 401
     response.body = {error: "Authentication required"}
+    return
   }
 }
 

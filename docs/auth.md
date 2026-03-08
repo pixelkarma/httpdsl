@@ -272,7 +272,7 @@ route GET "/auth/me" {
 
 group "/api" {
   before {
-    user = get_current_user()
+    user = get_current_user(request.bearer)
     
     if user == null {
       response.status = 401

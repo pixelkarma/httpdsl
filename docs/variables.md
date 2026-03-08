@@ -161,7 +161,7 @@ These identifiers have special meaning and should not be reassigned:
 Builtin function names compile to `builtin_X` internally. Avoid using these as variable names:
 
 - String functions: `len`, `trim`, `upper`, `lower`, `split`, `join`, `replace`, `starts_with`, `ends_with`, `contains`, `index_of`, `repeat`, `slice`, `pad_left`, `pad_right`, `truncate`, `capitalize`
-- Array functions: `append`, `reverse`, `unique`, `flat`, `chunk`, `sort`, `sort_by`, `has`, `includes`
+- Array functions: `append`, `push`, `reverse`, `unique`, `flat`, `chunk`, `sort`, `sort_by`
 - Hash functions: `keys`, `values`, `merge`, `delete`
 - Functional: `map`, `filter`, `reduce`, `find`, `some`, `every`, `count`, `pluck`, `group_by`, `sum`, `min`, `max`
 - Types: `type`, `str`, `int`, `float`, `bool`
