@@ -278,7 +278,7 @@ server {
 shutdown {
   log_info("Cleaning up temporary files")
   
-  if file.exists("./temp") {
+  if file_exists("./temp") {
     temp_files = file.list("./temp")
     
     each filename in temp_files {
@@ -309,7 +309,7 @@ file.write(lock_file, str(now()))
 shutdown {
   log_info("Removing lock file")
   
-  if file.exists(lock_file) {
+  if file_exists(lock_file) {
     file.delete(lock_file)
     log_info("Lock file removed")
   }

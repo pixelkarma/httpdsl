@@ -4961,6 +4961,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
 		"redirect": true,
 		"server_stats": true,
+		"file_exists": true,
 		"set_session_store": true,
 		"csrf_token": true,
 		"csrf_field": true,
@@ -5201,6 +5202,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return "Value(time.Now().Unix())"
 		case "server_stats":
 			return "builtin_server_stats()"
+		case "file_exists":
+			return fmt.Sprintf("builtin_file_exists(%s)", argStr)
 		case "set_session_store":
 			return fmt.Sprintf("set_session_store(%s)", argStr)
 		case "csrf_token":
