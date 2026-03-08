@@ -327,8 +327,8 @@ group "/test/strings" {
         response.body = results([
             assert_eq(index_of("hello world", "world"), 6, "index_of found"),
             assert_eq(index_of("hello", "xyz"), -1, "index_of not found"),
-            assert_true(includes("hello world", "world"), "includes true"),
-            assert_false(includes("hello", "xyz"), "includes false")
+            assert_true(contains("hello world", "world"), "contains true"),
+            assert_false(contains("hello", "xyz"), "contains false")
         ])
     }
 
@@ -408,8 +408,8 @@ group "/test/collections" {
         response.body = results([
             assert_eq(len(keys(obj)), 3, "keys count"),
             assert_eq(len(values(obj)), 3, "values count"),
-            assert_true(has(obj, "a"), "has existing key"),
-            assert_false(has(obj, "z"), "has missing key"),
+            assert_true(contains(obj, "a"), "has existing key"),
+            assert_false(contains(obj, "z"), "has missing key"),
             assert_eq(merge({ a: 1 }, { b: 2 }), { a: 1, b: 2 }, "merge"),
             assert_eq(len(keys(delete(obj, "a"))), 2, "delete key")
         ])
@@ -1179,8 +1179,8 @@ group "/test/builtins" {
         k = keys(obj)
         v = values(obj)
         response.body = results([
-            assert_true(has(obj, "name"), "has existing key"),
-            assert_false(has(obj, "email"), "has missing key"),
+            assert_true(contains(obj, "name"), "has existing key"),
+            assert_false(contains(obj, "email"), "has missing key"),
             assert_eq(len(k), 2, "keys count"),
             assert_eq(len(v), 2, "values count")
         ])
@@ -1216,7 +1216,7 @@ group "/test/builtins" {
         obj = { a: 1, b: 2, c: 3 }
         delete(obj, "b")
         response.body = results([
-            assert_false(has(obj, "b"), "delete removes key"),
+            assert_false(contains(obj, "b"), "delete removes key"),
             assert_eq(len(keys(obj)), 2, "delete reduces size")
         ])
     }

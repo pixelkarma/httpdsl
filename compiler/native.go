@@ -1765,8 +1765,13 @@ func builtin_print(args ...Value) Value {
 
 func builtin_env(args ...Value) Value {
 	if len(args) == 0 { return null }
-	v, ok := _envMap[valueToString(args[0])]
-	if !ok || v == "" { if len(args) >= 2 { return args[1] }; return null }
+	key := valueToString(args[0])
+	// Check .env file map first, then OS environment
+	v, ok := _envMap[key]
+	if !ok || v == "" {
+		v = os.Getenv(key)
+	}
+	if v == "" { if len(args) >= 2 { return args[1] }; return null }
 	return Value(v)
 }
 

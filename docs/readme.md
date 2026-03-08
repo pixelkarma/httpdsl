@@ -193,7 +193,7 @@ This is the complete language reference.
 
 - [**Configuration**](env.md) — Runtime configuration
   - `.env` file loading (dotenv format, auto-loaded from working directory)
-  - `env("NAME")` / `env("NAME", "default")` — read from `.env` file
+  - `env("NAME")` / `env("NAME", "default")` — read from `.env` file, falls back to OS environment
   - `args` map — read `--key value` CLI flags
   - `help` block — define `-h` output
   - Built-in flags: `-h`, `-v`, `-e <path>`

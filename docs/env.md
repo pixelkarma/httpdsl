@@ -72,7 +72,7 @@ log_level = env("LOG_LEVEL", "info")
 max_upload = env("MAX_UPLOAD", "10")
 ```
 
-> **Note:** `env()` reads from the `.env` file map only. It does **not** access OS environment variables.
+> **Note:** `env()` checks the `.env` file map first, then falls back to OS environment variables. Values from `.env` take precedence over OS env vars.
 
 ## args Map
 
@@ -185,10 +185,10 @@ Configuration sources from weakest to strongest:
 
 1. **Compiled defaults** — `server { port 8080 }` etc.
 2. **`.env` file** — loaded at startup, populates the `env()` map
-3. **OS environment variables** — `PORT`, `SSL_CERT`, `SSL_KEY`
+3. **OS environment variables** — `env()` falls back to OS env vars; `PORT`, `SSL_CERT`, `SSL_KEY` etc. override server block defaults
 4. **CLI flags** — `-p`, `-s`, and `--key value` args
 
-The `env()` function and `args` map are separate namespaces. `env()` reads from `.env`, `args` reads from `--key value` CLI flags. Your code decides how to combine them:
+The `env()` function checks `.env` first, then OS environment. The `args` map reads from `--key value` CLI flags. Your code decides how to combine them:
 
 ```httpdsl
 # CLI args override .env values

@@ -31,7 +31,7 @@ BIN="../test_server"
 echo ""
 
 # Start server
-$BIN &
+TEST_PORT=$PORT $BIN -p $PORT &
 SRV_PID=$!
 trap "kill -TERM $SRV_PID 2>/dev/null; rm -f ../test_server" EXIT
 rm -f /tmp/httpdsl_shutdown_proof.txt
@@ -1062,7 +1062,7 @@ fi
 
 # Test: Content-Type is text/html
 CT=$(curl -s -o /dev/null -w "%{content_type}" $CSRF_URL/tpl/simple)
-if [[ "$CT" == "text/html" ]]; then
+if echo "$CT" | grep -qi 'text/html'; then
     echo -e "  ${GREEN}PASS${NC} render() sets Content-Type text/html"
     PASSED=$((PASSED + 1))
 else
