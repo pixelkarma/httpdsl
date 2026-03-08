@@ -1,5 +1,24 @@
 # Functional Builtins
 
+- [map()](#map)
+- [filter()](#filter)
+- [reduce()](#reduce)
+- [find()](#find)
+- [some()](#some)
+- [every()](#every)
+- [count()](#count)
+- [pluck()](#pluck)
+- [group_by()](#group_by)
+- [sum()](#sum)
+- [min()](#min)
+- [max()](#max)
+- [Complete Examples](#complete-examples)
+  - [Data Transformation](#data-transformation)
+  - [Aggregation](#aggregation)
+  - [Validation](#validation)
+  - [Search](#search)
+  - [Grouping](#grouping)
+
 Higher-order functions for array operations.
 
 ## map()

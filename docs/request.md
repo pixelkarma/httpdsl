@@ -1,5 +1,19 @@
 # Request Object
 
+- [Properties](#properties)
+  - [method](#method)
+  - [path](#path)
+  - [params](#params)
+  - [query](#query)
+  - [data](#data)
+  - [headers](#headers)
+  - [cookies](#cookies)
+  - [ip](#ip)
+  - [bearer](#bearer)
+  - [basic](#basic)
+- [Complete Example](#complete-example)
+- [Validation Example](#validation-example)
+
 The `request` object provides access to incoming HTTP request data.
 
 ## Properties

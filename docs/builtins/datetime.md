@@ -1,5 +1,23 @@
 # DateTime Builtins
 
+- [now()](#now)
+- [now_ms()](#now_ms)
+- [date()](#date)
+- [date_format()](#date_format)
+- [date_parse()](#date_parse)
+- [strtotime()](#strtotime)
+- [Complete Examples](#complete-examples)
+  - [Timestamp API](#timestamp-api)
+  - [Date Formatting](#date-formatting)
+  - [Date Parsing](#date-parsing)
+  - [Expiration Check](#expiration-check)
+  - [Relative Time](#relative-time)
+  - [Token Expiration](#token-expiration)
+  - [Millisecond Timestamps](#millisecond-timestamps)
+  - [Date Components](#date-components)
+  - [Date Range Query](#date-range-query)
+  - [Historical Date Lookup](#historical-date-lookup)
+
 Functions for date and time operations.
 
 ## now()

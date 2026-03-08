@@ -1,5 +1,19 @@
 # Sessions
 
+- [Configuration](#configuration)
+- [Session Options](#session-options)
+- [Reading Session Data](#reading-session-data)
+- [Writing Session Data](#writing-session-data)
+- [Destroying Sessions](#destroying-sessions)
+- [Authentication Example](#authentication-example)
+- [Protected Routes](#protected-routes)
+- [Session Expiration](#session-expiration)
+- [Session with Database Persistence](#session-with-database-persistence)
+- [Shopping Cart Example](#shopping-cart-example)
+- [User Preferences](#user-preferences)
+- [Flash Messages](#flash-messages)
+- [Multiple Sessions](#multiple-sessions)
+
 HTTPDSL provides built-in session management with cookie-based storage.
 
 ## Configuration

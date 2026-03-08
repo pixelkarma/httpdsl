@@ -1,5 +1,19 @@
 # Server-Sent Events (SSE)
 
+- [Basic SSE Route](#basic-sse-route)
+- [stream.send()](#streamsend)
+- [stream.join()](#streamjoin)
+- [broadcast()](#broadcast)
+- [Early Exit](#early-exit)
+- [Chat Room Example](#chat-room-example)
+- [Room-Based Chat](#room-based-chat)
+- [Live Dashboard](#live-dashboard)
+- [Notifications System](#notifications-system)
+- [Progress Updates](#progress-updates)
+- [Log Streaming](#log-streaming)
+- [Stock Ticker](#stock-ticker)
+- [Multiplayer Game State](#multiplayer-game-state)
+
 SSE enables real-time server-to-client streaming over HTTP.
 
 ## Basic SSE Route

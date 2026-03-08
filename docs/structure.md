@@ -1,5 +1,10 @@
 # File Structure
 
+- [Quick Example](#quick-example)
+- [All Top-Level Blocks](#all-top-level-blocks)
+- [Execution Order](#execution-order)
+- [Globals vs Locals](#globals-vs-locals)
+
 An `.httpdsl` file is a series of **top-level blocks**. There are no loose statements — everything lives inside a block.
 
 ## Quick Example

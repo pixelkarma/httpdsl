@@ -1,5 +1,17 @@
 # Authentication
 
+- [Password Hashing](#password-hashing)
+  - [hash_password()](#hash_password)
+  - [verify_password()](#verify_password)
+- [JWT Tokens](#jwt-tokens)
+  - [jwt.sign()](#jwtsign)
+  - [jwt.verify()](#jwtverify)
+- [Complete Auth System](#complete-auth-system)
+- [Session-Based Auth](#session-based-auth)
+- [Basic Authentication](#basic-authentication)
+- [API Key Authentication](#api-key-authentication)
+- [OAuth2-Style Token](#oauth2-style-token)
+
 HTTPDSL provides built-in functions for password hashing and JWT token generation.
 
 ## Password Hashing

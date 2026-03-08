@@ -1,5 +1,21 @@
 # Middleware
 
+- [Global Middleware](#global-middleware)
+- [Before Middleware](#before-middleware)
+- [After Middleware](#after-middleware)
+- [Group Middleware](#group-middleware)
+- [Execution Order](#execution-order)
+- [Authentication Middleware](#authentication-middleware)
+- [API Key Validation](#api-key-validation)
+- [JWT Authentication](#jwt-authentication)
+- [Request Logging](#request-logging)
+- [Response Headers](#response-headers)
+- [CORS Headers](#cors-headers)
+- [Rate Limiting](#rate-limiting)
+- [Content Negotiation](#content-negotiation)
+- [Compression Headers](#compression-headers)
+- [Error Recovery](#error-recovery)
+
 Middleware functions run before or after route handlers, enabling cross-cutting concerns like logging, authentication, and response modification.
 
 ## Global Middleware

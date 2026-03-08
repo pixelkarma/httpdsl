@@ -1,5 +1,20 @@
 # Type Builtins
 
+- [type()](#type)
+- [str()](#str)
+- [int()](#int)
+- [float()](#float)
+- [bool()](#bool)
+- [Complete Examples](#complete-examples)
+  - [Type Validation](#type-validation)
+  - [Query Parameter Conversion](#query-parameter-conversion)
+  - [Type-Based Processing](#type-based-processing)
+  - [Safe Type Conversion](#safe-type-conversion)
+  - [Type Coercion](#type-coercion)
+  - [Boolean Conversion](#boolean-conversion)
+  - [Float Precision](#float-precision)
+  - [Type Guards](#type-guards)
+
 Functions for type checking and conversion.
 
 ## type()

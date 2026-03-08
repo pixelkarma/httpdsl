@@ -1,5 +1,17 @@
 # Groups
 
+- [Basic Groups](#basic-groups)
+- [Multiple Groups](#multiple-groups)
+- [Group Middleware](#group-middleware)
+- [Authentication Group](#authentication-group)
+- [API Versioning](#api-versioning)
+- [API Key Authentication](#api-key-authentication)
+- [Role-Based Access Control](#role-based-access-control)
+- [Request Logging](#request-logging)
+- [CORS for API Group](#cors-for-api-group)
+- [Multiple Groups](#multiple-groups)
+- [Middleware Execution Order](#middleware-execution-order)
+
 Groups organize routes with a common path prefix and shared middleware.
 
 ## Basic Groups

@@ -1,5 +1,32 @@
 # String Builtins
 
+- [len()](#len)
+- [trim()](#trim)
+- [upper()](#upper)
+- [lower()](#lower)
+- [split()](#split)
+- [join()](#join)
+- [replace()](#replace)
+- [starts_with()](#starts_with)
+- [ends_with()](#ends_with)
+- [contains()](#contains)
+- [index_of()](#index_of)
+- [repeat()](#repeat)
+- [slice()](#slice)
+- [pad_left()](#pad_left)
+- [pad_right()](#pad_right)
+- [truncate()](#truncate)
+- [capitalize()](#capitalize)
+- [Complete Examples](#complete-examples)
+  - [URL Parser](#url-parser)
+  - [Text Formatting](#text-formatting)
+  - [String Validation](#string-validation)
+  - [Search Filter](#search-filter)
+  - [Slug Generator](#slug-generator)
+  - [CSV Parser](#csv-parser)
+- [regex_match()](#regex_match)
+- [regex_replace()](#regex_replace)
+
 Functions for string manipulation.
 
 ## len()

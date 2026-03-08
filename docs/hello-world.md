@@ -1,5 +1,11 @@
 # Hello World
 
+- [JSON API Example](#json-api-example)
+- [Path Parameters](#path-parameters)
+- [Query Parameters](#query-parameters)
+- [POST with JSON Body](#post-with-json-body)
+- [Next Steps](#next-steps)
+
 HTTPDSL is a domain-specific language for building HTTP servers. Here's the simplest possible server:
 
 ```httpdsl

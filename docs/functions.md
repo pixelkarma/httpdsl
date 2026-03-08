@@ -1,5 +1,19 @@
 # Functions
 
+- [Named Functions](#named-functions)
+- [Anonymous Functions](#anonymous-functions)
+- [Return Statement](#return-statement)
+- [Multiple Return Values](#multiple-return-values)
+- [Closures](#closures)
+- [Higher-Order Functions](#higher-order-functions)
+- [Recursion](#recursion)
+- [Practical Examples](#practical-examples)
+  - [Password Validation](#password-validation)
+  - [Database Query Helper](#database-query-helper)
+  - [Pagination Helper](#pagination-helper)
+  - [Data Helpers](#data-helpers)
+  - [Auth with Before Blocks](#auth-with-before-blocks)
+
 HTTPDSL supports named and anonymous functions with closures and multiple return values.
 
 ## Named Functions

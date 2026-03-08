@@ -1,5 +1,22 @@
 # Encoding Builtins
 
+- [base64_encode()](#base64_encode)
+- [base64_decode()](#base64_decode)
+- [url_encode()](#url_encode)
+- [url_decode()](#url_decode)
+- [json.parse()](#jsonparse)
+- [json.stringify()](#jsonstringify)
+- [Complete Examples](#complete-examples)
+  - [Basic Auth Header](#basic-auth-header)
+  - [Create Basic Auth Header](#create-basic-auth-header)
+  - [URL Builder](#url-builder)
+  - [Parse Query String](#parse-query-string)
+  - [JSON Storage](#json-storage)
+  - [Data Export](#data-export)
+  - [Webhook Signature](#webhook-signature)
+  - [Data Encoding API](#data-encoding-api)
+  - [Safe JSON Parsing](#safe-json-parsing)
+
 Functions for encoding and decoding data.
 
 ## base64_encode()

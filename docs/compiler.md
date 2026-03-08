@@ -1,5 +1,21 @@
 # The Compiler
 
+- [Prerequisites](#prerequisites)
+- [Building from Source](#building-from-source)
+- [Usage](#usage)
+  - [`httpdsl build`](#httpdsl-build)
+  - [`httpdsl run`](#httpdsl-run)
+- [Compilation Model](#compilation-model)
+- [Output Naming](#output-naming)
+- [Project Mode](#project-mode)
+- [Dependency Auto-Detection](#dependency-auto-detection)
+- [Static Binaries](#static-binaries)
+- [Deployment](#deployment)
+  - [Direct](#direct)
+  - [Systemd](#systemd)
+  - [Docker](#docker)
+- [Next Steps](#next-steps)
+
 HTTPDSL compiles `.httpdsl` source files into standalone native Go binaries. There is no interpreter, no runtime, no framework dependency. The output is a single static executable.
 
 ## Prerequisites

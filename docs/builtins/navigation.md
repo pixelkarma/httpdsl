@@ -1,5 +1,28 @@
 # Navigation Builtin
 
+- [redirect()](#redirect)
+- [With Custom Status](#with-custom-status)
+- [Complete Examples](#complete-examples)
+  - [Basic Redirect](#basic-redirect)
+  - [Permanent Redirect](#permanent-redirect)
+  - [Conditional Redirect](#conditional-redirect)
+  - [After Login](#after-login)
+  - [After Logout](#after-logout)
+  - [External Redirect](#external-redirect)
+  - [URL Shortener](#url-shortener)
+  - [Language Selection](#language-selection)
+  - [Mobile Redirect](#mobile-redirect)
+  - [Authentication Guard](#authentication-guard)
+  - [Role-Based Redirect](#role-based-redirect)
+  - [Form Submission Redirect](#form-submission-redirect)
+  - [Canonical URL](#canonical-url)
+  - [Maintenance Mode](#maintenance-mode)
+  - [OAuth Callback](#oauth-callback)
+  - [Trailing Slash](#trailing-slash)
+  - [Post-Registration](#post-registration)
+  - [Query Parameter Redirect](#query-parameter-redirect)
+- [Notes](#notes)
+
 Function for HTTP redirects.
 
 ## redirect()

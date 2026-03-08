@@ -1,5 +1,30 @@
 # Array Builtins
 
+- [len()](#len)
+- [append()](#append)
+- [push()](#push)
+- [slice()](#slice)
+- [reverse()](#reverse)
+- [unique()](#unique)
+- [flat()](#flat)
+- [chunk()](#chunk)
+- [sort()](#sort)
+- [sort_by()](#sort_by)
+- [contains()](#contains)
+- [index_of()](#index_of)
+- [Complete Examples](#complete-examples)
+  - [Pagination](#pagination)
+  - [Deduplication](#deduplication)
+  - [Sorting](#sorting)
+  - [Chunking for Batch Processing](#chunking-for-batch-processing)
+  - [Array Filtering](#array-filtering)
+  - [Nested Array Flattening](#nested-array-flattening)
+  - [Array Reversal](#array-reversal)
+  - [Array Search](#array-search)
+  - [Building Arrays](#building-arrays)
+  - [Array Intersection](#array-intersection)
+  - [Array Difference](#array-difference)
+
 Functions for array manipulation.
 
 ## len()

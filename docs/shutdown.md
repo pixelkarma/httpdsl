@@ -1,5 +1,21 @@
 # Shutdown Handlers
 
+- [Basic Shutdown Handler](#basic-shutdown-handler)
+- [Database Cleanup](#database-cleanup)
+- [Save State](#save-state)
+- [Graceful Shutdown](#graceful-shutdown)
+- [Notify External Services](#notify-external-services)
+- [Close Connections](#close-connections)
+- [Broadcast Shutdown](#broadcast-shutdown)
+- [Complete Cleanup Example](#complete-cleanup-example)
+- [Rollback Transactions](#rollback-transactions)
+- [Cleanup Temporary Files](#cleanup-temporary-files)
+- [Lock File Removal](#lock-file-removal)
+- [Auto-Flush Behavior](#auto-flush-behavior)
+- [Shutdown Timeout](#shutdown-timeout)
+- [Testing Shutdown](#testing-shutdown)
+- [Production Example](#production-example)
+
 The `shutdown` block runs when the server receives SIGINT or SIGTERM signals.
 
 ## Basic Shutdown Handler

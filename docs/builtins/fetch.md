@@ -1,5 +1,24 @@
 # Fetch Builtin
 
+- [Basic Usage](#basic-usage)
+- [With Options](#with-options)
+  - [Options](#options)
+- [Complete Examples](#complete-examples)
+  - [GET Request](#get-request)
+  - [POST Request](#post-request)
+  - [With Authentication](#with-authentication)
+  - [Error Handling](#error-handling)
+  - [Query Parameters](#query-parameters)
+  - [Multiple Requests](#multiple-requests)
+  - [Parallel Requests](#parallel-requests)
+  - [Webhook Sending](#webhook-sending)
+  - [Proxy with Headers](#proxy-with-headers)
+  - [OAuth Token Exchange](#oauth-token-exchange)
+  - [API Rate Limit Check](#api-rate-limit-check)
+  - [Caching External API](#caching-external-api)
+  - [GraphQL Query](#graphql-query)
+  - [File Upload to External API](#file-upload-to-external-api)
+
 HTTP client for making external requests.
 
 ## Basic Usage

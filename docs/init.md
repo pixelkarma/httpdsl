@@ -1,5 +1,17 @@
 # Init Block
 
+- [Basic Usage](#basic-usage)
+- [Global Variables](#global-variables)
+- [Execution Order](#execution-order)
+- [Common Patterns](#common-patterns)
+  - [Database Setup](#database-setup)
+  - [Configuration from CLI and .env](#configuration-from-cli-and-env)
+  - [Store Initialization](#store-initialization)
+  - [Session Store with Database](#session-store-with-database)
+- [Multiple Init Blocks](#multiple-init-blocks)
+- [Variables Not in Init](#variables-not-in-init)
+- [Complete Example](#complete-example)
+
 The `init` block runs once at startup, after the `.env` file is loaded but before the server starts accepting requests. Variables assigned in `init` become **globals** — accessible from every route, middleware, scheduled task, and shutdown handler.
 
 All startup logic and variable initialization should go inside an `init` block.

@@ -1,5 +1,17 @@
 # CSRF Protection
 
+- [Enable CSRF](#enable-csrf)
+- [Automatic Validation](#automatic-validation)
+- [Token Sources](#token-sources)
+- [Form Usage](#form-usage)
+- [Manual Token](#manual-token)
+- [AJAX Requests](#ajax-requests)
+- [Disable for Specific Routes](#disable-for-specific-routes)
+- [Safe Origins](#safe-origins)
+- [Complete Example](#complete-example)
+- [SPA with CSRF](#spa-with-csrf)
+- [Testing CSRF](#testing-csrf)
+
 Cross-Site Request Forgery (CSRF) protection prevents unauthorized actions from malicious sites.
 
 ## Enable CSRF

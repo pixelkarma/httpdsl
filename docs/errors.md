@@ -1,5 +1,18 @@
 # Error Handling
 
+- [Try-Catch](#try-catch)
+- [Throw Statement](#throw-statement)
+- [Route Error Handling](#route-error-handling)
+- [Database Error Handling](#database-error-handling)
+- [File Operation Errors](#file-operation-errors)
+- [Validation Errors](#validation-errors)
+- [Nested Try-Catch](#nested-try-catch)
+- [External API Errors](#external-api-errors)
+- [JSON Parsing Errors](#json-parsing-errors)
+- [Authentication Errors](#authentication-errors)
+- [Custom Error Types](#custom-error-types)
+- [Error Recovery](#error-recovery)
+
 HTTPDSL provides try-catch blocks for error handling and throw statements for raising errors.
 
 ## Try-Catch

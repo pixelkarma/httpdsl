@@ -1,5 +1,27 @@
 # Operators
 
+- [Arithmetic Operators](#arithmetic-operators)
+  - [String Concatenation](#string-concatenation)
+- [Comparison Operators](#comparison-operators)
+  - [String Comparison](#string-comparison)
+  - [Null Comparison](#null-comparison)
+- [Logical Operators](#logical-operators)
+  - [AND (`&&`)](#and)
+  - [OR (`||`)](#or)
+  - [NOT (`!`)](#not)
+- [Ternary Operator](#ternary-operator)
+- [Nullish Coalescing (`??`)](#nullish-coalescing)
+  - [Difference from OR](#difference-from-or)
+- [Operator Precedence](#operator-precedence)
+  - [Grouping with Parentheses](#grouping-with-parentheses)
+- [Practical Examples](#practical-examples)
+  - [Authentication Check](#authentication-check)
+  - [Pagination](#pagination)
+  - [Role-Based Access](#role-based-access)
+  - [Input Validation](#input-validation)
+  - [Default Values](#default-values)
+  - [Complex Conditions](#complex-conditions)
+
 HTTPDSL supports standard operators for arithmetic, comparison, logic, and more.
 
 ## Arithmetic Operators

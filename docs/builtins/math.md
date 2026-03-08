@@ -1,5 +1,24 @@
 # Math Builtins
 
+- [abs()](#abs)
+- [ceil()](#ceil)
+- [floor()](#floor)
+- [round()](#round)
+- [clamp()](#clamp)
+- [rand()](#rand)
+- [range()](#range)
+- [Complete Examples](#complete-examples)
+  - [Random Number Generator](#random-number-generator)
+  - [Pagination with Range](#pagination-with-range)
+  - [Clamping Input](#clamping-input)
+  - [Rounding Prices](#rounding-prices)
+  - [Progress Percentage](#progress-percentage)
+  - [Random String Generator](#random-string-generator)
+  - [Pagination Offset](#pagination-offset)
+  - [Statistics](#statistics)
+  - [Dice Roller](#dice-roller)
+  - [Distance Calculation](#distance-calculation)
+
 Mathematical functions and utilities.
 
 ## abs()

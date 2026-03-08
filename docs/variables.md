@@ -1,5 +1,21 @@
 # Variables
 
+- [Declaration and Assignment](#declaration-and-assignment)
+- [Reassignment](#reassignment)
+- [Compound Assignment](#compound-assignment)
+- [Scope](#scope)
+- [Array Destructuring](#array-destructuring)
+- [Object Destructuring](#object-destructuring)
+- [Reserved Words](#reserved-words)
+- [Built-in Variables](#built-in-variables)
+- [Builtin Name Collision](#builtin-name-collision)
+- [Closures](#closures)
+- [Global Variables](#global-variables)
+- [Practical Examples](#practical-examples)
+  - [Request Data Extraction](#request-data-extraction)
+  - [Path and Query Parameters](#path-and-query-parameters)
+  - [Multiple Return Values](#multiple-return-values)
+
 HTTPDSL uses dynamic typing with function scope and closure capture.
 
 ## Declaration and Assignment

@@ -1,5 +1,19 @@
 # Control Flow
 
+- [If Statement](#if-statement)
+- [Switch Statement](#switch-statement)
+- [While Loop](#while-loop)
+- [Each Loop](#each-loop)
+- [Break Statement](#break-statement)
+- [Continue Statement](#continue-statement)
+- [Practical Examples](#practical-examples)
+  - [Request Validation](#request-validation)
+  - [Search Filter](#search-filter)
+  - [Role-Based Permission Check](#role-based-permission-check)
+  - [Processing Items with Limits](#processing-items-with-limits)
+  - [Finding First Match](#finding-first-match)
+  - [State Machine](#state-machine)
+
 HTTPDSL provides standard control flow constructs for conditionals and loops.
 
 ## If Statement

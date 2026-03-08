@@ -1,5 +1,30 @@
 # Server Configuration
 
+- [Basic Configuration](#basic-configuration)
+- [All Options](#all-options)
+- [Port](#port)
+- [TLS / HTTPS](#tls-https)
+  - [Automatic Certificates (Let's Encrypt)](#automatic-certificates-lets-encrypt)
+  - [Manual Certificates](#manual-certificates)
+  - [Self-Signed Certificates (Development)](#self-signed-certificates-development)
+- [Gzip Compression](#gzip-compression)
+- [Rate Limiting](#rate-limiting)
+- [Static Files](#static-files)
+- [Templates](#templates)
+- [CORS](#cors)
+- [Sessions](#sessions)
+  - [Session Options](#session-options)
+- [Runtime Overrides](#runtime-overrides)
+  - [Port](#port)
+  - [SSL / TLS (Runtime)](#ssl-tls-runtime)
+  - [Static Directory](#static-directory)
+  - [Autocert (Runtime)](#autocert-runtime)
+  - [All Flags](#all-flags)
+  - [Other Runtime Configuration](#other-runtime-configuration)
+- [Complete Examples](#complete-examples)
+  - [Production with Autocert](#production-with-autocert)
+  - [Production with Manual Certificates](#production-with-manual-certificates)
+
 The `server` block configures your HTTP server. All configuration is optional with sensible defaults.
 
 ## Basic Configuration

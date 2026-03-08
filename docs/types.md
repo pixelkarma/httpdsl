@@ -1,5 +1,21 @@
 # Types
 
+- [Strings](#strings)
+- [Template Strings](#template-strings)
+- [Integers](#integers)
+- [Floats](#floats)
+- [Booleans](#booleans)
+- [Null](#null)
+- [Arrays](#arrays)
+- [Hashes](#hashes)
+- [Type Coercion](#type-coercion)
+  - [String Concatenation](#string-concatenation)
+  - [Arithmetic](#arithmetic)
+- [Type Checking](#type-checking)
+- [Type Conversion](#type-conversion)
+- [Truthiness](#truthiness)
+- [Working with JSON](#working-with-json)
+
 HTTPDSL is dynamically typed with automatic type coercion in certain contexts.
 
 ## Strings

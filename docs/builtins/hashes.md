@@ -1,5 +1,23 @@
 # Hash Builtins
 
+- [keys()](#keys)
+- [values()](#values)
+- [merge()](#merge)
+- [delete()](#delete)
+- [contains()](#contains)
+- [Complete Examples](#complete-examples)
+  - [Configuration Merging](#configuration-merging)
+  - [Object Filtering](#object-filtering)
+  - [Removing Sensitive Data](#removing-sensitive-data)
+  - [Object Validation](#object-validation)
+  - [Object Transformation](#object-transformation)
+  - [Default Values](#default-values)
+  - [Object Diff](#object-diff)
+  - [Nested Object Access](#nested-object-access)
+  - [Object to Array](#object-to-array)
+  - [Picking Fields](#picking-fields)
+  - [Omitting Fields](#omitting-fields)
+
 Functions for hash (object/dictionary) manipulation.
 
 ## keys()

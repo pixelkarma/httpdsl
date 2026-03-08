@@ -1,5 +1,19 @@
 # Response Object
 
+- [Properties](#properties)
+  - [body](#body)
+  - [status](#status)
+  - [type](#type)
+  - [headers](#headers)
+  - [cookies](#cookies)
+- [Complete Examples](#complete-examples)
+  - [REST API with Status Codes](#rest-api-with-status-codes)
+  - [HTML Response](#html-response)
+  - [File Download](#file-download)
+  - [Conditional Response](#conditional-response)
+  - [API with Rate Limit Headers](#api-with-rate-limit-headers)
+  - [Redirect](#redirect)
+
 The `response` object controls the HTTP response sent to clients.
 
 ## Properties

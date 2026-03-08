@@ -1,5 +1,19 @@
 # Crypto Builtins
 
+- [hash()](#hash)
+- [hmac_hash()](#hmac_hash)
+- [hash_password()](#hash_password)
+- [verify_password()](#verify_password)
+- [uuid()](#uuid)
+- [cuid2()](#cuid2)
+- [Complete Examples](#complete-examples)
+  - [Webhook Signature Verification](#webhook-signature-verification)
+  - [User Registration with Password Hashing](#user-registration-with-password-hashing)
+  - [API Request Signing](#api-request-signing)
+  - [File Integrity Check](#file-integrity-check)
+  - [ETag Generation](#etag-generation)
+  - [API Key Generation](#api-key-generation)
+
 Cryptographic hashing, HMAC, password hashing, and unique ID generation.
 
 ## hash()

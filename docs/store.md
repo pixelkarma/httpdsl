@@ -1,5 +1,24 @@
 # Store
 
+- [Basic Operations](#basic-operations)
+  - [set()](#set)
+  - [get()](#get)
+  - [has()](#has)
+  - [delete()](#delete)
+  - [incr()](#incr)
+  - [Getting All Keys](#getting-all-keys)
+- [Persistence](#persistence)
+  - [File Sync](#file-sync)
+  - [Database Sync](#database-sync)
+- [Session Storage](#session-storage)
+- [Caching Example](#caching-example)
+- [Rate Limiting](#rate-limiting)
+- [Counter Example](#counter-example)
+- [Feature Flags](#feature-flags)
+- [Analytics](#analytics)
+- [Temporary Data](#temporary-data)
+- [Configuration Storage](#configuration-storage)
+
 The in-memory store provides key-value storage with optional TTL and persistence.
 
 ## Basic Operations

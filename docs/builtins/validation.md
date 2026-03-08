@@ -1,5 +1,20 @@
 # Validation Builtins
 
+- [validate()](#validate)
+  - [Available Rules](#available-rules)
+  - [Rule Behavior Notes](#rule-behavior-notes)
+- [is_email()](#is_email)
+- [is_url()](#is_url)
+- [is_uuid()](#is_uuid)
+- [is_numeric()](#is_numeric)
+- [Complete Examples](#complete-examples)
+  - [User Registration](#user-registration)
+  - [Product Creation](#product-creation)
+  - [Settings Update with Optional Fields](#settings-update-with-optional-fields)
+  - [Standalone Checks in Routes](#standalone-checks-in-routes)
+  - [Combining validate() with Standalone Checks](#combining-validate-with-standalone-checks)
+  - [Validating Items in a Loop](#validating-items-in-a-loop)
+
 Functions for data validation.
 
 ## validate()

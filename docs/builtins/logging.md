@@ -1,5 +1,28 @@
 # Logging Builtins
 
+- [print()](#print)
+- [log()](#log)
+- [log_info()](#log_info)
+- [log_warn()](#log_warn)
+- [log_error()](#log_error)
+- [sleep()](#sleep)
+- [server_stats()](#server_stats)
+- [Complete Examples](#complete-examples)
+  - [Request Logging](#request-logging)
+  - [Error Logging](#error-logging)
+  - [Debug Logging](#debug-logging)
+  - [Performance Monitoring](#performance-monitoring)
+  - [Periodic Health Check](#periodic-health-check)
+  - [Rate Limit Warnings](#rate-limit-warnings)
+  - [Async Operation Logging](#async-operation-logging)
+  - [Slow Query Detection](#slow-query-detection)
+  - [Authentication Logging](#authentication-logging)
+  - [Structured Logging](#structured-logging)
+  - [Debug Sleep](#debug-sleep)
+  - [Memory Monitoring](#memory-monitoring)
+  - [Request Timing](#request-timing)
+  - [Shutdown Logging](#shutdown-logging)
+
 Functions for logging and debugging.
 
 ## print()

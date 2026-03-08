@@ -1,5 +1,20 @@
 # CORS
 
+- [Server-Level CORS](#server-level-cors)
+- [Specific Origins](#specific-origins)
+- [Allow All Origins](#allow-all-origins)
+- [OPTIONS Preflight](#options-preflight)
+- [Manual CORS Headers](#manual-cors-headers)
+- [Conditional CORS](#conditional-cors)
+- [CORS with Credentials](#cors-with-credentials)
+- [OPTIONS Handler](#options-handler)
+- [Group-Specific CORS](#group-specific-cors)
+- [Environment-Based CORS](#environment-based-cors)
+- [Regex Origin Matching](#regex-origin-matching)
+- [Complete CORS Example](#complete-cors-example)
+- [CORS with Authentication](#cors-with-authentication)
+- [Exposed Headers](#exposed-headers)
+
 Cross-Origin Resource Sharing (CORS) allows your API to be accessed from different domains.
 
 ## Server-Level CORS

@@ -1,5 +1,31 @@
 # Databases
 
+- [Opening Connections](#opening-connections)
+  - [SQLite](#sqlite)
+  - [PostgreSQL](#postgresql)
+  - [MySQL](#mysql)
+  - [MongoDB](#mongodb)
+- [SQL Operations](#sql-operations)
+  - [exec()](#exec)
+  - [query()](#query)
+  - [query_one()](#query_one)
+  - [query_value()](#query_value)
+  - [close()](#close)
+- [Parameter Placeholders](#parameter-placeholders)
+- [Complete CRUD Example](#complete-crud-example)
+- [MongoDB Operations](#mongodb-operations)
+  - [find()](#find)
+  - [find_one()](#find_one)
+  - [insert()](#insert)
+  - [insert_many()](#insert_many)
+  - [update()](#update)
+  - [delete()](#delete)
+  - [count()](#count)
+- [MongoDB CRUD Example](#mongodb-crud-example)
+- [Connection Pooling](#connection-pooling)
+- [Transactions](#transactions)
+- [Environment Configuration](#environment-configuration)
+
 HTTPDSL supports SQLite, PostgreSQL, MySQL, and MongoDB.
 
 ## Opening Connections

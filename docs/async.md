@@ -1,5 +1,22 @@
 # Async Operations
 
+- [async Expression](#async-expression)
+- [await Function](#await-function)
+- [Multiple Awaits](#multiple-awaits)
+- [race Function](#race-function)
+- [Parallel Fetch Requests](#parallel-fetch-requests)
+- [Async Database Queries](#async-database-queries)
+- [Async File Operations](#async-file-operations)
+- [Async exec](#async-exec)
+- [Race Condition Example](#race-condition-example)
+- [Timeout with Race](#timeout-with-race)
+- [Error Handling with Async](#error-handling-with-async)
+- [Parallel Processing](#parallel-processing)
+- [Map with Async](#map-with-async)
+- [Cache with Fallback](#cache-with-fallback)
+- [Webhook Fanout](#webhook-fanout)
+- [Async Aggregation](#async-aggregation)
+
 HTTPDSL provides async/await for concurrent operations.
 
 ## async Expression

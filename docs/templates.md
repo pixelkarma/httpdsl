@@ -1,5 +1,18 @@
 # Templates
 
+- [Configuration](#configuration)
+- [Basic Rendering](#basic-rendering)
+- [Template Data](#template-data)
+- [Request Data](#request-data)
+- [Conditional Rendering](#conditional-rendering)
+- [Loops in Templates](#loops-in-templates)
+- [CSRF Protection](#csrf-protection)
+- [Render as Expression](#render-as-expression)
+- [Layout Templates](#layout-templates)
+- [Template Functions](#template-functions)
+  - [safe / safeJS](#safe-safejs)
+- [Complete Example](#complete-example)
+
 HTTPDSL uses Go's `html/template` engine for rendering HTML templates.
 
 ## Configuration

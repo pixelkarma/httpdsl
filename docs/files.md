@@ -1,5 +1,25 @@
 # File Operations
 
+- [Reading Files](#reading-files)
+  - [file.read()](#fileread)
+  - [file.read_json()](#fileread_json)
+- [Writing Files](#writing-files)
+  - [file.write()](#filewrite)
+  - [file.append()](#fileappend)
+  - [file.write_json()](#filewrite_json)
+- [File Checks](#file-checks)
+  - [file.exists()](#fileexists)
+- [File Management](#file-management)
+  - [file.delete()](#filedelete)
+  - [file.list()](#filelist)
+  - [file.mkdir()](#filemkdir)
+  - [file.chmod()](#filechmod)
+- [Complete Examples](#complete-examples)
+  - [Simple File API](#simple-file-api)
+  - [Configuration Manager](#configuration-manager)
+  - [Log Viewer](#log-viewer)
+  - [Data Backup](#data-backup)
+
 HTTPDSL provides built-in functions for file system operations.
 
 ## Reading Files

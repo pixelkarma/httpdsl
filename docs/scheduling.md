@@ -1,5 +1,24 @@
 # Scheduling
 
+- [Interval Scheduling](#interval-scheduling)
+  - [Seconds](#seconds)
+  - [Minutes](#minutes)
+  - [Hours](#hours)
+- [Cron Scheduling](#cron-scheduling)
+  - [Cron Syntax](#cron-syntax)
+- [Cleanup Tasks](#cleanup-tasks)
+- [Database Backup](#database-backup)
+- [Health Check](#health-check)
+- [API Sync](#api-sync)
+- [Notification Sender](#notification-sender)
+- [Cache Warming](#cache-warming)
+- [Report Generation](#report-generation)
+- [Session Cleanup](#session-cleanup)
+- [Rate Limit Reset](#rate-limit-reset)
+- [Heartbeat Broadcasting](#heartbeat-broadcasting)
+- [Multiple Scheduled Tasks](#multiple-scheduled-tasks)
+- [Dynamic Scheduling with Store](#dynamic-scheduling-with-store)
+
 HTTPDSL provides task scheduling with interval-based and cron-based schedules.
 
 ## Interval Scheduling

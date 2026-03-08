@@ -1,5 +1,23 @@
 # Exec Builtin
 
+- [Basic Usage](#basic-usage)
+- [With Timeout](#with-timeout)
+- [Command Execution](#command-execution)
+- [Complete Examples](#complete-examples)
+  - [System Information](#system-information)
+  - [Git Operations](#git-operations)
+  - [File Processing](#file-processing)
+  - [Directory Listing](#directory-listing)
+  - [Backup Creation](#backup-creation)
+  - [Async Execution](#async-execution)
+  - [Image Processing](#image-processing)
+  - [Health Check](#health-check)
+  - [Database Dump](#database-dump)
+  - [Log Analysis](#log-analysis)
+  - [Network Check](#network-check)
+  - [Timeout Handling](#timeout-handling)
+- [Security Considerations](#security-considerations)
+
 Execute shell commands from HTTPDSL.
 
 ## Basic Usage

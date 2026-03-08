@@ -1,5 +1,21 @@
 # Routes
 
+- [Basic Routes](#basic-routes)
+- [HTTP Methods](#http-methods)
+- [Path Parameters](#path-parameters)
+- [Wildcard Routes](#wildcard-routes)
+- [Content Type Hints](#content-type-hints)
+  - [JSON](#json)
+  - [Text](#text)
+  - [Form](#form)
+- [Route Timeouts](#route-timeouts)
+- [CSRF Override](#csrf-override)
+- [Complete Route Example](#complete-route-example)
+- [Query Parameters](#query-parameters)
+- [Multiple Routes Same Path](#multiple-routes-same-path)
+- [REST API Example](#rest-api-example)
+- [SSE Routes](#sse-routes)
+
 Routes define HTTP endpoints in your application. Each route specifies a method, path, and handler.
 
 ## Basic Routes
