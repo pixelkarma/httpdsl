@@ -208,7 +208,7 @@ route POST "/validate-items" json {
   items = request.data.items ?? []
   
   all_valid = every(items, fn(item) {
-    return has(item, "name") && has(item, "price") && item.price > 0
+    return contains(item, "name") && contains(item, "price") && item.price > 0
   })
   
   if !all_valid {

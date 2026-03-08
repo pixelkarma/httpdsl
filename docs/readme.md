@@ -31,14 +31,17 @@ This is the complete language reference.
 
 - [**Server Configuration**](server.md) — The `server { }` block
   - `port` — listen port
-  - `ssl_cert` / `ssl_key` — TLS encryption
+  - `ssl_cert` / `ssl_key` — manual TLS certificates
+  - `autocert` / `autocert_dir` — automatic Let's Encrypt certificates
+  - `https_redirect` — HTTP to HTTPS redirect (default: true when TLS active)
+  - `www_redirect` — non-www to www redirect
   - `gzip` — response compression
   - `throttle_requests_per_second` — per-IP rate limiting
   - `static` — file serving mounts
   - `templates` — Go html/template directory
   - `cors` — cross-origin resource sharing
   - `session` — server-side sessions and CSRF
-  - Runtime overrides: `-p` (port), `-s` (static dir), `SSL_CERT`/`SSL_KEY` env vars
+  - Runtime overrides: `-p` (port), `-s` (static dir), `-a` (autocert), env vars
 
 - [**Types & Values**](types.md) — The value system
   - Strings, integers, floats, booleans, null

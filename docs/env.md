@@ -132,6 +132,8 @@ Every compiled binary supports these flags:
 | `-s <dir>` | Override primary static file directory |
 | `-e <path>` | Load a specific `.env` file instead of `.env` |
 | `-e none` | Skip `.env` loading entirely |
+| `-a <domain>` | Enable Let's Encrypt autocert for domain (comma-separated for multiple) |
+| `-ad <dir>` | Autocert cache directory (default: `.autocert`) |
 | `-v` | Print `Built with httpdsl` and exit |
 | `-h` | Print help text (if defined) and list built-in flags, then exit |
 
@@ -144,6 +146,10 @@ The following **environment variables** are also recognized:
 | `PORT` | Override listen port |
 | `SSL_CERT` | Path to TLS certificate file |
 | `SSL_KEY` | Path to TLS private key file |
+| `AUTOCERT_DOMAIN` | Enable Let's Encrypt for domain |
+| `AUTOCERT_DIR` | Autocert cache directory |
+| `HTTPS_REDIRECT` | Redirect HTTP to HTTPS (`true`/`false`, default: `true` when TLS active) |
+| `WWW_REDIRECT` | Redirect non-www to www (`true`/`false`, default: `false`) |
 
 SSL precedence: `SSL_CERT`/`SSL_KEY` env → compiled `ssl_cert`/`ssl_key` → no TLS.
 
@@ -158,13 +164,19 @@ Flags:
   -p <port>   Listen port (default: 8080, or PORT env var)
   -s <dir>    Static file directory (default: ./public)
   -e <path>   Load env file (default: .env, "none" to skip)
+  -a <domain> Let's Encrypt autocert for domain
+  -ad <dir>   Autocert cache directory (default: .autocert)
   -v          Show version
   -h          Show this help
 
 Environment variables:
-  PORT        Override listen port
-  SSL_CERT    Path to TLS certificate file
-  SSL_KEY     Path to TLS private key file
+  PORT             Override listen port
+  SSL_CERT         Path to TLS certificate file
+  SSL_KEY          Path to TLS private key file
+  AUTOCERT_DOMAIN  Enable Let's Encrypt for domain
+  AUTOCERT_DIR     Autocert cache directory
+  HTTPS_REDIRECT   Redirect HTTP to HTTPS (true/false, default: true when TLS active)
+  WWW_REDIRECT     Redirect non-www to www (true/false, default: false)
 ```
 
 ## Load Order
@@ -190,7 +202,7 @@ Port, SSL, and static dir are handled automatically by built-in flags — no nee
 
 Most settings in the `server {}` block are parsed at **compile time** as literal values. You cannot use runtime expressions like `env()` in most of them.
 
-The exceptions are `session.secret`, `ssl_cert`, and `ssl_key`, which support runtime expressions:
+The exceptions are `session.secret`, `ssl_cert`, `ssl_key`, `autocert`, and `autocert_dir`, which support runtime expressions:
 
 ```httpdsl
 server {

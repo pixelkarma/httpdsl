@@ -127,7 +127,7 @@ route POST "/filter-object" json {
   filtered = {}
   
   each key in allowed_keys {
-    if has(data, key) {
+    if contains(data, key) {
       filtered[key] = data[key]
     }
   }
@@ -170,7 +170,7 @@ route POST "/validate" json {
   errors = []
   
   each key in required_keys {
-    if !has(data, key) {
+    if !contains(data, key) {
       errors = append(errors, `Missing field: ${key}`)
     } else if data[key] == "" || data[key] == null {
       errors = append(errors, `Empty field: ${key}`)
@@ -238,8 +238,8 @@ route POST "/diff" json {
   changed = []
   
   each key in all_keys {
-    has_in_1 = has(obj1, key)
-    has_in_2 = has(obj2, key)
+    has_in_1 = contains(obj1, key)
+    has_in_2 = contains(obj2, key)
     
     if !has_in_1 && has_in_2 {
       added = append(added, key)
@@ -310,7 +310,7 @@ fn pick(obj, fields) {
   result = {}
   
   each field in fields {
-    if has(obj, field) {
+    if contains(obj, field) {
       result[field] = obj[field]
     }
   }
