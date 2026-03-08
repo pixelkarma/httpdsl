@@ -7,6 +7,9 @@
   - [Automatic Certificates (Let's Encrypt)](#automatic-certificates-lets-encrypt)
   - [Manual Certificates](#manual-certificates)
   - [Self-Signed Certificates (Development)](#self-signed-certificates-development)
+- [Redirects](#redirects)
+  - [HTTPS Redirect](#https-redirect)
+  - [WWW Redirect](#www-redirect)
 - [Gzip Compression](#gzip-compression)
 - [Rate Limiting](#rate-limiting)
 - [Static Files](#static-files)
@@ -48,6 +51,8 @@ server {
   ssl_key "/path/to/key.pem"
   autocert "yourdomain.com,www.yourdomain.com"
   autocert_dir "/var/lib/httpdsl/certs"
+  https_redirect true
+  www_redirect false
   
   cors {
     origins "*"
@@ -187,6 +192,54 @@ server {
   ssl_key "./key.pem"
 }
 ```
+
+## Redirects
+
+### HTTPS Redirect
+
+Automatically redirect HTTP traffic to HTTPS. Enabled by default when TLS is active (via `ssl_cert`/`ssl_key` or `autocert`).
+
+```httpdsl
+server {
+  port 443
+  autocert "yourdomain.com"
+  https_redirect true   // default: true when TLS is active
+}
+```
+
+When enabled, an HTTP server on port 80 sends a 301 redirect to the HTTPS equivalent. To disable:
+
+```httpdsl
+server {
+  port 443
+  ssl_cert "/path/to/cert.pem"
+  ssl_key "/path/to/key.pem"
+  https_redirect false
+}
+```
+
+Override at runtime: `HTTPS_REDIRECT=false ./myapp`
+
+### WWW Redirect
+
+Redirect non-www requests to www. Default: `false`.
+
+```httpdsl
+server {
+  port 443
+  autocert "yourdomain.com,www.yourdomain.com"
+  www_redirect true
+}
+```
+
+When enabled:
+- `https://yourdomain.com/path` → `https://www.yourdomain.com/path` (301)
+- `http://yourdomain.com/path` → `https://www.yourdomain.com/path` (single redirect, no double hop)
+- `https://www.yourdomain.com/path` → served normally
+
+The HTTP→HTTPS and non-www→www redirects are combined into a single 301 when both apply, avoiding double redirects.
+
+Override at runtime: `WWW_REDIRECT=true ./myapp`
 
 ## Gzip Compression
 
@@ -399,6 +452,8 @@ Environment variables:
   SSL_KEY          Path to TLS private key file
   AUTOCERT_DOMAIN  Enable Let's Encrypt for domain
   AUTOCERT_DIR     Autocert cache directory
+  HTTPS_REDIRECT   Redirect HTTP to HTTPS (true/false, default: true when TLS active)
+  WWW_REDIRECT     Redirect non-www to www (true/false, default: false)
 ```
 
 Run `./myapp -h` to see the defaults from your `server {}` block.

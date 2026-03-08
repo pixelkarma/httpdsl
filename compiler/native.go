@@ -63,6 +63,8 @@ type NativeCompiler struct {
 	autocertDomainExpr Expression      // autocert domain expression
 	autocertDir    string              // autocert cache directory (literal)
 	autocertDirExpr Expression         // autocert cache dir expression
+	httpsRedirect  string              // true, false, or empty (auto: true when TLS active)
+	wwwRedirect    string              // true or false (default: false)
 }
 
 type staticMount struct {
@@ -204,6 +206,17 @@ func GenerateNativeCode(program *Program) (string, error) {
 					c.autocertDir = sv.Value
 				} else {
 					c.autocertDirExpr = dir
+				}
+			}
+			// Redirect settings
+			if v, ok := s.Settings["https_redirect"]; ok {
+				if bl, ok := v.(*BooleanLiteral); ok {
+					if bl.Value { c.httpsRedirect = "true" } else { c.httpsRedirect = "false" }
+				}
+			}
+			if v, ok := s.Settings["www_redirect"]; ok {
+				if bl, ok := v.(*BooleanLiteral); ok {
+					if bl.Value { c.wwwRedirect = "true" } else { c.wwwRedirect = "false" }
 				}
 			}
 			// Templates config
@@ -5518,6 +5531,8 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`fmt.Println("  SSL_KEY          Path to TLS private key file")`)
 	c.ln(`fmt.Println("  AUTOCERT_DOMAIN  Enable Let's Encrypt for domain")`)
 	c.ln(`fmt.Println("  AUTOCERT_DIR     Autocert cache directory")`)
+	c.ln(`fmt.Println("  HTTPS_REDIRECT   Redirect HTTP to HTTPS (true/false, default: true when TLS active)")`)
+	c.ln(`fmt.Println("  WWW_REDIRECT     Redirect non-www to www (true/false, default: false)")`)
 
 	c.ln("os.Exit(0)")
 	c.indent--
@@ -5681,6 +5696,24 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`if _autocertDir == "" && _autocertDomain != "" { _autocertDir = ".autocert" }`)
 	c.ln("")
 
+	// Redirect settings: compiled default -> env override
+	httpsDefault := `""`
+	if c.httpsRedirect != "" {
+		httpsDefault = fmt.Sprintf("%q", c.httpsRedirect)
+	}
+	wwwDefault := `"false"`
+	if c.wwwRedirect != "" {
+		wwwDefault = fmt.Sprintf("%q", c.wwwRedirect)
+	}
+	c.lnf("_httpsRedirect := %s", httpsDefault)
+	c.lnf("_wwwRedirect := %s", wwwDefault)
+	c.ln(`if v := os.Getenv("HTTPS_REDIRECT"); v != "" { _httpsRedirect = strings.ToLower(v) }`)
+	c.ln(`if v := os.Getenv("WWW_REDIRECT"); v != "" { _wwwRedirect = strings.ToLower(v) }`)
+	c.ln(`// Default: https_redirect is true when TLS is active`)
+	c.ln(`_doHttpsRedirect := _httpsRedirect == "true" || (_httpsRedirect == "" && (_autocertDomain != "" || (_sslCert != "" && _sslKey != "")))`)
+	c.ln(`_doWwwRedirect := _wwwRedirect == "true"`)
+	c.ln("")
+
 	// Print startup info
 	c.ln(`if _autocertDomain != "" {`)
 	c.indent++
@@ -5716,6 +5749,29 @@ func (c *NativeCompiler) emitMain() {
 	if c.gzipEnabled {
 		c.ln("handler = gzipMiddleware(handler)")
 	}
+
+	// www redirect on main handler (HTTPS or plain HTTP)
+	c.ln(`if _doWwwRedirect {`)
+	c.indent++
+	c.ln(`_inner := handler`)
+	c.ln(`handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	c.indent++
+	c.ln(`host := r.Host`)
+	c.ln(`if i := strings.IndexByte(host, ':'); i >= 0 { host = host[:i] }`)
+	c.ln(`if !strings.HasPrefix(host, "www.") {`)
+	c.indent++
+	c.ln(`scheme := "https"`)
+	c.ln(`if r.TLS == nil { scheme = "http" }`)
+	c.ln(`http.Redirect(w, r, scheme + "://www." + r.Host + r.RequestURI, 301)`)
+	c.ln(`return`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`_inner.ServeHTTP(w, r)`)
+	c.indent--
+	c.ln(`})`)
+	c.indent--
+	c.ln(`}`)
+	c.ln("")
 
 	// Graceful shutdown handler
 	if len(c.shutdownBlocks) > 0 || c.usedBuiltins["store"] || c.sessionEnabled {
@@ -5770,11 +5826,31 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},`)
 	c.indent--
 	c.ln(`}`)
-	c.ln(`// Redirect HTTP to HTTPS on port 80`)
+	c.ln(`// HTTP :80 — ACME challenges + redirect`)
+	c.ln(`_acmeHandler := m.HTTPHandler(nil)`)
 	c.ln(`go func() {`)
 	c.indent++
+	c.ln(`httpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	c.indent++
+	c.ln(`if strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {`)
+	c.indent++
+	c.ln(`_acmeHandler.ServeHTTP(w, r)`)
+	c.ln(`return`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`host := r.Host`)
+	c.ln(`if _doWwwRedirect {`)
+	c.indent++
+	c.ln(`h := host`)
+	c.ln(`if i := strings.IndexByte(h, ':'); i >= 0 { h = h[:i] }`)
+	c.ln(`if !strings.HasPrefix(h, "www.") { host = "www." + host }`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`http.Redirect(w, r, "https://" + host + r.RequestURI, 301)`)
+	c.indent--
+	c.ln(`})`)
 	c.ln(`fmt.Println("  HTTP :80 → HTTPS redirect")`)
-	c.ln(`if err := http.ListenAndServe(":80", m.HTTPHandler(nil)); err != nil {`)
+	c.ln(`if err := http.ListenAndServe(":80", httpHandler); err != nil {`)
 	c.indent++
 	c.ln(`fmt.Printf("HTTP redirect server error: %s\n", err)`)
 	c.indent--
@@ -5790,6 +5866,33 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`} else if _sslCert != "" && _sslKey != "" {`)
 	c.indent++
 	c.ln(`fmt.Printf("  TLS cert: %s\n", _sslCert)`)
+	c.ln(`if _doHttpsRedirect {`)
+	c.indent++
+	c.ln(`go func() {`)
+	c.indent++
+	c.ln(`httpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {`)
+	c.indent++
+	c.ln(`host := r.Host`)
+	c.ln(`if _doWwwRedirect {`)
+	c.indent++
+	c.ln(`h := host`)
+	c.ln(`if i := strings.IndexByte(h, ':'); i >= 0 { h = h[:i] }`)
+	c.ln(`if !strings.HasPrefix(h, "www.") { host = "www." + host }`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`http.Redirect(w, r, "https://" + host + r.RequestURI, 301)`)
+	c.indent--
+	c.ln(`})`)
+	c.ln(`fmt.Println("  HTTP :80 \u2192 HTTPS redirect")`)
+	c.ln(`if err := http.ListenAndServe(":80", httpHandler); err != nil {`)
+	c.indent++
+	c.ln(`fmt.Printf("HTTP redirect server error: %s\n", err)`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}()`)
+	c.indent--
+	c.ln(`}`)
 	c.ln("if err := http.ListenAndServeTLS(addr, _sslCert, _sslKey, handler); err != nil {")
 	c.indent++
 	c.ln(`fmt.Printf("Server error: %s\n", err)`)
