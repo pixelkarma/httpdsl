@@ -2289,6 +2289,97 @@ func builtin_file_chmod(args ...Value) Value {
 	}
 	return Value(true)
 }
+
+func builtin_file_open(args ...Value) Value {
+	if len(args) == 0 { throw(Value("file.open requires a path")); return null }
+	return Value(map[string]Value{"__type": Value("file_handle"), "path": Value(valueToString(args[0]))})
+}
+
+func fileHandlePath(obj Value) string {
+	if m, ok := obj.(map[string]Value); ok {
+		if p, ok := m["path"]; ok { return valueToString(p) }
+	}
+	throw(Value("not a file handle")); return ""
+}
+
+func fileHandleRead(obj Value) Value {
+	return builtin_file_read(Value(fileHandlePath(obj)))
+}
+
+func fileHandleWrite(obj Value, args ...Value) Value {
+	a := []Value{Value(fileHandlePath(obj))}
+	a = append(a, args...)
+	return builtin_file_write(a...)
+}
+
+func fileHandleAppend(obj Value, args ...Value) Value {
+	a := []Value{Value(fileHandlePath(obj))}
+	a = append(a, args...)
+	return builtin_file_append(a...)
+}
+
+func fileHandleJSON(obj Value) Value {
+	return builtin_file_read_json(Value(fileHandlePath(obj)))
+}
+
+func fileHandleWriteJSON(obj Value, args ...Value) Value {
+	a := []Value{Value(fileHandlePath(obj))}
+	a = append(a, args...)
+	return builtin_file_write_json(a...)
+}
+
+func fileHandleExists(obj Value) Value {
+	return builtin_file_exists(Value(fileHandlePath(obj)))
+}
+
+func fileHandleSize(obj Value) Value {
+	info, err := os.Stat(fileHandlePath(obj))
+	if err != nil { return Value(int64(-1)) }
+	return Value(info.Size())
+}
+
+func fileHandleDelete(obj Value) Value {
+	return builtin_file_delete(Value(fileHandlePath(obj)))
+}
+
+func fileHandleGetPath(obj Value) Value {
+	return Value(fileHandlePath(obj))
+}
+
+func fileHandleLines(obj Value, args ...Value) Value {
+	p := fileHandlePath(obj)
+	data, err := os.ReadFile(p)
+	if err != nil { return Value([]Value{}) }
+	raw := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	total := len(raw)
+	if total == 0 { return Value([]Value{}) }
+
+	start := int64(0)
+	end := int64(total)
+	if len(args) == 1 {
+		n := toInt64(args[0])
+		if n < 0 {
+			// last N lines
+			start = int64(total) + n
+			if start < 0 { start = 0 }
+		} else {
+			// first N lines
+			end = n
+			if end > int64(total) { end = int64(total) }
+		}
+	} else if len(args) >= 2 {
+		start = toInt64(args[0])
+		end = toInt64(args[1])
+		if start < 0 { start = 0 }
+		if end > int64(total) { end = int64(total) }
+	}
+
+	result := make([]Value, 0, end-start)
+	for i := start; i < end; i++ {
+		result = append(result, Value(raw[i]))
+	}
+	return Value(result)
+}
 `)
 	}
 
@@ -5057,6 +5148,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				}
 			case "file":
 				switch dot.Field {
+				case "open":
+					return fmt.Sprintf("builtin_file_open(%s)", argStr)
 				case "read":
 					return fmt.Sprintf("builtin_file_read(%s)", argStr)
 				case "write":
@@ -5178,6 +5271,40 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				return fmt.Sprintf("dslMongoCount(%s, %s)", objExpr, argStr)
 			case "close":
 				return fmt.Sprintf("dslDBClose(%s)", objExpr)
+			}
+		}
+		// File handle method calls: f.read(), f.write(), f.lines(), etc.
+		if ident, ok := dot.Left.(*Identifier); ok {
+			switch ident.Value {
+			case "file", "json", "store", "db", "jwt", "stream", "request", "response":
+				// skip — handled by namespace dispatch above
+			default:
+				objExpr := c.expr(dot.Left)
+				switch dot.Field {
+				case "read":
+					return fmt.Sprintf("fileHandleRead(%s)", objExpr)
+				case "write":
+					return fmt.Sprintf("fileHandleWrite(%s, %s)", objExpr, argStr)
+				case "append":
+					return fmt.Sprintf("fileHandleAppend(%s, %s)", objExpr, argStr)
+				case "lines":
+					if argStr == "" {
+						return fmt.Sprintf("fileHandleLines(%s)", objExpr)
+					}
+					return fmt.Sprintf("fileHandleLines(%s, %s)", objExpr, argStr)
+				case "json":
+					return fmt.Sprintf("fileHandleJSON(%s)", objExpr)
+				case "write_json":
+					return fmt.Sprintf("fileHandleWriteJSON(%s, %s)", objExpr, argStr)
+				case "exists":
+					return fmt.Sprintf("fileHandleExists(%s)", objExpr)
+				case "size":
+					return fmt.Sprintf("fileHandleSize(%s)", objExpr)
+				case "delete":
+					return fmt.Sprintf("fileHandleDelete(%s)", objExpr)
+				case "path":
+					return fmt.Sprintf("fileHandlePath(%s)", objExpr)
+				}
 			}
 		}
 	}

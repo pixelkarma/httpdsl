@@ -187,12 +187,9 @@ This is the complete language reference.
   - TTL expiration and background sweeper
 
 - [**File Operations**](files.md) — Filesystem access
-  - `file.read(path)` / `file.write(path, content)`
-  - `file.append(path, content)`
-  - `file.read_json(path)` / `file.write_json(path, data)`
-  - `file.exists(path)` / `file.delete(path)`
-  - `file.list(path)` / `file.mkdir(path)`
-  - `file.chmod(path, mode)`
+  - `file.open(path)` — returns a handle: `.read()`, `.write()`, `.append()`, `.lines()`, `.json()`, `.size()`, `.path()`
+  - Namespace utilities: `file.read(path)`, `file.write(path, data)`, `file.append(path, data)`
+  - `file.exists(path)` / `file.delete(path)` / `file.list(path)` / `file.mkdir(path)`
 
 - [**Configuration**](env.md) — Runtime configuration
   - `.env` file loading (dotenv format, auto-loaded from working directory)

@@ -1,5 +1,10 @@
 # File Operations
 
+- [File Handles](#file-handles)
+  - [Handle Methods](#handle-methods)
+  - [Passing Handles to Functions](#passing-handles-to-functions)
+  - [Line-Based Reading](#line-based-reading)
+- [Namespace Utilities](#namespace-utilities)
 - [Reading Files](#reading-files)
   - [file.read()](#fileread)
   - [file.read_json()](#fileread_json)
@@ -20,7 +25,74 @@
   - [Log Viewer](#log-viewer)
   - [Data Backup](#data-backup)
 
-HTTPDSL provides built-in functions for file system operations.
+HTTPDSL provides built-in functions for file system operations. There are two styles:
+
+- **File handles** — `file.open(path)` returns a handle for repeated access to the same file
+- **Namespace utilities** — `file.read(path)`, `file.write(path, data)`, etc. for quick one-liners
+
+## File Handles
+
+Open a file handle with `file.open()`. The handle stores the path and can be passed to functions:
+
+```httpdsl
+f = file.open("data.txt")
+f.write("hello")
+f.append(" world\n")
+data = f.read()           // "hello world\n"
+```
+
+File handles don't hold an OS file descriptor — each method opens, operates, and closes internally. No `.close()` needed. Safe for concurrent requests.
+
+### Handle Methods
+
+| Method | Description |
+|--------|-------------|
+| `f.read()` | Read entire file as string |
+| `f.write(data)` | Overwrite file contents |
+| `f.append(data)` | Append to file |
+| `f.lines()` | All lines as array |
+| `f.lines(n)` | First `n` lines |
+| `f.lines(-n)` | Last `n` lines |
+| `f.lines(start, end)` | Lines from `start` to `end` (slice) |
+| `f.json()` | Read and parse as JSON |
+| `f.write_json(obj)` | Serialize and write JSON |
+| `f.exists()` | Check if file exists |
+| `f.size()` | File size in bytes |
+| `f.delete()` | Delete the file |
+| `f.path()` | Return the file path |
+
+### Passing Handles to Functions
+
+```httpdsl
+fn log_to(f, message) {
+  f.append(message + "\n")
+}
+
+fn tail(f, n) {
+  return f.lines(0 - n)
+}
+
+route POST "/log" {
+  logfile = file.open("./app.log")
+  log_to(logfile, request.data.message)
+  response.body = {last10: tail(logfile, 10)}
+}
+```
+
+### Line-Based Reading
+
+```httpdsl
+f = file.open("access.log")
+
+all_lines = f.lines()        // every line as array
+first_10 = f.lines(10)       // first 10 lines
+last_5 = f.lines(-5)         // last 5 lines
+chunk = f.lines(100, 200)    // lines 100-199
+```
+
+## Namespace Utilities
+
+For quick one-off operations without creating a handle:
 
 ## Reading Files
 
