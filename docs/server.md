@@ -52,55 +52,29 @@ server {
 
 Default: `8080`
 
-## SSL / TLS
+## TLS / HTTPS
 
-Enable HTTPS by providing paths to a certificate and private key:
+Two ways to enable HTTPS: automatic certificates via Let's Encrypt, or manual certificate files.
 
-```httpdsl
-server {
-  port 443
-  ssl_cert "/etc/ssl/certs/mydomain.pem"
-  ssl_key "/etc/ssl/private/mydomain-key.pem"
-}
-```
+### Automatic Certificates (Let's Encrypt)
 
-Both `ssl_cert` and `ssl_key` must be set. The server will use Go's `ListenAndServeTLS` which supports TLS 1.2+ with modern cipher suites by default.
-
-These settings accept string literals or runtime expressions like `env()`:
+The simplest way to enable HTTPS in production. Certificates are provisioned and renewed automatically — no certbot, no cron jobs, no reverse proxy.
 
 ```httpdsl
 server {
   port 443
-  ssl_cert env("SSL_CERT", "/etc/ssl/cert.pem")
-  ssl_key env("SSL_KEY", "/etc/ssl/key.pem")
+  autocert "yourdomain.com"
 }
 ```
 
-You can also skip these entirely and enable TLS at runtime with `SSL_CERT`/`SSL_KEY` environment variables — see [Runtime Overrides](#runtime-overrides).
+That's it. On first request:
 
-This works with any PEM-encoded certificate — self-signed, CA-issued, or Let's Encrypt.
+1. A certificate is automatically obtained from Let's Encrypt
+2. Certificates are cached to disk (default: `.autocert` directory)
+3. An HTTP server on port 80 handles ACME challenges and redirects traffic to HTTPS
+4. Certificates auto-renew ~30 days before expiry
 
-### Self-Signed Certificate (Development)
-
-Generate a self-signed cert for local development:
-
-```bash
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-```
-
-Then reference the files:
-
-```httpdsl
-server {
-  port 8443
-  ssl_cert "./cert.pem"
-  ssl_key "./key.pem"
-}
-```
-
-### Let's Encrypt (Autocert)
-
-Built-in automatic TLS via Let's Encrypt. Certificates are provisioned and renewed automatically — no certbot, no cron jobs.
+Optionally specify a cache directory:
 
 ```httpdsl
 server {
@@ -110,13 +84,7 @@ server {
 }
 ```
 
-When enabled:
-- On first HTTPS request, a certificate is automatically obtained from Let's Encrypt
-- Certificates are cached to `autocert_dir` (default: `.autocert`)
-- An HTTP server on port 80 handles ACME challenges and redirects all other traffic to HTTPS
-- Certificates auto-renew before expiry (~30 days before the 90-day expiration)
-
-Both settings accept expressions:
+Both settings accept runtime expressions:
 
 ```httpdsl
 server {
@@ -126,17 +94,65 @@ server {
 }
 ```
 
-Or skip the server block entirely and use CLI flags or environment variables:
+Or skip the server block and use CLI flags or environment variables:
 
 ```bash
 # CLI flags
 ./myapp -a yourdomain.com -ad /var/lib/certs
 
 # Environment variables
-AUTOCERT_DOMAIN=yourdomain.com AUTOCERT_DIR=/var/lib/certs ./myapp
+AUTOCERT_DOMAIN=yourdomain.com ./myapp
 ```
 
 > **Note:** Autocert requires ports 80 and 443 to be accessible from the internet. The server must be reachable at the configured domain.
+
+### Manual Certificates
+
+Provide paths to a PEM-encoded certificate and private key:
+
+```httpdsl
+server {
+  port 443
+  ssl_cert "/etc/ssl/certs/mydomain.pem"
+  ssl_key "/etc/ssl/private/mydomain-key.pem"
+}
+```
+
+Both `ssl_cert` and `ssl_key` must be set. Supports TLS 1.2+ with modern cipher suites.
+
+These accept runtime expressions:
+
+```httpdsl
+server {
+  port 443
+  ssl_cert env("SSL_CERT", "/etc/ssl/cert.pem")
+  ssl_key env("SSL_KEY", "/etc/ssl/key.pem")
+}
+```
+
+Or enable TLS entirely at runtime with environment variables:
+
+```bash
+SSL_CERT=/path/to/cert.pem SSL_KEY=/path/to/key.pem ./myapp
+```
+
+This works with any PEM certificate — CA-issued, Let's Encrypt (via certbot), or self-signed.
+
+### Self-Signed Certificates (Development)
+
+For local development:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
+```
+
+```httpdsl
+server {
+  port 8443
+  ssl_cert "./cert.pem"
+  ssl_key "./key.pem"
+}
+```
 
 ## Gzip Compression
 
@@ -371,34 +387,58 @@ server {
 
 For other runtime configuration, use CLI args and `.env` files in your `init` block. See [Configuration](env.md) for details.
 
-## Complete Example
+## Complete Examples
+
+### Production with Autocert
 
 ```httpdsl
 server {
   port 443
   gzip true
-  throttle_requests_per_second 100
+  autocert "myapp.com"
+  autocert_dir "/var/lib/httpdsl/certs"
   static "/public" "./static"
   templates "./views"
+  
+  session {
+    cookie "sid"
+    expires 7 d
+    secret env("SESSION_SECRET")
+    csrf true
+  }
+}
+
+route GET "/" {
+  response.body = "Hello, HTTPS!"
+}
+```
+
+### Production with Manual Certificates
+
+```httpdsl
+server {
+  port 443
+  gzip true
   ssl_cert "/etc/ssl/certs/mydomain.pem"
   ssl_key "/etc/ssl/private/mydomain-key.pem"
+  static "/public" "./static"
+  templates "./views"
   
   cors {
-    origins "*"
-    methods "GET,POST,PUT,DELETE,PATCH"
+    origins "https://app.mysite.com"
+    methods "GET,POST,PUT,DELETE"
     headers "Content-Type, Authorization"
   }
   
   session {
     cookie "sid"
     expires 7 d
-    secret env("SESSION_SECRET", "dev-secret")
+    secret env("SESSION_SECRET")
     csrf true
-    csrf_safe_origins ["https://trusted.example.com"]
   }
 }
 
 route GET "/" {
-  response.body = "Server configured!"
+  response.body = "Hello, HTTPS!"
 }
 ```
