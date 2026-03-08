@@ -8,7 +8,7 @@
   - [file.append()](#fileappend)
   - [file.write_json()](#filewrite_json)
 - [File Checks](#file-checks)
-  - [file_exists()](#file_exists)
+  - [file.exists()](#fileexists)
 - [File Management](#file-management)
   - [file.delete()](#filedelete)
   - [file.list()](#filelist)
@@ -137,12 +137,12 @@ route POST "/export" json {
 
 ## File Checks
 
-### file_exists()
+### file.exists()
 
-Check if a file or directory exists:
+Check if file exists:
 
 ```httpdsl
-if file_exists("./config.json") {
+if file.exists("./config.json") {
   config = file.read_json("./config.json")
 } else {
   config = {default: true}
@@ -156,7 +156,7 @@ route GET "/files/:name" {
   filename = request.params.name
   path = `./files/${filename}`
   
-  if !file_exists(path) {
+  if !file.exists(path) {
     response.status = 404
     response.body = {error: "File not found"}
     return
@@ -184,7 +184,7 @@ route DELETE "/files/:name" {
   filename = request.params.name
   path = `./uploads/${filename}`
   
-  if !file_exists(path) {
+  if !file.exists(path) {
     response.status = 404
     response.body = {error: "File not found"}
     return
@@ -242,7 +242,7 @@ Ensure directory exists:
 
 ```httpdsl
 route POST "/upload" json {
-  if !file_exists("./uploads") {
+  if !file.exists("./uploads") {
     file.mkdir("./uploads")
   }
   
@@ -275,7 +275,7 @@ server {
 
 base_path = "./storage"
 
-if !file_exists(base_path) {
+if !file.exists(base_path) {
   file.mkdir(base_path)
 }
 
@@ -288,7 +288,7 @@ route GET "/files/:name" {
   filename = request.params.name
   path = `${base_path}/${filename}`
   
-  if !file_exists(path) {
+  if !file.exists(path) {
     response.status = 404
     response.body = {error: "File not found"}
     return
@@ -313,7 +313,7 @@ route DELETE "/files/:name" {
   filename = request.params.name
   path = `${base_path}/${filename}`
   
-  if !file_exists(path) {
+  if !file.exists(path) {
     response.status = 404
     response.body = {error: "File not found"}
     return
@@ -334,7 +334,7 @@ server {
 config_file = "./config.json"
 
 fn load_config() {
-  if file_exists(config_file) {
+  if file.exists(config_file) {
     return file.read_json(config_file)
   }
   
@@ -389,7 +389,7 @@ server {
 log_file = "./app.log"
 
 route GET "/logs" {
-  if !file_exists(log_file) {
+  if !file.exists(log_file) {
     response.body = {logs: []}
     return
   }
@@ -410,7 +410,7 @@ route POST "/logs" json {
 }
 
 route DELETE "/logs" {
-  if file_exists(log_file) {
+  if file.exists(log_file) {
     file.delete(log_file)
   }
   
@@ -437,7 +437,7 @@ route POST "/backup" {
   
   filename = `backup_${now()}.json`
   
-  if !file_exists("./backups") {
+  if !file.exists("./backups") {
     file.mkdir("./backups")
   }
   
@@ -450,7 +450,7 @@ route POST "/backup" {
 }
 
 route GET "/backups" {
-  if !file_exists("./backups") {
+  if !file.exists("./backups") {
     response.body = {backups: []}
     return
   }
@@ -471,7 +471,7 @@ route POST "/restore/:filename" {
   filename = request.params.filename
   path = `./backups/${filename}`
   
-  if !file_exists(path) {
+  if !file.exists(path) {
     response.status = 404
     response.body = {error: "Backup not found"}
     return

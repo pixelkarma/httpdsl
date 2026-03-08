@@ -190,7 +190,7 @@ This is the complete language reference.
   - `file.read(path)` / `file.write(path, content)`
   - `file.append(path, content)`
   - `file.read_json(path)` / `file.write_json(path, data)`
-  - `file_exists(path)` / `file.delete(path)`
+  - `file.exists(path)` / `file.delete(path)`
   - `file.list(path)` / `file.mkdir(path)`
   - `file.chmod(path, mode)`
 

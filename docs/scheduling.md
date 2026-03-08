@@ -150,7 +150,7 @@ every "0 2 * * *" {
   
   filename = `backup_${now()}.json`
   
-  if !file_exists("./backups") {
+  if !file.exists("./backups") {
     file.mkdir("./backups")
   }
   

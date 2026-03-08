@@ -331,7 +331,7 @@ route GET "/page" {
 route GET "/download/:filename" {
   filename = request.params.filename
   
-  if !file_exists(`./downloads/${filename}`) {
+  if !file.exists(`./downloads/${filename}`) {
     response.status = 404
     response.body = {error: "File not found"}
     return
