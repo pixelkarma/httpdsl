@@ -21,6 +21,8 @@ server {
   templates "./templates"
   ssl_cert "/path/to/cert.pem"
   ssl_key "/path/to/key.pem"
+  autocert "yourdomain.com"
+  autocert_dir "/var/lib/httpdsl/certs"
   
   cors {
     origins "*"
@@ -96,54 +98,45 @@ server {
 }
 ```
 
-### Let's Encrypt
+### Let's Encrypt (Autocert)
 
-Use [certbot](https://certbot.eff.org/) to get free certificates:
-
-```bash
-certbot certonly --standalone -d yourdomain.com
-```
+Built-in automatic TLS via Let's Encrypt. Certificates are provisioned and renewed automatically — no certbot, no cron jobs.
 
 ```httpdsl
 server {
   port 443
-  ssl_cert "/etc/letsencrypt/live/yourdomain.com/fullchain.pem"
-  ssl_key "/etc/letsencrypt/live/yourdomain.com/privkey.pem"
+  autocert "yourdomain.com"
+  autocert_dir "/var/lib/httpdsl/certs"
 }
 ```
 
-### Using a Reverse Proxy Instead
+When enabled:
+- On first HTTPS request, a certificate is automatically obtained from Let's Encrypt
+- Certificates are cached to `autocert_dir` (default: `.autocert`)
+- An HTTP server on port 80 handles ACME challenges and redirects all other traffic to HTTPS
+- Certificates auto-renew before expiry (~30 days before the 90-day expiration)
 
-For production deployments, a common alternative to built-in TLS is to run httpdsl behind a **reverse proxy** that handles TLS termination. This lets you manage certificates, load balancing, and caching separately.
+Both settings accept expressions:
 
-**Caddy** (automatic HTTPS with Let's Encrypt):
-
-```
-yourdomain.com {
-    reverse_proxy localhost:8080
-}
-```
-
-**Nginx**:
-
-```nginx
+```httpdsl
 server {
-    listen 443 ssl;
-    server_name yourdomain.com;
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+  port 443
+  autocert env("AUTOCERT_DOMAIN")
+  autocert_dir env("AUTOCERT_DIR", "/var/lib/httpdsl/certs")
 }
 ```
 
-With a reverse proxy, your httpdsl server stays on plain HTTP (no `ssl_cert`/`ssl_key` needed) and the proxy handles all TLS negotiation.
+Or skip the server block entirely and use CLI flags or environment variables:
+
+```bash
+# CLI flags
+./myapp -a yourdomain.com -ad /var/lib/certs
+
+# Environment variables
+AUTOCERT_DOMAIN=yourdomain.com AUTOCERT_DIR=/var/lib/certs ./myapp
+```
+
+> **Note:** Autocert requires ports 80 and 443 to be accessible from the internet. The server must be reachable at the configured domain.
 
 ## Gzip Compression
 
@@ -321,6 +314,23 @@ Precedence: `-s` flag → compiled default.
 
 The `-s` flag overrides the first `static` mount's directory.
 
+### Autocert (Runtime)
+
+Precedence: `-a` flag → `AUTOCERT_DOMAIN` env var → compiled default.
+
+```bash
+# Enable autocert at runtime (no autocert in server block needed)
+./myapp -a yourdomain.com
+
+# With custom cache dir
+./myapp -a yourdomain.com -ad /var/lib/certs
+
+# Via environment variables
+AUTOCERT_DOMAIN=yourdomain.com AUTOCERT_DIR=/var/lib/certs ./myapp
+```
+
+Autocert takes priority over `ssl_cert`/`ssl_key` when both are configured.
+
 ### All Flags
 
 ```
@@ -328,20 +338,24 @@ Flags:
   -p <port>   Listen port (default: 8080, or PORT env var)
   -s <dir>    Static file directory (default: ./public)
   -e <path>   Load env file (default: .env, "none" to skip)
+  -a <domain> Let's Encrypt autocert for domain
+  -ad <dir>   Autocert cache directory (default: .autocert)
   -v          Show version
   -h          Show this help
 
 Environment variables:
-  PORT        Override listen port
-  SSL_CERT    Path to TLS certificate file
-  SSL_KEY     Path to TLS private key file
+  PORT             Override listen port
+  SSL_CERT         Path to TLS certificate file
+  SSL_KEY          Path to TLS private key file
+  AUTOCERT_DOMAIN  Enable Let's Encrypt for domain
+  AUTOCERT_DIR     Autocert cache directory
 ```
 
 Run `./myapp -h` to see the defaults from your `server {}` block.
 
 ### Other Runtime Configuration
 
-Most `server {}` settings are **compile-time literals** — you cannot use `env()` or `args` in them. The exceptions are `session.secret`, `ssl_cert`, and `ssl_key`, which support runtime expressions:
+Most `server {}` settings are **compile-time literals** — you cannot use `env()` or `args` in them. The exceptions are `session.secret`, `ssl_cert`, `ssl_key`, `autocert`, and `autocert_dir`, which support runtime expressions:
 
 ```httpdsl
 server {

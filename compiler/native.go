@@ -59,6 +59,10 @@ type NativeCompiler struct {
 	sslKey         string              // path to SSL private key file (literal)
 	sslCertExpr    Expression          // SSL cert expression (e.g., env("SSL_CERT"))
 	sslKeyExpr     Expression          // SSL key expression (e.g., env("SSL_KEY"))
+	autocertDomain string              // autocert domain (literal)
+	autocertDomainExpr Expression      // autocert domain expression
+	autocertDir    string              // autocert cache directory (literal)
+	autocertDirExpr Expression         // autocert cache dir expression
 }
 
 type staticMount struct {
@@ -187,6 +191,21 @@ func GenerateNativeCode(program *Program) (string, error) {
 					c.sslKeyExpr = key
 				}
 			}
+			// Autocert config
+			if domain, ok := s.Settings["autocert"]; ok {
+				if sv, ok := domain.(*StringLiteral); ok {
+					c.autocertDomain = sv.Value
+				} else {
+					c.autocertDomainExpr = domain
+				}
+			}
+			if dir, ok := s.Settings["autocert_dir"]; ok {
+				if sv, ok := dir.(*StringLiteral); ok {
+					c.autocertDir = sv.Value
+				} else {
+					c.autocertDirExpr = dir
+				}
+			}
 			// Templates config
 			if tpl, ok := s.Settings["templates"]; ok {
 				if sv, ok := tpl.(*StringLiteral); ok {
@@ -260,6 +279,8 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.usedImports["encoding/hex"] = true
 	c.usedImports["encoding/base64"] = true
 	c.usedImports["hash"] = true
+	// Always available via -a flag or AUTOCERT_DOMAIN env
+	c.usedImports["crypto/tls"] = true
 	// Import tracking for builtins
 	if c.usedBuiltins["sleep"] || c.usedBuiltins["now"] || c.usedBuiltins["now_ms"] || c.usedBuiltins["date"] || c.usedBuiltins["date_format"] || c.usedBuiltins["date_parse"] || c.usedBuiltins["strtotime"] || c.usedBuiltins["cuid2"] {
 		c.usedImports["time"] = true
@@ -594,7 +615,7 @@ func (c *NativeCompiler) emitHeader() {
 	c.ln("import (")
 	c.indent++
 	stdlib := []string{"bytes", "compress/gzip", "context", "crypto/hmac", "crypto/md5", "crypto/rand",
-		"crypto/sha256", "crypto/sha512", "crypto/subtle", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
+		"crypto/sha256", "crypto/sha512", "crypto/subtle", "crypto/tls", "database/sql", "encoding/base64", "encoding/hex", "encoding/json",
 		"html/template",
 		"fmt", "hash", "io", "math", "math/rand", "net/http", "net/url",
 		"os", "os/exec", "os/signal", "path/filepath", "regexp", "runtime", "sort", "strconv", "strings", "sync", "syscall", "time"}
@@ -621,6 +642,7 @@ func (c *NativeCompiler) emitHeader() {
 	if c.needsArgon2 {
 		c.lnf("%q", "golang.org/x/crypto/argon2")
 	}
+	c.lnf("%q", "golang.org/x/crypto/acme/autocert")
 	if c.dbDrivers["sqlite"] {
 		c.lnf("_ %q", "modernc.org/sqlite")
 	}
@@ -5403,6 +5425,8 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("_showHelp := false")
 	c.ln("_showVersion := false")
 	c.ln(`_portFlag := ""`)
+	c.ln(`_autocertFlag := ""`)
+	c.ln(`_autocertDirFlag := ""`)
 	if len(c.staticMounts) > 0 {
 		c.ln(`_staticFlag := ""`)
 	}
@@ -5437,6 +5461,14 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("if i+1 < len(os.Args) { _staticFlag = os.Args[i+1]; i += 2 } else { i++ }")
 		c.indent--
 	}
+	c.ln(`case "-a":`)
+	c.indent++
+	c.ln(`if i+1 < len(os.Args) { _autocertFlag = os.Args[i+1]; i += 2 } else { i++ }`)
+	c.indent--
+	c.ln(`case "-ad":`)
+	c.indent++
+	c.ln(`if i+1 < len(os.Args) { _autocertDirFlag = os.Args[i+1]; i += 2 } else { i++ }`)
+	c.indent--
 	c.ln("default:")
 	c.indent++
 	c.ln(`if strings.HasPrefix(a, "--") && len(a) > 2 {`)
@@ -5475,13 +5507,18 @@ func (c *NativeCompiler) emitMain() {
 		c.lnf("fmt.Println(\"  -s <dir>    Static file directory (default: %s)\")", c.staticMounts[0].Dir)
 	}
 	c.ln(`fmt.Println("  -e <path>   Load env file (default: .env, \"none\" to skip)")`)
+	c.ln(`fmt.Println("  -a <domain> Let's Encrypt autocert for domain")`)
+	c.ln(`fmt.Println("  -ad <dir>   Autocert cache directory (default: .autocert)")`)
 	c.ln(`fmt.Println("  -v          Show version")`)
 	c.ln(`fmt.Println("  -h          Show this help")`)
 	c.ln(`fmt.Println("")`)
 	c.ln(`fmt.Println("Environment variables:")`)
-	c.ln(`fmt.Println("  PORT        Override listen port")`)
-	c.ln(`fmt.Println("  SSL_CERT    Path to TLS certificate file")`)
-	c.ln(`fmt.Println("  SSL_KEY     Path to TLS private key file")`)
+	c.ln(`fmt.Println("  PORT             Override listen port")`)
+	c.ln(`fmt.Println("  SSL_CERT         Path to TLS certificate file")`)
+	c.ln(`fmt.Println("  SSL_KEY          Path to TLS private key file")`)
+	c.ln(`fmt.Println("  AUTOCERT_DOMAIN  Enable Let's Encrypt for domain")`)
+	c.ln(`fmt.Println("  AUTOCERT_DIR     Autocert cache directory")`)
+
 	c.ln("os.Exit(0)")
 	c.indent--
 	c.ln("}")
@@ -5620,8 +5657,36 @@ func (c *NativeCompiler) emitMain() {
 	c.ln(`if _envKey := os.Getenv("SSL_KEY"); _envKey != "" { _sslKey = _envKey }`)
 	c.ln("")
 
+	// Autocert resolution: --autocert flag → AUTOCERT_DOMAIN env → compiled default
+	hasCompiledAutocert := c.autocertDomain != "" || c.autocertDomainExpr != nil
+	if hasCompiledAutocert {
+		domainExpr := fmt.Sprintf("%q", c.autocertDomain)
+		if c.autocertDomainExpr != nil {
+			domainExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.autocertDomainExpr))
+		}
+		c.lnf("_autocertDomain := %s", domainExpr)
+		dirExpr := fmt.Sprintf("%q", c.autocertDir)
+		if c.autocertDirExpr != nil {
+			dirExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.autocertDirExpr))
+		}
+		c.lnf("_autocertDir := %s", dirExpr)
+	} else {
+		c.ln(`_autocertDomain := ""`)
+		c.ln(`_autocertDir := ""`)
+	}
+	c.ln(`if _envDomain := os.Getenv("AUTOCERT_DOMAIN"); _envDomain != "" { _autocertDomain = _envDomain }`)
+	c.ln(`if _envDir := os.Getenv("AUTOCERT_DIR"); _envDir != "" { _autocertDir = _envDir }`)
+	c.ln(`if _autocertFlag != "" { _autocertDomain = _autocertFlag }`)
+	c.ln(`if _autocertDirFlag != "" { _autocertDir = _autocertDirFlag }`)
+	c.ln(`if _autocertDir == "" && _autocertDomain != "" { _autocertDir = ".autocert" }`)
+	c.ln("")
+
 	// Print startup info
-	c.ln(`if _sslCert != "" && _sslKey != "" {`)
+	c.ln(`if _autocertDomain != "" {`)
+	c.indent++
+	c.ln(`fmt.Printf("httpdsl native server (autocert: %s) on %s\n", _autocertDomain, addr)`)
+	c.indent--
+	c.ln(`} else if _sslCert != "" && _sslKey != "" {`)
 	c.indent++
 	c.ln(`fmt.Printf("httpdsl native server (TLS) on %s\n", addr)`)
 	c.indent--
@@ -5686,7 +5751,41 @@ func (c *NativeCompiler) emitMain() {
 		c.ln("")
 	}
 
-	c.ln(`if _sslCert != "" && _sslKey != "" {`)
+	c.ln(`if _autocertDomain != "" {`)
+	c.indent++
+	c.ln(`fmt.Printf("  autocert domain: %s\n  cache dir: %s\n", _autocertDomain, _autocertDir)`)
+	c.ln(`m := &autocert.Manager{`)
+	c.indent++
+	c.ln(`Prompt: autocert.AcceptTOS,`)
+	c.ln(`HostPolicy: autocert.HostWhitelist(_autocertDomain),`)
+	c.ln(`Cache: autocert.DirCache(_autocertDir),`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`srv := &http.Server{`)
+	c.indent++
+	c.ln(`Addr: addr,`)
+	c.ln(`Handler: handler,`)
+	c.ln(`TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},`)
+	c.indent--
+	c.ln(`}`)
+	c.ln(`// Redirect HTTP to HTTPS on port 80`)
+	c.ln(`go func() {`)
+	c.indent++
+	c.ln(`fmt.Println("  HTTP :80 → HTTPS redirect")`)
+	c.ln(`if err := http.ListenAndServe(":80", m.HTTPHandler(nil)); err != nil {`)
+	c.indent++
+	c.ln(`fmt.Printf("HTTP redirect server error: %s\n", err)`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`}()`)
+	c.ln(`if err := srv.ListenAndServeTLS("", ""); err != nil {`)
+	c.indent++
+	c.ln(`fmt.Printf("Server error: %s\n", err)`)
+	c.indent--
+	c.ln(`}`)
+	c.indent--
+	c.ln(`} else if _sslCert != "" && _sslKey != "" {`)
 	c.indent++
 	c.ln(`fmt.Printf("  TLS cert: %s\n", _sslCert)`)
 	c.ln("if err := http.ListenAndServeTLS(addr, _sslCert, _sslKey, handler); err != nil {")

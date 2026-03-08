@@ -538,7 +538,7 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
 	var requires []string
-	if strings.Contains(src, "golang.org/x/crypto/bcrypt") || strings.Contains(src, "golang.org/x/crypto/argon2") {
+	if strings.Contains(src, "golang.org/x/crypto/") {
 		requires = append(requires, "golang.org/x/crypto v0.48.0")
 	}
 	drivers := compiler.DetectDBDrivers(program)
@@ -606,7 +606,7 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
 	var requires []string
-	if strings.Contains(src, "golang.org/x/crypto/bcrypt") || strings.Contains(src, "golang.org/x/crypto/argon2") {
+	if strings.Contains(src, "golang.org/x/crypto/") {
 		requires = append(requires, "golang.org/x/crypto v0.48.0")
 	}
 	drivers := compiler.DetectDBDrivers(program)
