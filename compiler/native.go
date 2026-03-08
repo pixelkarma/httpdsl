@@ -5248,37 +5248,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				}
 			}
 		}
-		// Method calls on db handles: mydb.query(...) etc.
-		if len(c.dbDrivers) > 0 {
-			objExpr := c.expr(dot.Left)
-			switch dot.Field {
-			case "exec":
-				return fmt.Sprintf("dslDBExec(%s, %s)", objExpr, argStr)
-			case "query":
-				return fmt.Sprintf("dslDBQuery(%s, %s)", objExpr, argStr)
-			case "query_one":
-				return fmt.Sprintf("dslDBQueryOne(%s, %s)", objExpr, argStr)
-			case "query_value":
-				return fmt.Sprintf("dslDBQueryValue(%s, %s)", objExpr, argStr)
-			case "insert":
-				return fmt.Sprintf("dslMongoInsert(%s, %s)", objExpr, argStr)
-			case "insert_many":
-				return fmt.Sprintf("dslMongoInsertMany(%s, %s)", objExpr, argStr)
-			case "find":
-				return fmt.Sprintf("dslMongoFind(%s, %s)", objExpr, argStr)
-			case "find_one":
-				return fmt.Sprintf("dslMongoFindOne(%s, %s)", objExpr, argStr)
-			case "update":
-				return fmt.Sprintf("dslMongoUpdate(%s, %s)", objExpr, argStr)
-			case "delete":
-				return fmt.Sprintf("dslMongoDelete(%s, %s)", objExpr, argStr)
-			case "count":
-				return fmt.Sprintf("dslMongoCount(%s, %s)", objExpr, argStr)
-			case "close":
-				return fmt.Sprintf("dslDBClose(%s)", objExpr)
-			}
-		}
 		// File handle method calls: f.read(), f.write(), f.lines(), etc.
+		// Must come before DB handle dispatch since both support .delete()
 		if ident, ok := dot.Left.(*Identifier); ok {
 			switch ident.Value {
 			case "file", "json", "store", "db", "jwt", "stream", "request", "response":
@@ -5310,6 +5281,36 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				case "path":
 					return fmt.Sprintf("fileHandlePath(%s)", objExpr)
 				}
+			}
+		}
+		// Method calls on db handles: mydb.query(...) etc.
+		if len(c.dbDrivers) > 0 {
+			objExpr := c.expr(dot.Left)
+			switch dot.Field {
+			case "exec":
+				return fmt.Sprintf("dslDBExec(%s, %s)", objExpr, argStr)
+			case "query":
+				return fmt.Sprintf("dslDBQuery(%s, %s)", objExpr, argStr)
+			case "query_one":
+				return fmt.Sprintf("dslDBQueryOne(%s, %s)", objExpr, argStr)
+			case "query_value":
+				return fmt.Sprintf("dslDBQueryValue(%s, %s)", objExpr, argStr)
+			case "insert":
+				return fmt.Sprintf("dslMongoInsert(%s, %s)", objExpr, argStr)
+			case "insert_many":
+				return fmt.Sprintf("dslMongoInsertMany(%s, %s)", objExpr, argStr)
+			case "find":
+				return fmt.Sprintf("dslMongoFind(%s, %s)", objExpr, argStr)
+			case "find_one":
+				return fmt.Sprintf("dslMongoFindOne(%s, %s)", objExpr, argStr)
+			case "update":
+				return fmt.Sprintf("dslMongoUpdate(%s, %s)", objExpr, argStr)
+			case "delete":
+				return fmt.Sprintf("dslMongoDelete(%s, %s)", objExpr, argStr)
+			case "count":
+				return fmt.Sprintf("dslMongoCount(%s, %s)", objExpr, argStr)
+			case "close":
+				return fmt.Sprintf("dslDBClose(%s)", objExpr)
 			}
 		}
 	}

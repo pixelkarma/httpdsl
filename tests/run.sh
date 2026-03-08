@@ -563,6 +563,15 @@ run_test GET /test/io-extra/append
 run_test GET /test/io-extra/chmod
 echo ""
 
+# File Handle API
+echo "File Handle API:"
+run_test GET /test/file-handle/basic
+run_test GET /test/file-handle/append
+run_test GET /test/file-handle/lines
+run_test GET /test/file-handle/json
+run_test GET /test/file-handle/overwrite
+echo ""
+
 # Async extras
 echo "Async extras:"
 run_test GET /test/async-extra/race

@@ -183,6 +183,11 @@ route GET "tests" {
         "/test/errors/nested-try",
         "/test/io-extra/append",
         "/test/io-extra/chmod",
+        "/test/file-handle/basic",
+        "/test/file-handle/append",
+        "/test/file-handle/lines",
+        "/test/file-handle/json",
+        "/test/file-handle/overwrite",
         "/test/async-extra/race",
         "/test/async-extra/multi-await",
         "/test/closures/mutable-capture",
@@ -1504,6 +1509,81 @@ group "/test/io-extra" {
         file.delete(path)
         response.body = results([
             assert_true(exists, "chmod file exists")
+        ])
+    }
+}
+
+// ===== File Handle API =====
+group "/test/file-handle" {
+    route GET "basic" {
+        f = file.open("/tmp/httpdsl_fh_basic.txt")
+        f.write("hello file handle")
+        content = f.read()
+        exists = f.exists()
+        size = f.size()
+        p = f.path()
+        f.delete()
+        gone = f.exists()
+        response.body = results([
+            assert_eq(content, "hello file handle", "read after write"),
+            assert_true(exists, "exists after write"),
+            assert_true(size > 0, "size > 0"),
+            assert_eq(p, "/tmp/httpdsl_fh_basic.txt", "path returns path"),
+            assert_false(gone, "exists false after delete")
+        ])
+    }
+
+    route GET "append" {
+        f = file.open("/tmp/httpdsl_fh_append.txt")
+        f.write("line1\n")
+        f.append("line2\n")
+        f.append("line3\n")
+        content = f.read()
+        f.delete()
+        response.body = results([
+            assert_eq(content, "line1\nline2\nline3\n", "append content")
+        ])
+    }
+
+    route GET "lines" {
+        f = file.open("/tmp/httpdsl_fh_lines.txt")
+        f.write("a\nb\nc\nd\ne")
+        all_lines = f.lines()
+        first2 = f.lines(2)
+        last2 = f.lines(-2)
+        mid = f.lines(1, 4)
+        f.delete()
+        response.body = results([
+            assert_eq(len(all_lines), 5, "lines() returns all"),
+            assert_eq(all_lines[0], "a", "first line"),
+            assert_eq(all_lines[4], "e", "last line"),
+            assert_eq(first2, ["a", "b"], "lines(2) first 2"),
+            assert_eq(last2, ["d", "e"], "lines(-2) last 2"),
+            assert_eq(mid, ["b", "c", "d"], "lines(2,4) slice")
+        ])
+    }
+
+    route GET "json" {
+        f = file.open("/tmp/httpdsl_fh_json.json")
+        data = { name: "Alice", scores: [95, 87, 92] }
+        f.write_json(data)
+        loaded = f.json()
+        f.delete()
+        response.body = results([
+            assert_eq(loaded.name, "Alice", "json name"),
+            assert_eq(len(loaded.scores), 3, "json scores length"),
+            assert_eq(loaded.scores[0], 95, "json first score")
+        ])
+    }
+
+    route GET "overwrite" {
+        f = file.open("/tmp/httpdsl_fh_overwrite.txt")
+        f.write("first")
+        f.write("second")
+        content = f.read()
+        f.delete()
+        response.body = results([
+            assert_eq(content, "second", "write overwrites")
         ])
     }
 }
