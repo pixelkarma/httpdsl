@@ -181,21 +181,19 @@ pad_right("x", 5, "-")
 
 ## truncate()
 
-Truncate string to max length:
+Truncate string to max length, appending a suffix (default `"..."`) when truncated:
 
 ```httpdsl
-truncate("hello world", 5)
-truncate("test", 10)
-truncate("long text here", 8)
+truncate("hello world", 8)       // "hello..."
+truncate("short", 10)             // "short" (no change — fits)
+truncate("long text here", 10)    // "long te..."
 ```
 
-With ellipsis:
+Custom suffix:
 
 ```httpdsl
-text = "This is a very long text"
-if len(text) > 20 {
-  text = truncate(text, 17) + "..."
-}
+truncate("hello world", 8, "…")   // "hello…"
+truncate("hello world", 8, "")    // "hello wo" (no suffix)
 ```
 
 ## capitalize()
