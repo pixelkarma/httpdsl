@@ -2102,6 +2102,57 @@ func builtin_merge(args ...Value) Value {
 	return r
 }
 
+func deepPatch(base, patch map[string]Value, allowNew bool) map[string]Value {
+	r := make(map[string]Value, len(base))
+	for k, v := range base {
+		r[k] = v
+	}
+	for k, pv := range patch {
+		bv, exists := r[k]
+		if !exists {
+			if allowNew {
+				r[k] = deepCopyValue(pv)
+			}
+			continue
+		}
+		// Both exist and both are objects — recurse
+		bm, bIsMap := bv.(map[string]Value)
+		pm, pIsMap := pv.(map[string]Value)
+		if bIsMap && pIsMap {
+			r[k] = Value(deepPatch(bm, pm, allowNew))
+		} else {
+			// Overwrite with patch value
+			r[k] = deepCopyValue(pv)
+		}
+	}
+	return r
+}
+
+func deepCopyValue(v Value) Value {
+	switch val := v.(type) {
+	case map[string]Value:
+		c := make(map[string]Value, len(val))
+		for k, v2 := range val { c[k] = deepCopyValue(v2) }
+		return Value(c)
+	case []Value:
+		c := make([]Value, len(val))
+		for i, v2 := range val { c[i] = deepCopyValue(v2) }
+		return Value(c)
+	default:
+		return v
+	}
+}
+
+func builtin_patch(args ...Value) Value {
+	if len(args) < 2 { return null }
+	base, ok1 := args[0].(map[string]Value)
+	patchObj, ok2 := args[1].(map[string]Value)
+	if !ok1 || !ok2 { return args[0] }
+	allowNew := false
+	if len(args) >= 3 { allowNew = isTruthy(args[2]) }
+	return Value(deepPatch(base, patchObj, allowNew))
+}
+
 func builtin_delete(args ...Value) Value {
 	if len(args) < 2 { return null }
 	if m, ok := args[0].(map[string]Value); ok {
@@ -5041,7 +5092,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"contains": true, "trim": true, "split": true,
 		"join": true, "upper": true, "lower": true, "replace": true,
 		"starts_with": true, "ends_with": true, "slice": true, "reverse": true,
-		"unique": true, "merge": true, "delete": true, "index_of": true,
+		"unique": true, "merge": true, "patch": true, "delete": true, "index_of": true,
 		"repeat": true, "flat": true, "sort": true, "sort_by": true,
 		"regex_match": true, "regex_replace": true, "rand": true,
 		"uuid": true, "cuid2": true, "abs": true, "ceil": true, "floor": true, "round": true,
@@ -5402,6 +5453,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			return fmt.Sprintf("builtin_unique(%s)", argStr)
 		case "merge":
 			return fmt.Sprintf("builtin_merge(%s)", argStr)
+		case "patch":
+			return fmt.Sprintf("builtin_patch(%s)", argStr)
 		case "delete":
 			return fmt.Sprintf("builtin_delete(%s)", argStr)
 		case "index_of":

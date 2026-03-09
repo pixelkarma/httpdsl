@@ -893,6 +893,11 @@ run_test GET /test/store/ttl-expired
 echo ""
 
 echo "Cron:"
+# --- Patch function ---
+run_test GET /test/patch/strict
+run_test GET /test/patch/loose
+run_test GET /test/patch/default
+
 run_test GET /test/cron/status
 echo ""
 

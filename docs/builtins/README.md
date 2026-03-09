@@ -17,7 +17,7 @@ Functions for working with arrays (lists).
 
 ### [Hash Functions](./hashes.md)
 Functions for manipulating hash maps (objects/dictionaries).
-- `keys`, `values`, `merge`, `delete`, `contains`
+- `keys`, `values`, `merge`, `patch`, `delete`, `contains`
 
 ### [Functional Iteration](./functional.md)
 Higher-order functions for functional programming patterns.

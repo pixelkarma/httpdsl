@@ -3,6 +3,7 @@
 - [keys()](#keys)
 - [values()](#values)
 - [merge()](#merge)
+- [patch()](#patch)
 - [delete()](#delete)
 - [contains()](#contains)
 - [Complete Examples](#complete-examples)
@@ -57,6 +58,45 @@ defaults = {theme: "light", lang: "en"}
 user_prefs = {theme: "dark"}
 final = merge(defaults, user_prefs)
 ```
+
+## patch()
+
+Deep merge with schema control. The first object is the base (schema), the second applies updates recursively. An optional third argument controls whether new keys can be added:
+
+```httpdsl
+base = {name: "John", age: 30, settings: {theme: "dark", font: 14}}
+updates = {age: 31, settings: {font: 16, lang: "en"}, email: "j@x.com"}
+
+// Default: new keys blocked
+patch(base, updates)
+// {name: "John", age: 31, settings: {theme: "dark", font: 16}}
+
+// Strict: only update existing keys (same as default)
+patch(base, updates, false)
+// {name: "John", age: 31, settings: {theme: "dark", font: 16}}
+
+// Loose: allow new keys from the patch
+patch(base, updates, true)
+// {name: "John", age: 31, settings: {theme: "dark", font: 16, lang: "en"}, email: "j@x.com"}
+```
+
+Recurses into nested objects at every level:
+
+```httpdsl
+config = {
+  db: {host: "localhost", port: 5432},
+  cache: {ttl: 300, max_size: 1000}
+}
+overrides = {
+  db: {port: 5433},
+  cache: {ttl: 600, driver: "redis"}
+}
+
+patch(config, overrides)       // driver ignored
+patch(config, overrides, true) // driver added
+```
+
+Returns a new object — the original is not modified.
 
 ## delete()
 

@@ -2310,6 +2310,49 @@ route GET "test/exec/async" {
     ])
 }
 
+// ===== Patch function tests =====
+route GET "test/patch/strict" {
+    base = {name: "John", age: 30, settings: {theme: "dark", font: 14, nested: {email: true, sms: false}}}
+    updates = {age: 31, settings: {font: 16, nested: {sms: true, push: true}, lang: "en"}, newkey: "hi"}
+    result = patch(base, updates, false)
+    response.body = results([
+        assert_eq(result.name, "John", "patch strict: untouched key preserved"),
+        assert_eq(result.age, 31, "patch strict: existing key updated"),
+        assert_eq(result.settings.theme, "dark", "patch strict: nested untouched preserved"),
+        assert_eq(result.settings.font, 16, "patch strict: nested key updated"),
+        assert_eq(result.settings.nested.email, true, "patch strict: deep untouched preserved"),
+        assert_eq(result.settings.nested.sms, true, "patch strict: deep key updated"),
+        assert_eq(result.settings.nested.push, null, "patch strict: deep new key blocked"),
+        assert_eq(result.settings.lang, null, "patch strict: nested new key blocked"),
+        assert_eq(result.newkey, null, "patch strict: top-level new key blocked")
+    ])
+}
+
+route GET "test/patch/loose" {
+    base = {name: "John", age: 30, settings: {theme: "dark", font: 14}}
+    updates = {age: 31, settings: {font: 16, lang: "en"}, newkey: "hi"}
+    result = patch(base, updates, true)
+    response.body = results([
+        assert_eq(result.name, "John", "patch loose: untouched key preserved"),
+        assert_eq(result.age, 31, "patch loose: existing key updated"),
+        assert_eq(result.settings.theme, "dark", "patch loose: nested untouched preserved"),
+        assert_eq(result.settings.font, 16, "patch loose: nested key updated"),
+        assert_eq(result.settings.lang, "en", "patch loose: nested new key added"),
+        assert_eq(result.newkey, "hi", "patch loose: top-level new key added")
+    ])
+}
+
+route GET "test/patch/default" {
+    base = {a: 1, b: 2}
+    updates = {b: 3, c: 4}
+    result = patch(base, updates)
+    response.body = results([
+        assert_eq(result.a, 1, "patch default: untouched preserved"),
+        assert_eq(result.b, 3, "patch default: existing updated"),
+        assert_eq(result.c, null, "patch default: new key blocked (default=false)")
+    ])
+}
+
 // ===== Cron scheduling test =====
 route GET "test/cron/status" {
     response.body = results([
