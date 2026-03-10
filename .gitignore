@@ -11,3 +11,4 @@ examples/taskboard/taskboard_store.json
 examples/checkers/checkers
 .DS_Store
 
+sse_server
