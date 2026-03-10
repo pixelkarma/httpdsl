@@ -1,9 +1,13 @@
 {
   "name": "httpdsl",
   "displayName": "HTTPDSL",
-  "description": "Syntax highlighting for the HTTPDSL language",
-  "version": "0.1.0",
+  "description": "Syntax highlighting and formatting for the HTTPDSL language",
+  "version": "0.1.1",
   "publisher": "pixelkarma",
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:httpdsl"
+  ],
   "engines": {
     "vscode": "^1.75.0"
   },

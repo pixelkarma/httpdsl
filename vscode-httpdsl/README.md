@@ -1,6 +1,6 @@
 # HTTPDSL for Visual Studio Code
 
-Syntax highlighting for [HTTPDSL](https://github.com/pixelkarma/httpdsl) — a DSL that compiles to standalone Go HTTP server binaries.
+Syntax highlighting and formatting for [HTTPDSL](https://github.com/pixelkarma/httpdsl) — a DSL that compiles to standalone Go HTTP server binaries.
 
 ## Features
 
@@ -11,6 +11,7 @@ Syntax highlighting for [HTTPDSL](https://github.com/pixelkarma/httpdsl) — a D
 - `request`/`response`/`args` variable highlighting (including `request.data`, `request.session`, auth fields)
 - `db.*`, `store.*`, `jwt.*`, `file.*`, `stream.*`, `sse.*` method highlighting
 - Server block, init/shutdown, before/after, error handlers, scheduled tasks
+- Document formatting support (`Format Document` / format-on-save)
 - Bracket matching and auto-closing pairs
 - Code folding
 
@@ -22,7 +23,7 @@ The quickest way to install during development:
 
 ```bash
 # macOS / Linux
-ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.0
+ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.1
 
 # Then reload VS Code (Cmd+Shift+P → "Developer: Reload Window")
 ```
@@ -30,7 +31,7 @@ ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.
 ### Manual Install (copy)
 
 ```bash
-cp -r /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.0
+cp -r /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.1
 ```
 
 Reload VS Code after copying.
@@ -42,10 +43,22 @@ If you have `vsce` installed:
 ```bash
 cd vscode-httpdsl
 npx @vscode/vsce package
-# Produces httpdsl-0.1.0.vsix
+# Produces httpdsl-0.1.1.vsix
 ```
 
-Then install via: `code --install-extension httpdsl-0.1.0.vsix`
+Then install via: `code --install-extension httpdsl-0.1.1.vsix`
+
+## Formatting
+
+- Run `Format Document` (`Shift+Option+F` on macOS) in `.httpdsl` files.
+- To enable format-on-save:
+
+```json
+"[httpdsl]": {
+  "editor.defaultFormatter": "pixelkarma.httpdsl",
+  "editor.formatOnSave": true
+}
+```
 
 ## What Gets Highlighted
 
