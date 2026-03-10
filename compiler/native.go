@@ -6717,7 +6717,12 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 	c.emitBlock(route.Body, true)
 	c.ln(``)
 
-	// Event loop: block on stream channel, server-side close, or client disconnect
+	// Heartbeat to keep connection alive through proxies
+	c.ln(`_heartbeat := time.NewTicker(30 * time.Second)`)
+	c.ln(`defer _heartbeat.Stop()`)
+	c.ln(``)
+
+	// Event loop: block on stream channel, heartbeat, server-side close, or client disconnect
 	c.ln(`for {`)
 	c.indent++
 	c.ln(`select {`)
@@ -6730,6 +6735,11 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 	c.indent--
 	c.ln(`}`)
 	c.ln(`fmt.Fprintf(_w, "data: %s\n\n", _evt.data)`)
+	c.ln(`_flusher.Flush()`)
+	c.indent--
+	c.ln(`case <-_heartbeat.C:`)
+	c.indent++
+	c.ln(`fmt.Fprintf(_w, ": keepalive\n\n")`)
 	c.ln(`_flusher.Flush()`)
 	c.indent--
 	c.ln(`case <-_stream.stream.done:`)
