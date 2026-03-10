@@ -4381,23 +4381,26 @@ func _sseStreamSend(handle Value, event string, data Value) Value {
 	if h, ok := handle.(*sseStreamHandle); ok && h.stream != nil {
 		select {
 		case h.stream.ch <- sseEvent{event: event, data: d}:
+			return Value(true)
 		default:
+			return Value(false)
 		}
-		return null
 	}
 	if ch, ok := handle.(*sseChannelHandle); ok {
 		_sseHub.mu.RLock()
 		members := _sseHub.channels[ch.name]
+		allOk := true
 		for _, s := range members {
 			select {
 			case s.ch <- sseEvent{event: event, data: d}:
 			default:
+				allOk = false
 			}
 		}
 		_sseHub.mu.RUnlock()
-		return null
+		return Value(allOk)
 	}
-	return null
+	return Value(false)
 }
 
 func _sseStreamSet(handle Value, key string, val Value) Value {
@@ -4515,7 +4518,7 @@ func _sseChannel(name Value) Value {
 }
 
 func _sseBroadcast(args ...Value) Value {
-	if len(args) < 2 { return null }
+	if len(args) < 2 { return Value(false) }
 	event := valueToString(args[0])
 	data := ""
 	if args[1] != nil {
@@ -4523,14 +4526,16 @@ func _sseBroadcast(args ...Value) Value {
 		if err == nil { data = string(jBytes) } else { data = valueToString(args[1]) }
 	}
 	_sseHub.mu.RLock()
+	allOk := true
 	for _, s := range _sseHub.streams {
 		select {
 		case s.ch <- sseEvent{event: event, data: data}:
 		default:
+			allOk = false
 		}
 	}
 	_sseHub.mu.RUnlock()
-	return null
+	return Value(allOk)
 }
 
 func _sseCount() Value {
@@ -4554,7 +4559,7 @@ func _sseChannels() Value {
 
 func _sseChannelSend(handle Value, event string, data Value) Value {
 	ch, ok := handle.(*sseChannelHandle)
-	if !ok { return null }
+	if !ok { return Value(false) }
 	d := ""
 	if data != nil {
 		jBytes, err := json.Marshal(valueToGo(data))
@@ -4562,14 +4567,16 @@ func _sseChannelSend(handle Value, event string, data Value) Value {
 	}
 	_sseHub.mu.RLock()
 	members := _sseHub.channels[ch.name]
+	allOk := true
 	for _, s := range members {
 		select {
 		case s.ch <- sseEvent{event: event, data: d}:
 		default:
+			allOk = false
 		}
 	}
 	_sseHub.mu.RUnlock()
-	return null
+	return Value(allOk)
 }
 
 func _sseChannelStreams(handle Value) Value {

@@ -6,6 +6,7 @@
 - [sse — global namespace](#sse--global-namespace)
 - [Channel handles](#channel-handles)
 - [Early Exit](#early-exit)
+- [Heartbeat](#heartbeat)
 - [Chat Room Example](#chat-room-example)
 - [Room-Based Chat](#room-based-chat)
 - [Live Dashboard](#live-dashboard)
@@ -52,8 +53,8 @@ The `stream` variable is automatically available inside every SSE route. It repr
 stream.id                        // auto-assigned UUID
 stream.set(key, value)           // per-connection metadata
 stream.get(key)                  // read metadata
-stream.send(type, data)          // send to this connection
-stream.send(data)                // send with default type "message"
+stream.send(type, data)          // send to this connection (returns bool)
+stream.send(data)                // send with default type "message" (returns bool)
 stream.join("channel")           // join a channel (O(1) indexed add)
 stream.leave("channel")          // leave a channel
 stream.channels()                // array of channel handles this stream belongs to
@@ -62,7 +63,7 @@ stream.close()                   // server-side disconnect
 
 ### stream.send()
 
-Send events to the connected client:
+Send events to the connected client. Returns `true` if delivered, `false` if the buffer was full:
 
 ```httpdsl
 route SSE "/notifications" {
@@ -79,6 +80,15 @@ With default event type `"message"`:
 ```httpdsl
 route SSE "/updates" {
   stream.send({status: "connected"})
+}
+```
+
+Check delivery:
+
+```httpdsl
+ok = stream.send("update", {value: 42})
+if !ok {
+  print("Client buffer full, event dropped")
 }
 ```
 
@@ -166,19 +176,19 @@ The `sse` namespace is usable from **any route** (SSE or regular).
 sse.find(id)                     // stream handle by UUID, or null
 sse.find_by(key, value)          // array of stream handles matching metadata
 sse.channel("name")              // channel handle
-sse.broadcast(type, data)        // send to every connection
+sse.broadcast(type, data)        // send to every connection (returns bool)
 sse.count()                      // total live connections
 sse.channels()                   // array of all active channel handles
 ```
 
 ### sse.broadcast()
 
-Send to **all** connected SSE clients:
+Send to **all** connected SSE clients. Returns `true` if all deliveries succeeded, `false` if any were dropped:
 
 ```httpdsl
 route POST "/announce" json {
-  sse.broadcast("announcement", {message: request.data.message})
-  response.body = {sent: true}
+  ok = sse.broadcast("announcement", {message: request.data.message})
+  response.body = {sent: ok}
 }
 ```
 
@@ -237,22 +247,25 @@ route GET "/channels" {
 
 ```httpdsl
 ch = sse.channel("room:123")
-ch.send(type, data)              // send to all members (indexed, no scan)
+ch.send(type, data)              // send to all members — returns bool
 ch.streams()                     // array of stream handles
 ch.count()                       // member count
+ch.name                          // channel name string
 ```
 
 ### Channel send
 
+Returns `true` if all members received the event, `false` if any were dropped:
+
 ```httpdsl
 route POST "/room/:id/message" json {
   room_id = request.params.id
-  sse.channel(room_id).send("message", {
+  ok = sse.channel(room_id).send("message", {
     username: request.data.username,
     text: request.data.text,
     timestamp: now()
   })
-  response.body = {sent: true}
+  response.body = {sent: ok}
 }
 ```
 
@@ -289,6 +302,10 @@ route SSE "/events/:key" {
 ```
 
 `return` in an SSE route cleanly disconnects the client. SSE routes have no `response` object.
+
+## Heartbeat
+
+Every SSE connection automatically sends a keepalive comment (`: keepalive`) every 30 seconds. This is invisible to client-side JavaScript but prevents reverse proxies (nginx, Cloudflare, AWS ALB) from killing idle connections. No configuration needed.
 
 ## Chat Room Example
 
