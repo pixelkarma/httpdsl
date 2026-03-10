@@ -283,7 +283,7 @@ route SSE "/game/:key/events" {
 
     // Notify opponent of reconnect
     if game.p1_connected && game.p2_connected {
-        broadcast("opponent_reconnected", {}, key)
+        sse.channel(key).send("opponent_reconnected", {})
     }
 
     // Join the game channel
@@ -293,7 +293,7 @@ route SSE "/game/:key/events" {
     if game.player1 != null && game.player2 != null {
         if game.status == "playing" || game.status == "waiting" {
             game.status = "playing"
-            broadcast("state", {board: game.board, turn: game.turn}, key)
+            sse.channel(key).send("state", {board: game.board, turn: game.turn})
         } else if game.status == "gameover" {
             stream.send("gameover", {board: game.board, winner: game.winner})
         }
@@ -378,7 +378,7 @@ route POST "/game/:key/move" {
     // Multi-jump: if this was a jump and piece can jump again (and wasn't just promoted)
     if was_jump && !promoted && can_jump_from(game.board, tr, tc) {
         game.must_jump_from = [tr, tc]
-        broadcast("state", {board: game.board, turn: game.turn, must_jump_from: [tr, tc]}, key)
+        sse.channel(key).send("state", {board: game.board, turn: game.turn, must_jump_from: [tr, tc]})
         response.body = {ok: true}
         return
     }
@@ -401,10 +401,10 @@ route POST "/game/:key/move" {
     if opp_pieces == 0 || !opp_can_move {
         game.status = "gameover"
         game.winner = game.turn
-        broadcast("gameover", {board: game.board, winner: game.winner}, key)
+        sse.channel(key).send("gameover", {board: game.board, winner: game.winner})
     } else {
         game.turn = next_turn
-        broadcast("state", {board: game.board, turn: game.turn}, key)
+        sse.channel(key).send("state", {board: game.board, turn: game.turn})
     }
 
     response.body = {ok: true}
@@ -439,14 +439,14 @@ route POST "/game/:key/rematch" {
             game.must_jump_from = null
             game.rematch_p1 = null
             game.rematch_p2 = null
-            broadcast("state", {board: game.board, turn: game.turn}, key)
+            sse.channel(key).send("state", {board: game.board, turn: game.turn})
         } else {
             // Someone declined
-            broadcast("rematch_declined", {}, key)
+            sse.channel(key).send("rematch_declined", {})
             delete(games, key)
         }
     } else {
-        broadcast("rematch_waiting", {}, key)
+        sse.channel(key).send("rematch_waiting", {})
     }
 
     response.body = {ok: true}

@@ -1147,10 +1147,10 @@ sleep 1
 
 SSE_URL="http://localhost:$SSE_PORT"
 
-# Test: SSE welcome event on connect
-SSE_OUT=$(timeout 2 curl -sN $SSE_URL/sse/global 2>/dev/null || true)
-if echo "$SSE_OUT" | grep -q 'event: welcome' && echo "$SSE_OUT" | grep -q '"ok":true'; then
-    echo -e "  ${GREEN}PASS${NC} SSE connect sends welcome event"
+# Test: SSE welcome event with stream.id
+SSE_OUT=$(timeout 2 curl -sN $SSE_URL/sse/connect 2>/dev/null || true)
+if echo "$SSE_OUT" | grep -q 'event: welcome' && echo "$SSE_OUT" | grep -q '"id":"'; then
+    echo -e "  ${GREEN}PASS${NC} SSE connect sends welcome event with stream.id"
     PASSED=$((PASSED + 1))
 else
     echo -e "  ${RED}FAIL${NC} SSE welcome event: $SSE_OUT"
@@ -1169,25 +1169,25 @@ else
     FAILURES="$FAILURES\n  sse: join"
 fi
 
-# Test: broadcast to global
-curl -sN $SSE_URL/sse/global > /tmp/sse_test_global.txt &
+# Test: sse.broadcast() to all connections
+curl -sN $SSE_URL/sse/connect > /tmp/sse_test_bcast.txt &
 SSE_LISTEN_PID=$!
 sleep 0.5
 curl -s -X POST -H "Content-Type: application/json" -d '{"value":"hello"}' $SSE_URL/sse/broadcast > /dev/null
 sleep 0.5
 kill $SSE_LISTEN_PID 2>/dev/null
 wait $SSE_LISTEN_PID 2>/dev/null || true
-if grep -q '"value":"hello"' /tmp/sse_test_global.txt; then
-    echo -e "  ${GREEN}PASS${NC} broadcast() to global"
+if grep -q '"value":"hello"' /tmp/sse_test_bcast.txt; then
+    echo -e "  ${GREEN}PASS${NC} sse.broadcast() to all connections"
     PASSED=$((PASSED + 1))
 else
-    echo -e "  ${RED}FAIL${NC} broadcast global: $(cat /tmp/sse_test_global.txt)"
+    echo -e "  ${RED}FAIL${NC} sse.broadcast: $(cat /tmp/sse_test_bcast.txt)"
     FAILED=$((FAILED + 1))
-    FAILURES="$FAILURES\n  sse: broadcast global"
+    FAILURES="$FAILURES\n  sse: broadcast"
 fi
-rm -f /tmp/sse_test_global.txt
+rm -f /tmp/sse_test_bcast.txt
 
-# Test: broadcast to specific channel
+# Test: sse.channel().send() to specific channel
 curl -sN "$SSE_URL/sse/channel?ch=room1" > /tmp/sse_test_ch.txt &
 SSE_LISTEN_PID=$!
 sleep 0.5
@@ -1199,19 +1199,31 @@ sleep 0.5
 kill $SSE_LISTEN_PID 2>/dev/null
 wait $SSE_LISTEN_PID 2>/dev/null || true
 if grep -q 'for-room1' /tmp/sse_test_ch.txt && ! grep -q 'for-room2' /tmp/sse_test_ch.txt; then
-    echo -e "  ${GREEN}PASS${NC} broadcast() to specific channel"
+    echo -e "  ${GREEN}PASS${NC} sse.channel().send() to specific channel"
     PASSED=$((PASSED + 1))
 else
-    echo -e "  ${RED}FAIL${NC} broadcast channel: $(cat /tmp/sse_test_ch.txt)"
+    echo -e "  ${RED}FAIL${NC} channel send: $(cat /tmp/sse_test_ch.txt)"
     FAILED=$((FAILED + 1))
-    FAILURES="$FAILURES\n  sse: broadcast channel"
+    FAILURES="$FAILURES\n  sse: channel send"
 fi
 rm -f /tmp/sse_test_ch.txt
 
-# Test: broadcast POST returns response
+# Test: sse.count()
+# There should be 0 connections right now (all previous listeners killed)
+RESP=$(curl -s $SSE_URL/sse/count)
+if echo "$RESP" | jq -e '.count >= 0' > /dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} sse.count() returns count"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "  ${RED}FAIL${NC} sse.count: $RESP"
+    FAILED=$((FAILED + 1))
+    FAILURES="$FAILURES\n  sse: count"
+fi
+
+# Test: sse.broadcast POST returns response body
 RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"value":"test"}' $SSE_URL/sse/broadcast)
 if echo "$RESP" | jq -e '.sent == true' > /dev/null 2>&1; then
-    echo -e "  ${GREEN}PASS${NC} broadcast() returns response"
+    echo -e "  ${GREEN}PASS${NC} sse.broadcast() route returns response"
     PASSED=$((PASSED + 1))
 else
     echo -e "  ${RED}FAIL${NC} broadcast response: $RESP"

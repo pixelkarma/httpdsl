@@ -1246,6 +1246,8 @@ func dotValue(obj Value, field string) Value {
 	return null
 }
 
+
+
 func setIndex(obj, idx, val Value) {
 	obj = resolveValue(obj)
 	switch o := obj.(type) {
@@ -4297,9 +4299,13 @@ func (c *NativeCompiler) emitSSERuntime() {
 	}
 	c.raw(`
 // ===== SSE Runtime =====
-type sseClient struct {
+type sseStream struct {
+	id       string
 	ch       chan sseEvent
+	meta     map[string]Value
 	channels map[string]bool
+	mu       sync.RWMutex  // protects meta and channels
+	done     chan struct{}  // closed on disconnect to signal close()
 }
 
 type sseEvent struct {
@@ -4307,43 +4313,196 @@ type sseEvent struct {
 	data  string
 }
 
+type sseStreamHandle struct {
+	stream *sseStream
+}
+
+type sseChannelHandle struct {
+	name string
+}
+
 type sseHub struct {
-	mu      sync.RWMutex
-	clients map[*sseClient]bool
+	mu       sync.RWMutex
+	streams  map[string]*sseStream               // id -> stream
+	channels map[string]map[string]*sseStream     // channel -> id -> stream
 }
 
 var _sseHub = &sseHub{
-	clients: make(map[*sseClient]bool),
+	streams:  make(map[string]*sseStream),
+	channels: make(map[string]map[string]*sseStream),
 }
 
-func (h *sseHub) register(client *sseClient) {
+func _sseGenerateID() string {
+	b := make([]byte, 16)
+	crand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func (h *sseHub) register() *sseStreamHandle {
+	s := &sseStream{
+		id:       _sseGenerateID(),
+		ch:       make(chan sseEvent, 64),
+		meta:     make(map[string]Value),
+		channels: make(map[string]bool),
+		done:     make(chan struct{}),
+	}
 	h.mu.Lock()
-	h.clients[client] = true
+	h.streams[s.id] = s
 	h.mu.Unlock()
+	return &sseStreamHandle{stream: s}
 }
 
-func (h *sseHub) unregister(client *sseClient) {
+func (h *sseHub) unregister(s *sseStream) {
 	h.mu.Lock()
-	delete(h.clients, client)
-	h.mu.Unlock()
-	close(client.ch)
-}
-
-func (h *sseHub) broadcast(event string, data string, channel string) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for client := range h.clients {
-		if client.channels[channel] {
-			select {
-			case client.ch <- sseEvent{event: event, data: data}:
-			default:
-				// Drop if client buffer full
+	delete(h.streams, s.id)
+	// Remove from all channels
+	for ch := range s.channels {
+		if members, ok := h.channels[ch]; ok {
+			delete(members, s.id)
+			if len(members) == 0 {
+				delete(h.channels, ch)
 			}
 		}
 	}
+	h.mu.Unlock()
+	close(s.ch)
 }
 
-func builtin_broadcast(args ...Value) Value {
+// --- Stream handle methods ---
+
+func _sseStreamSend(handle Value, event string, data Value) Value {
+	d := ""
+	if data != nil {
+		jBytes, err := json.Marshal(valueToGo(data))
+		if err == nil { d = string(jBytes) } else { d = valueToString(data) }
+	}
+	if h, ok := handle.(*sseStreamHandle); ok && h.stream != nil {
+		select {
+		case h.stream.ch <- sseEvent{event: event, data: d}:
+		default:
+		}
+		return null
+	}
+	if ch, ok := handle.(*sseChannelHandle); ok {
+		_sseHub.mu.RLock()
+		members := _sseHub.channels[ch.name]
+		for _, s := range members {
+			select {
+			case s.ch <- sseEvent{event: event, data: d}:
+			default:
+			}
+		}
+		_sseHub.mu.RUnlock()
+		return null
+	}
+	return null
+}
+
+func _sseStreamSet(handle Value, key string, val Value) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	h.stream.mu.Lock()
+	h.stream.meta[key] = val
+	h.stream.mu.Unlock()
+	return null
+}
+
+func _sseStreamGet(handle Value, key string) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	h.stream.mu.RLock()
+	v := h.stream.meta[key]
+	h.stream.mu.RUnlock()
+	if v == nil { return null }
+	return v
+}
+
+func _sseStreamJoin(handle Value, channel string) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	s := h.stream
+	s.mu.Lock()
+	s.channels[channel] = true
+	s.mu.Unlock()
+	_sseHub.mu.Lock()
+	if _sseHub.channels[channel] == nil {
+		_sseHub.channels[channel] = make(map[string]*sseStream)
+	}
+	_sseHub.channels[channel][s.id] = s
+	_sseHub.mu.Unlock()
+	return null
+}
+
+func _sseStreamLeave(handle Value, channel string) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	s := h.stream
+	s.mu.Lock()
+	delete(s.channels, channel)
+	s.mu.Unlock()
+	_sseHub.mu.Lock()
+	if members, ok := _sseHub.channels[channel]; ok {
+		delete(members, s.id)
+		if len(members) == 0 {
+			delete(_sseHub.channels, channel)
+		}
+	}
+	_sseHub.mu.Unlock()
+	return null
+}
+
+func _sseStreamClose(handle Value) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	select {
+	case <-h.stream.done:
+		// already closed
+	default:
+		close(h.stream.done)
+	}
+	return null
+}
+
+func _sseStreamID(handle Value) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return null }
+	return Value(h.stream.id)
+}
+
+// --- Global SSE namespace functions ---
+
+func _sseFind(id Value) Value {
+	idStr := valueToString(id)
+	_sseHub.mu.RLock()
+	s, ok := _sseHub.streams[idStr]
+	_sseHub.mu.RUnlock()
+	if !ok || s == nil { return null }
+	return Value(&sseStreamHandle{stream: s})
+}
+
+func _sseFindBy(key Value, val Value) Value {
+	keyStr := valueToString(key)
+	_sseHub.mu.RLock()
+	var result []Value
+	for _, s := range _sseHub.streams {
+		s.mu.RLock()
+		if mv, ok := s.meta[keyStr]; ok && valuesEqual(mv, val) {
+			result = append(result, Value(&sseStreamHandle{stream: s}))
+		}
+		s.mu.RUnlock()
+	}
+	_sseHub.mu.RUnlock()
+	if result == nil { result = []Value{} }
+	return Value(result)
+}
+
+func _sseChannel(name Value) Value {
+	return Value(&sseChannelHandle{name: valueToString(name)})
+}
+
+func _sseBroadcast(args ...Value) Value {
 	if len(args) < 2 { return null }
 	event := valueToString(args[0])
 	data := ""
@@ -4351,24 +4510,88 @@ func builtin_broadcast(args ...Value) Value {
 		jBytes, err := json.Marshal(valueToGo(args[1]))
 		if err == nil { data = string(jBytes) } else { data = valueToString(args[1]) }
 	}
-	channel := "global"
-	if len(args) >= 3 { channel = valueToString(args[2]) }
-	_sseHub.broadcast(event, data, channel)
+	_sseHub.mu.RLock()
+	for _, s := range _sseHub.streams {
+		select {
+		case s.ch <- sseEvent{event: event, data: data}:
+		default:
+		}
+	}
+	_sseHub.mu.RUnlock()
 	return null
 }
 
-func _sseClientSend(client *sseClient, event string, data Value) Value {
+func _sseCount() Value {
+	_sseHub.mu.RLock()
+	n := len(_sseHub.streams)
+	_sseHub.mu.RUnlock()
+	return Value(int64(n))
+}
+
+// --- Channel handle methods ---
+
+func _sseChannelSend(handle Value, event string, data Value) Value {
+	ch, ok := handle.(*sseChannelHandle)
+	if !ok { return null }
 	d := ""
 	if data != nil {
 		jBytes, err := json.Marshal(valueToGo(data))
 		if err == nil { d = string(jBytes) } else { d = valueToString(data) }
 	}
-	client.ch <- sseEvent{event: event, data: d}
+	_sseHub.mu.RLock()
+	members := _sseHub.channels[ch.name]
+	for _, s := range members {
+		select {
+		case s.ch <- sseEvent{event: event, data: d}:
+		default:
+		}
+	}
+	_sseHub.mu.RUnlock()
 	return null
 }
 
-func _sseClientJoin(client *sseClient, channel string) Value {
-	client.channels[channel] = true
+func _sseChannelStreams(handle Value) Value {
+	ch, ok := handle.(*sseChannelHandle)
+	if !ok { return Value([]Value{}) }
+	_sseHub.mu.RLock()
+	members := _sseHub.channels[ch.name]
+	result := make([]Value, 0, len(members))
+	for _, s := range members {
+		result = append(result, Value(&sseStreamHandle{stream: s}))
+	}
+	_sseHub.mu.RUnlock()
+	return Value(result)
+}
+
+func _sseChannelCount(handle Value) Value {
+	ch, ok := handle.(*sseChannelHandle)
+	if !ok { return Value(int64(0)) }
+	_sseHub.mu.RLock()
+	n := len(_sseHub.channels[ch.name])
+	_sseHub.mu.RUnlock()
+	return Value(int64(n))
+}
+
+// _sseDotValue handles property access on SSE handles, falling through to dotValue for maps
+func _sseDotValue(obj Value, field string) Value {
+	obj = resolveValue(obj)
+	if h, ok := obj.(*sseStreamHandle); ok && h.stream != nil {
+		switch field {
+		case "id":
+			return Value(h.stream.id)
+		}
+		return null
+	}
+	if ch, ok := obj.(*sseChannelHandle); ok {
+		switch field {
+		case "name":
+			return Value(ch.name)
+		}
+		return null
+	}
+	if m, ok := obj.(map[string]Value); ok {
+		if v, ok := m[field]; ok { return v }
+	}
 	return null
 }
 `)
@@ -5112,7 +5335,7 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"csrf_token": true,
 		"csrf_field": true,
 		"render": true,
-		"broadcast": true,
+
 		"exec": true,
 	}
 	if builtinNames[name] {
@@ -5284,18 +5507,55 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				switch dot.Field {
 				case "send":
 					if len(args) >= 2 {
-						// stream.send(event, data)
-						return fmt.Sprintf("_sseClientSend(_sseClient, valueToString(%s), %s)", args[0], args[1])
+						return fmt.Sprintf("_sseStreamSend(stream, valueToString(%s), %s)", args[0], args[1])
 					} else if len(args) == 1 {
-						// stream.send(data) — default event "message"
-						return fmt.Sprintf(`_sseClientSend(_sseClient, "message", %s)`, args[0])
+						return fmt.Sprintf(`_sseStreamSend(stream, "message", %s)`, args[0])
 					}
 					return "null"
 				case "join":
 					if len(args) >= 1 {
-						return fmt.Sprintf("_sseClientJoin(_sseClient, valueToString(%s))", args[0])
+						return fmt.Sprintf("_sseStreamJoin(stream, valueToString(%s))", args[0])
 					}
 					return "null"
+				case "leave":
+					if len(args) >= 1 {
+						return fmt.Sprintf("_sseStreamLeave(stream, valueToString(%s))", args[0])
+					}
+					return "null"
+				case "set":
+					if len(args) >= 2 {
+						return fmt.Sprintf("_sseStreamSet(stream, valueToString(%s), %s)", args[0], args[1])
+					}
+					return "null"
+				case "get":
+					if len(args) >= 1 {
+						return fmt.Sprintf("_sseStreamGet(stream, valueToString(%s))", args[0])
+					}
+					return "null"
+				case "close":
+					return "_sseStreamClose(stream)"
+				}
+			case "sse":
+				switch dot.Field {
+				case "find":
+					if len(args) >= 1 {
+						return fmt.Sprintf("_sseFind(%s)", args[0])
+					}
+					return "null"
+				case "find_by":
+					if len(args) >= 2 {
+						return fmt.Sprintf("_sseFindBy(%s, %s)", args[0], args[1])
+					}
+					return "Value([]Value{})"
+				case "channel":
+					if len(args) >= 1 {
+						return fmt.Sprintf("_sseChannel(%s)", args[0])
+					}
+					return "null"
+				case "broadcast":
+					return fmt.Sprintf("_sseBroadcast(%s)", argStr)
+				case "count":
+					return "_sseCount()"
 				}
 			}
 		}
@@ -5303,7 +5563,7 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 		// Must come before DB handle dispatch since both support .delete()
 		if ident, ok := dot.Left.(*Identifier); ok {
 			switch ident.Value {
-			case "file", "json", "store", "db", "jwt", "stream", "request", "response":
+			case "file", "json", "store", "db", "jwt", "stream", "sse", "request", "response":
 				// skip — handled by namespace dispatch above
 			default:
 				objExpr := c.expr(dot.Left)
@@ -5364,6 +5624,45 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				return fmt.Sprintf("dslDBClose(%s)", objExpr)
 			}
 		}
+		// SSE handle method dispatch (stream handles from sse.find, channel handles from sse.channel)
+		if c.hasSSE {
+			objExpr := c.expr(dot.Left)
+			switch dot.Field {
+			case "send":
+				if len(args) >= 2 {
+					return fmt.Sprintf("_sseStreamSend(%s, valueToString(%s), %s)", objExpr, args[0], args[1])
+				} else if len(args) == 1 {
+					return fmt.Sprintf(`_sseStreamSend(%s, "message", %s)`, objExpr, args[0])
+				}
+				return "null"
+			case "set":
+				if len(args) >= 2 {
+					return fmt.Sprintf("_sseStreamSet(%s, valueToString(%s), %s)", objExpr, args[0], args[1])
+				}
+				return "null"
+			case "get":
+				if len(args) >= 1 {
+					return fmt.Sprintf("_sseStreamGet(%s, valueToString(%s))", objExpr, args[0])
+				}
+				return "null"
+			case "join":
+				if len(args) >= 1 {
+					return fmt.Sprintf("_sseStreamJoin(%s, valueToString(%s))", objExpr, args[0])
+				}
+				return "null"
+			case "leave":
+				if len(args) >= 1 {
+					return fmt.Sprintf("_sseStreamLeave(%s, valueToString(%s))", objExpr, args[0])
+				}
+				return "null"
+			case "close":
+				return fmt.Sprintf("_sseStreamClose(%s)", objExpr)
+			case "streams":
+				return fmt.Sprintf("_sseChannelStreams(%s)", objExpr)
+			case "count":
+				return fmt.Sprintf("_sseChannelCount(%s)", objExpr)
+			}
+		}
 	}
 
 	// Handle known builtins by name
@@ -5401,7 +5700,10 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 			}
 			return fmt.Sprintf("_render(valueToString(%s), %s, request)", nameExpr, pageExpr)
 		case "broadcast":
-			return fmt.Sprintf("builtin_broadcast(%s)", argStr)
+			if c.hasSSE {
+				return fmt.Sprintf("_sseBroadcast(%s)", argStr)
+			}
+			return "null"
 		case "exec":
 			return fmt.Sprintf("builtin_exec(%s)", argStr)
 		case "now_ms":
@@ -5605,10 +5907,22 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 func (c *NativeCompiler) dotExpr(e *DotExpression) string {
 	// json and store are handled at call sites
 	if ident, ok := e.Left.(*Identifier); ok {
-		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" || ident.Value == "jwt" || ident.Value == "stream" {
+		if ident.Value == "json" || ident.Value == "store" || ident.Value == "file" || ident.Value == "db" || ident.Value == "jwt" || ident.Value == "sse" {
 			// These are namespace objects; the actual call is handled in callExpr
 			return fmt.Sprintf("dotValue(%s, %q)", safeIdent(ident.Value), e.Field)
 		}
+		// stream.id in SSE route — return the stream's UUID
+		if ident.Value == "stream" && e.Field == "id" && c.inSSERoute {
+			return "_sseStreamID(stream)"
+		}
+		if ident.Value == "stream" {
+			// Other stream dot accesses handled in callExpr
+			return fmt.Sprintf("dotValue(%s, %q)", safeIdent(ident.Value), e.Field)
+		}
+	}
+	// For SSE handle property access (e.g. handle.id from sse.find())
+	if c.hasSSE && e.Field == "id" {
+		return fmt.Sprintf("_sseDotValue(%s, %q)", c.expr(e.Left), e.Field)
 	}
 	return fmt.Sprintf("dotValue(%s, %q)", c.expr(e.Left), e.Field)
 }
@@ -6264,15 +6578,31 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 		c.lnf(`_w.Header().Set("Access-Control-Allow-Origin", %q)`, c.corsOrigins)
 	}
 
-	// Create SSE client
-	c.ln(`_sseClient := &sseClient{`)
+	// Create SSE stream handle
+	c.ln(`_stream := _sseHub.register()`)
+	c.ln(`stream := Value(_stream)`)
+	c.ln(`_ = stream`)
+	c.ln(`defer func() {`)
 	c.indent++
-	c.ln(`ch:       make(chan sseEvent, 64),`)
-	c.ln(`channels: map[string]bool{"global": true},`)
+	// Disconnect block runs AFTER channel removal but BEFORE metadata cleanup
+	if route.DisconnectBlock != nil {
+		// Collect and declare disconnect block variables
+		disconnectVars := c.collectVars(route.DisconnectBlock)
+		for name := range disconnectVars {
+			if name != "request" && name != "stream" && !c.globalVars[name] {
+				c.lnf("var %s Value = null", safeIdent(name))
+			}
+		}
+		for name := range disconnectVars {
+			if name != "request" && name != "stream" && !c.globalVars[name] {
+				c.lnf("_ = %s", safeIdent(name))
+			}
+		}
+		c.emitBlock(route.DisconnectBlock, true)
+	}
+	c.ln(`_sseHub.unregister(_stream.stream)`)
 	c.indent--
-	c.ln(`}`)
-	c.ln(`_sseHub.register(_sseClient)`)
-	c.ln(`defer _sseHub.unregister(_sseClient)`)
+	c.ln(`}()`)
 	c.ln(``)
 
 	// Parse path params, query, headers for request object
@@ -6350,7 +6680,7 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 	// Declare user variables
 	vars := c.collectVars(route.Body)
 	for name := range vars {
-		if name != "request" && !c.globalVars[name] {
+		if name != "request" && name != "stream" && !c.globalVars[name] {
 			c.lnf("var %s Value = null", safeIdent(name))
 		}
 	}
@@ -6359,11 +6689,11 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 	c.emitBlock(route.Body, true)
 	c.ln(``)
 
-	// Event loop: block on client channel or disconnect
+	// Event loop: block on stream channel, server-side close, or client disconnect
 	c.ln(`for {`)
 	c.indent++
 	c.ln(`select {`)
-	c.ln(`case _evt, _ok := <-_sseClient.ch:`)
+	c.ln(`case _evt, _ok := <-_stream.stream.ch:`)
 	c.indent++
 	c.ln(`if !_ok { return }`)
 	c.ln(`if _evt.event != "" {`)
@@ -6373,6 +6703,10 @@ func (c *NativeCompiler) emitSSERoute(route *RouteStatement) {
 	c.ln(`}`)
 	c.ln(`fmt.Fprintf(_w, "data: %s\n\n", _evt.data)`)
 	c.ln(`_flusher.Flush()`)
+	c.indent--
+	c.ln(`case <-_stream.stream.done:`)
+	c.indent++
+	c.ln(`return`)
 	c.indent--
 	c.ln(`case <-_r.Context().Done():`)
 	c.indent++

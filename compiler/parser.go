@@ -283,7 +283,7 @@ func (p *Parser) parseRouteStatement() Statement {
 	}
 	stmt.Body = block
 
-	// Optional else block
+	// Optional else block (non-SSE routes)
 	if p.curTokenIs(TOKEN_ELSE) {
 		p.nextToken() // skip 'else'
 		if !p.curTokenIs(TOKEN_LBRACE) {
@@ -291,6 +291,16 @@ func (p *Parser) parseRouteStatement() Statement {
 			return nil
 		}
 		stmt.ElseBlock = p.parseBlockStatement()
+	}
+
+	// Optional disconnect block (SSE routes only): } disconnect { ... }
+	if stmt.Method == "SSE" && p.curTokenIs(TOKEN_IDENT) && p.curTok.Literal == "disconnect" {
+		p.nextToken() // skip 'disconnect'
+		if !p.curTokenIs(TOKEN_LBRACE) {
+			p.addError("expected '{' after disconnect, got %s", p.curTok.Type)
+			return nil
+		}
+		stmt.DisconnectBlock = p.parseBlockStatement()
 	}
 
 	return stmt

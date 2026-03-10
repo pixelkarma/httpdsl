@@ -266,7 +266,7 @@ route POST "/tasks" {
     html = render("partials/task_card.gohtml", task)
 
     // Broadcast to other clients
-    broadcast("task-created", {
+    sse.channel("board").send("task-created", {
         id: task.id,
         title: task.title,
         user: task.username,
@@ -306,7 +306,7 @@ route PATCH "/tasks/:id" {
     html = render("partials/task_card.gohtml", task)
 
     // Broadcast move to other clients
-    broadcast("task-moved", {
+    sse.channel("board").send("task-moved", {
         id: task.id,
         status: task.status,
         user: request.session.username,
@@ -331,7 +331,7 @@ route DELETE "/tasks/:id" {
     app_db.exec("DELETE FROM tasks WHERE id = ?", [task_id])
 
     // Broadcast deletion
-    broadcast("task-deleted", {
+    sse.channel("board").send("task-deleted", {
         id: task_id,
         user: request.session.username
     })

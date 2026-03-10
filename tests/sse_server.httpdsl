@@ -2,22 +2,55 @@ server {
     port 9995
 }
 
-route SSE "/sse/global" {
-    stream.send("welcome", { ok: true })
+// Basic SSE connect — sends welcome with stream ID
+route SSE "/sse/connect" {
+    stream.set("name", "test-user")
+    stream.send("welcome", { id: stream.id })
 }
 
+// SSE with channel join
 route SSE "/sse/channel" {
     ch = request.query.ch
     stream.join(ch)
     stream.send("joined", { channel: ch })
 }
 
+// SSE with metadata and disconnect handler
+route SSE "/sse/meta" {
+    stream.set("name", request.query.name ?? "anon")
+    stream.join("lobby")
+    stream.send("welcome", { name: stream.get("name") })
+} disconnect {
+    name = stream.get("name")
+    sse.channel("lobby").send("left", { name: name })
+}
+
+// Broadcast via sse.broadcast (to ALL connections)
 route POST "/sse/broadcast" {
-    broadcast("msg", { value: request.data.value })
+    sse.broadcast("msg", { value: request.data.value })
     response.body = { sent: true }
 }
 
+// Send to a specific channel via sse.channel
 route POST "/sse/target" {
-    broadcast("msg", { value: request.data.value }, request.data.channel)
+    ch = sse.channel(request.data.channel)
+    ch.send("msg", { value: request.data.value })
     response.body = { sent: true }
+}
+
+// Get connection count
+route GET "/sse/count" {
+    response.body = { count: sse.count() }
+}
+
+// Find stream by ID and send to it
+route POST "/sse/send-to" {
+    s = sse.find(request.data.id)
+    if s != null {
+        s.send("direct", { value: request.data.value })
+        response.body = { sent: true }
+    } else {
+        response.status = 404
+        response.body = { error: "not found" }
+    }
 }

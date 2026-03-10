@@ -37,8 +37,9 @@ type RouteStatement struct {
 	TypeCheck string          // "json", "text", "form", or "" (auto-detect)
 	Timeout      int             // per-route timeout in seconds (0 = use server default)
 	CSRFDisabled bool            // csrf false on this route
-	Body         *BlockStatement
-	ElseBlock    *BlockStatement // runs on type mismatch or uncaught errors
+	Body            *BlockStatement
+	ElseBlock       *BlockStatement // runs on type mismatch or uncaught errors
+	DisconnectBlock *BlockStatement // SSE disconnect handler
 }
 
 func (s *RouteStatement) statementNode()       {}
