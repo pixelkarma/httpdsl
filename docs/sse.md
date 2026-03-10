@@ -56,6 +56,7 @@ stream.send(type, data)          // send to this connection
 stream.send(data)                // send with default type "message"
 stream.join("channel")           // join a channel (O(1) indexed add)
 stream.leave("channel")          // leave a channel
+stream.channels()                // array of channel handles this stream belongs to
 stream.close()                   // server-side disconnect
 ```
 
@@ -127,6 +128,21 @@ route POST "/send-to/:id" json {
 }
 ```
 
+### stream.channels()
+
+Get the list of channels this stream has joined. Returns an array of channel handles:
+
+```httpdsl
+route SSE "/events" {
+  stream.join("lobby")
+  stream.join("vip")
+  
+  chs = stream.channels()
+  // chs is an array of channel handles
+  // each supports .send(), .streams(), .count()
+}
+```
+
 ### stream.close()
 
 Disconnect a client from the server side:
@@ -152,6 +168,7 @@ sse.find_by(key, value)          // array of stream handles matching metadata
 sse.channel("name")              // channel handle
 sse.broadcast(type, data)        // send to every connection
 sse.count()                      // total live connections
+sse.channels()                   // array of all active channel handles
 ```
 
 ### sse.broadcast()
@@ -198,6 +215,19 @@ route POST "/notify-user/:username" json {
 ```httpdsl
 route GET "/stats" {
   response.body = {connections: sse.count()}
+}
+```
+
+### sse.channels()
+
+Get all active channel handles. A channel is active if at least one stream is in it:
+
+```httpdsl
+route GET "/channels" {
+  channels = sse.channels()
+  response.body = map(channels, fn(ch) {
+    return {name: ch.name, count: ch.count()}
+  })
 }
 ```
 

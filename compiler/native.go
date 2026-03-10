@@ -4471,6 +4471,18 @@ func _sseStreamID(handle Value) Value {
 	return Value(h.stream.id)
 }
 
+func _sseStreamChannels(handle Value) Value {
+	h, ok := handle.(*sseStreamHandle)
+	if !ok || h.stream == nil { return Value([]Value{}) }
+	h.stream.mu.RLock()
+	result := make([]Value, 0, len(h.stream.channels))
+	for ch := range h.stream.channels {
+		result = append(result, Value(&sseChannelHandle{name: ch}))
+	}
+	h.stream.mu.RUnlock()
+	return Value(result)
+}
+
 // --- Global SSE namespace functions ---
 
 func _sseFind(id Value) Value {
@@ -4526,6 +4538,16 @@ func _sseCount() Value {
 	n := len(_sseHub.streams)
 	_sseHub.mu.RUnlock()
 	return Value(int64(n))
+}
+
+func _sseChannels() Value {
+	_sseHub.mu.RLock()
+	result := make([]Value, 0, len(_sseHub.channels))
+	for name := range _sseHub.channels {
+		result = append(result, Value(&sseChannelHandle{name: name}))
+	}
+	_sseHub.mu.RUnlock()
+	return Value(result)
 }
 
 // --- Channel handle methods ---
@@ -5534,6 +5556,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 					return "null"
 				case "close":
 					return "_sseStreamClose(stream)"
+				case "channels":
+					return "_sseStreamChannels(stream)"
 				}
 			case "sse":
 				switch dot.Field {
@@ -5556,6 +5580,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 					return fmt.Sprintf("_sseBroadcast(%s)", argStr)
 				case "count":
 					return "_sseCount()"
+				case "channels":
+					return "_sseChannels()"
 				}
 			}
 		}
@@ -5657,6 +5683,8 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 				return "null"
 			case "close":
 				return fmt.Sprintf("_sseStreamClose(%s)", objExpr)
+			case "channels":
+				return fmt.Sprintf("_sseStreamChannels(%s)", objExpr)
 			case "streams":
 				return fmt.Sprintf("_sseChannelStreams(%s)", objExpr)
 			case "count":
