@@ -22,26 +22,12 @@ This is the complete language reference.
   - Running the compiled binary
   - The request/response cycle
 
-### II. Language Fundamentals
-
 - [**File Structure**](structure.md) — How `.httpdsl` files are organized
   - All top-level blocks at a glance
   - Execution order
   - Globals vs locals
 
-- [**Server Configuration**](server.md) — The `server { }` block
-  - `port` — listen port
-  - `ssl_cert` / `ssl_key` — manual TLS certificates
-  - `autocert` / `autocert_dir` — automatic Let's Encrypt certificates
-  - `https_redirect` — HTTP to HTTPS redirect (default: true when TLS active)
-  - `www_redirect` — non-www to www redirect
-  - `gzip` — response compression
-  - `throttle_requests_per_second` — per-IP rate limiting
-  - `static` — file serving mounts
-  - `templates` — Go html/template directory
-  - `cors` — cross-origin resource sharing
-  - `session` — server-side sessions and CSRF
-  - Runtime overrides: `-p` (port), `-s` (static dir), `-a` (autocert), env vars
+### II. Language Fundamentals
 
 - [**Types & Values**](types.md) — The value system
   - Strings, integers, floats, booleans, null
@@ -82,6 +68,20 @@ This is the complete language reference.
   - Error propagation
 
 ### III. HTTP Server
+
+- [**Server Configuration**](server.md) — The `server { }` block
+  - `port` — listen port
+  - `ssl_cert` / `ssl_key` — manual TLS certificates
+  - `autocert` / `autocert_dir` — automatic Let's Encrypt certificates
+  - `https_redirect` — HTTP to HTTPS redirect (default: true when TLS active)
+  - `www_redirect` — non-www to www redirect
+  - `gzip` — response compression
+  - `throttle_requests_per_second` — per-IP rate limiting
+  - `static` — file serving mounts
+  - `templates` — Go html/template directory
+  - `cors` — cross-origin resource sharing
+  - `session` — server-side sessions and CSRF
+  - Runtime overrides: `-p` (port), `-s` (static dir), `-a` (autocert), env vars
 
 - [**Routes**](routes.md) — Defining HTTP endpoints
   - `route METHOD "/path" { }` syntax
@@ -126,6 +126,15 @@ This is the complete language reference.
   - `error <status_code> { }` blocks
   - Custom 404, 500, etc.
 
+- [**Templates**](templates.md) — Server-side HTML rendering
+  - `server { templates "./dir" }` configuration
+  - `render("template.gohtml", { data })` — as statement or expression
+  - Go `html/template` syntax
+  - Template data: `{{.Page.key}}`, `{{.Request.method}}`
+  - CSRF helpers: `{{csrf_field}}`, `{{csrf_token}}`
+  - Layouts, partials, and template inheritance
+  - Compile-time embedding (no runtime filesystem access)
+
 - [**Server-Sent Events**](sse.md) — Real-time streaming
   - `route SSE "/path" { } disconnect { }` — SSE endpoint with optional disconnect handler
   - `stream` — per-connection handle with UUID, metadata, and channel membership
@@ -136,14 +145,18 @@ This is the complete language reference.
   - `sse.count()`, `sse.channels()` — connection and channel queries
   - Indexed channels (no full-scan), automatic heartbeat, auto-cleanup on disconnect
 
-- [**Templates**](templates.md) — Server-side HTML rendering
-  - `server { templates "./dir" }` configuration
-  - `render("template.gohtml", { data })` — as statement or expression
-  - Go `html/template` syntax
-  - Template data: `{{.Page.key}}`, `{{.Request.method}}`
-  - CSRF helpers: `{{csrf_field}}`, `{{csrf_token}}`
-  - Layouts, partials, and template inheritance
-  - Compile-time embedding (no runtime filesystem access)
+- [**Init**](init.md) — Startup initialization
+  - `init { }` block — runs once before server starts
+  - Variables assigned in `init` become **globals** (accessible everywhere)
+  - Execution order: CLI flags → .env → init → templates → routes → listen
+  - Database setup, store initialization, configuration
+
+- [**Shutdown**](shutdown.md) — Graceful shutdown hooks
+  - `shutdown { }` block
+  - Automatic store flushing
+  - Session cleanup
+  - Database connection closing
+  - Signal handling (`SIGINT`, `SIGTERM`)
 
 ### IV. Security
 
@@ -209,7 +222,7 @@ This is the complete language reference.
   - Built-in flags: `-h`, `-v`, `-e <path>`
   - Load order and precedence
 
-### VI. Async & Concurrency
+### VI. Background Tasks
 
 - [**Async / Await**](async.md) — Concurrent execution
   - `async expression` — spawn a concurrent task (returns a future)
@@ -217,30 +230,13 @@ This is the complete language reference.
   - `race(future1, future2, ...)` — first to complete wins
   - Async-compatible builtins (`fetch`, `exec`, etc.)
 
-### VII. Scheduled Tasks
-
 - [**Timers & Cron**](scheduling.md) — Background task scheduling
   - `every N s/m/h { }` — interval-based (seconds, minutes, hours)
   - `every "cron_expression" { }` — cron-based (5-field: min hour dom month dow)
   - Cron syntax: `*`, ranges (`1-5`), steps (`*/5`), lists (`1,3,5`)
   - Runs alongside the HTTP server
 
-### VIII. Lifecycle
-
-- [**Init**](init.md) — Startup initialization
-  - `init { }` block — runs once before server starts
-  - Variables assigned in `init` become **globals** (accessible everywhere)
-  - Execution order: CLI flags → .env → init → templates → routes → listen
-  - Database setup, store initialization, configuration
-
-- [**Shutdown**](shutdown.md) — Graceful shutdown hooks
-  - `shutdown { }` block
-  - Automatic store flushing
-  - Session cleanup
-  - Database connection closing
-  - Signal handling (`SIGINT`, `SIGTERM`)
-
-### IX. Builtin Functions Reference
+### VII. Builtin Functions Reference
 
 - [**String Functions**](builtins/strings.md)
   - `len`, `trim`, `upper`, `lower`, `split`, `join`, `replace`
