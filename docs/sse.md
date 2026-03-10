@@ -1,10 +1,10 @@
 # Server-Sent Events (SSE)
 
 - [Basic SSE Route](#basic-sse-route)
+- [Disconnect handler](#disconnect-handler)
 - [stream — per-connection handle](#stream--per-connection-handle)
 - [sse — global namespace](#sse--global-namespace)
 - [Channel handles](#channel-handles)
-- [Disconnect handler](#disconnect-handler)
 - [Early Exit](#early-exit)
 - [Chat Room Example](#chat-room-example)
 - [Room-Based Chat](#room-based-chat)
@@ -28,6 +28,21 @@ route SSE "/events" {
 ```
 
 Each SSE connection gets a unique **stream** handle, available as the `stream` variable inside the route body.
+
+## Disconnect handler
+
+SSE routes support an optional `disconnect` block that runs when a client disconnects. The disconnect block runs **after** the stream is removed from channels but **before** metadata is cleaned up, so `stream.get()` still works.
+
+```httpdsl
+route SSE "/events" {
+  stream.set("name", request.session.username)
+  stream.join("lobby")
+  stream.send("welcome", {id: stream.id})
+} disconnect {
+  name = stream.get("name")
+  sse.channel("lobby").send("left", {name: name})
+}
+```
 
 ## stream — per-connection handle
 
@@ -225,21 +240,6 @@ route GET "/room/:id/info" {
     count: ch.count(),
     members: names
   }
-}
-```
-
-## Disconnect handler
-
-SSE routes support an optional `disconnect` block that runs when a client disconnects. The disconnect block runs **after** the stream is removed from channels but **before** metadata is cleaned up, so `stream.get()` still works.
-
-```httpdsl
-route SSE "/events" {
-  stream.set("name", request.session.username)
-  stream.join("lobby")
-  stream.send("welcome", {id: stream.id})
-} disconnect {
-  name = stream.get("name")
-  sse.channel("lobby").send("left", {name: name})
 }
 ```
 
