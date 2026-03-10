@@ -30,11 +30,11 @@ server {
 
 // Init block runs once at startup
 init {
-  db.sqlite("app.db")
-  db.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+  db = db.open("sqlite", "app.db")
+  db.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)", [])
   store.sync("cache.db")
   app_name = env("APP_NAME", "MyApp")
-  debug = args.debug ?? false
+  debug = args["debug"] ?? false
   log_info(`${app_name} starting in ${debug ? "debug" : "production"} mode`)
 }
 
@@ -66,7 +66,7 @@ before {
 }
 
 after {
-  response.headers["X-Powered-By"] = "httpdsl"
+  log_info(`${request.method} ${request.path} completed with status ${response.status}`)
 }
 
 // Routes
@@ -84,7 +84,7 @@ route GET "/health" {
 }
 
 route POST "/auth/login" {
-  errors = validate(request.body, {
+  errors = validate(request.data, {
     email: "required|email",
     password: "required|min:8"
   })
@@ -94,8 +94,8 @@ route POST "/auth/login" {
     return
   }
 
-  user = db.query_one("SELECT * FROM users WHERE email = ?", [request.body.email])
-  if user == null || !verify_password(request.body.password, user.password_hash) {
+  user = db.query_one("SELECT * FROM users WHERE email = ?", [request.data.email])
+  if user == null || !verify_password(request.data.password, user.password_hash) {
     response.status = 401
     response.body = {error: "Invalid credentials"}
     return
@@ -146,16 +146,16 @@ group "/api/users" {
 }
 
 // Server-Sent Events
-route GET "/events" {
+route SSE "/events" {
   stream.send("welcome", {message: "Connected"})
   stream.join("notifications")
 }
 
 // Scheduled task
-every 30s {
-  count = db.query_value("SELECT COUNT(*) FROM users")
+every 30 s {
+  count = db.query_value("SELECT COUNT(*) FROM users", [])
   store.set("user_count", count)
-  broadcast("notifications", "stats", {users: count, time: now()})
+  sse.broadcast("stats", {users: count, time: now()})
 }
 
 every "0 0 * * *" {
@@ -179,7 +179,7 @@ route GET "/dashboard" {
 
 // File operations in a route
 route POST "/upload" {
-  data = stringify(request.body)
+  data = json.stringify(request.data)
   file.write("./uploads/data.json", data)
   exists = file.exists("./uploads/data.json")
   response.body = {saved: exists}

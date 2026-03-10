@@ -38,7 +38,7 @@
     },
 
     "route-definition": {
-      "match": "\\b(route)\\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\b",
+      "match": "\\b(route)\\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|SSE)\\b",
       "captures": {
         "1": { "name": "keyword.control.route.httpdsl" },
         "2": { "name": "constant.language.http-method.httpdsl" }
@@ -68,7 +68,7 @@
     },
 
     "every-block": {
-      "match": "\\b(every)\\s+(?:(\\d+[smhd])|(\"[^\"]*\"))\\s*(?=\\{)",
+      "match": "\\b(every)\\s+(?:(\\d+\\s*[smh])|(\"[^\"]*\"))\\s*(?=\\{)",
       "captures": {
         "1": { "name": "keyword.control.every.httpdsl" },
         "2": { "name": "constant.numeric.duration.httpdsl" },
@@ -202,7 +202,7 @@
     "special-variables": {
       "patterns": [
         {
-          "match": "\\b(request)\\s*\\.\\s*(body|headers|method|path|query|params|cookies|ip)\\b",
+          "match": "\\b(request)\\s*\\.\\s*(data|headers|method|path|query|params|cookies|ip|session|bearer|basic)\\b",
           "captures": {
             "1": { "name": "variable.language.request.httpdsl" },
             "2": { "name": "variable.other.property.httpdsl" }
@@ -225,7 +225,7 @@
     "builtin-functions": {
       "patterns": [
         {
-          "match": "\\b(len|type|int|float|str|bool|print|log|log_info|log_warn|log_error|keys|values|merge|hash|append|split|join|trim|lower|upper|capitalize|replace|contains|starts_with|ends_with|index_of|includes|repeat|pad_left|pad_right|truncate|regex|regex_match|regex_replace|slice|reverse|sort|sort_by|filter|map|reduce|some|all|flat|unique|chunk|pluck|group_by|sum|range|abs|ceil|floor|round|min|max|clamp|rand|now|now_ms|date|date_format|date_parse|strtotime|sleep|uuid|hash_password|verify_password|hmac_hash|env|fetch|redirect|render|broadcast|validate|is_email|is_url|is_uuid|is_numeric|url_encode|url_decode|stringify|parse|exec|server_stats|set_session_store|csrf_token|csrf_field)\\s*\\(",
+          "match": "\\b(len|type|int|float|str|bool|print|log|log_info|log_warn|log_error|keys|values|merge|hash|append|push|split|join|trim|lower|upper|capitalize|replace|contains|starts_with|ends_with|index_of|repeat|pad_left|pad_right|truncate|regex_match|regex_replace|slice|reverse|sort|sort_by|filter|map|reduce|find|some|every|count|flat|unique|chunk|pluck|group_by|sum|range|abs|ceil|floor|round|min|max|clamp|rand|now|now_ms|date|date_format|date_parse|strtotime|sleep|uuid|cuid2|hash_password|verify_password|hmac_hash|env|fetch|redirect|render|broadcast|validate|is_email|is_url|is_uuid|is_numeric|url_encode|url_decode|base64_encode|base64_decode|exec|server_stats|set_session_store|csrf_token|csrf_field)\\s*\\(",
           "captures": {
             "1": { "name": "support.function.builtin.httpdsl" }
           }
@@ -236,9 +236,15 @@
     "db-access": {
       "patterns": [
         {
-          "match": "\\b(db)\\s*\\.\\s*(sqlite|postgres|mysql|mongo|query|query_one|query_value|exec|find|find_one|insert|insert_many|update|delete|count|close)\\s*\\(",
+          "match": "\\b(db)\\s*\\.\\s*(open)\\s*\\(",
           "captures": {
             "1": { "name": "variable.language.db.httpdsl" },
+            "2": { "name": "support.function.db.httpdsl" }
+          }
+        },
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\.\\s*(exec|query|query_one|query_value|find|find_one|insert|insert_many|update|delete|count|close)\\s*\\(",
+          "captures": {
             "2": { "name": "support.function.db.httpdsl" }
           }
         }
@@ -272,9 +278,15 @@
     "file-access": {
       "patterns": [
         {
-          "match": "\\b(file)\\s*\\.\\s*(read|write|read_json|write_json|exists|list|open|close|mkdir|chmod|delete|append)\\s*\\(",
+          "match": "\\b(file)\\s*\\.\\s*(open|read|write|append|read_json|write_json|exists|delete|list|mkdir|chmod)\\s*\\(",
           "captures": {
             "1": { "name": "variable.language.file.httpdsl" },
+            "2": { "name": "support.function.file.httpdsl" }
+          }
+        },
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\.\\s*(read|write|append|lines|json|write_json|exists|size|delete|path)\\s*\\(",
+          "captures": {
             "2": { "name": "support.function.file.httpdsl" }
           }
         }
@@ -284,9 +296,16 @@
     "stream-access": {
       "patterns": [
         {
-          "match": "\\b(stream)\\s*\\.\\s*(send|join|close)\\s*\\(",
+          "match": "\\b(stream)\\s*\\.\\s*(send|join|leave|set|get|close|channels)\\s*\\(",
           "captures": {
             "1": { "name": "variable.language.stream.httpdsl" },
+            "2": { "name": "support.function.stream.httpdsl" }
+          }
+        },
+        {
+          "match": "\\b(sse)\\s*\\.\\s*(find|find_by|channel|broadcast|count|channels)\\s*\\(",
+          "captures": {
+            "1": { "name": "variable.language.sse.httpdsl" },
             "2": { "name": "support.function.stream.httpdsl" }
           }
         }

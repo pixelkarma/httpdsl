@@ -5,11 +5,11 @@ Syntax highlighting for [HTTPDSL](https://github.com/pixelkarma/httpdsl) — a D
 ## Features
 
 - Full syntax highlighting for `.httpdsl` files
-- Route definitions with HTTP method highlighting (`GET`, `POST`, `PUT`, etc.)
+- Route definitions with method highlighting (`GET`, `POST`, `PUT`, `SSE`, etc.)
 - Built-in function recognition (100+ functions)
 - Template string interpolation (`${...}` inside backticks)
-- `request`/`response`/`args` variable highlighting
-- `db.*`, `store.*`, `jwt.*`, `file.*`, `stream.*` method highlighting
+- `request`/`response`/`args` variable highlighting (including `request.data`, `request.session`, auth fields)
+- `db.*`, `store.*`, `jwt.*`, `file.*`, `stream.*`, `sse.*` method highlighting
 - Server block, init/shutdown, before/after, error handlers, scheduled tasks
 - Bracket matching and auto-closing pairs
 - Code folding
