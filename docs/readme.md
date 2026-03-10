@@ -126,6 +126,16 @@ This is the complete language reference.
   - `error <status_code> { }` blocks
   - Custom 404, 500, etc.
 
+- [**Server-Sent Events**](sse.md) — Real-time streaming
+  - `route SSE "/path" { } disconnect { }` — SSE endpoint with optional disconnect handler
+  - `stream` — per-connection handle with UUID, metadata, and channel membership
+  - `stream.send(type, data)`, `.set()`, `.get()`, `.join()`, `.leave()`, `.channels()`, `.close()`
+  - `sse.broadcast(type, data)` — send to all connections
+  - `sse.channel(name)` — channel handle: `.send()`, `.streams()`, `.count()`
+  - `sse.find(id)`, `sse.find_by(key, value)` — look up streams from any route
+  - `sse.count()`, `sse.channels()` — connection and channel queries
+  - Indexed channels (no full-scan), automatic heartbeat, auto-cleanup on disconnect
+
 - [**Templates**](templates.md) — Server-side HTML rendering
   - `server { templates "./dir" }` configuration
   - `render("template.gohtml", { data })` — as statement or expression
@@ -206,16 +216,6 @@ This is the complete language reference.
   - `await(future)` — block until result is ready
   - `race(future1, future2, ...)` — first to complete wins
   - Async-compatible builtins (`fetch`, `exec`, etc.)
-
-- [**Server-Sent Events**](sse.md) — Real-time streaming
-  - `route SSE "/path" { } disconnect { }` — SSE endpoint with optional disconnect handler
-  - `stream` — per-connection handle with UUID, metadata, and channel membership
-  - `stream.send(type, data)`, `.set()`, `.get()`, `.join()`, `.leave()`, `.channels()`, `.close()`
-  - `sse.broadcast(type, data)` — send to all connections
-  - `sse.channel(name)` — channel handle: `.send()`, `.streams()`, `.count()`
-  - `sse.find(id)`, `sse.find_by(key, value)` — look up streams from any route
-  - `sse.count()`, `sse.channels()` — connection and channel queries
-  - Indexed channels (no full-scan), automatic heartbeat, auto-cleanup on disconnect
 
 ### VII. Scheduled Tasks
 
