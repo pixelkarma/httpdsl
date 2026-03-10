@@ -5,6 +5,7 @@
 - [Usage](#usage)
   - [`httpdsl build`](#httpdsl-build)
   - [`httpdsl run`](#httpdsl-run)
+  - [`httpdsl fmt`](#httpdsl-fmt)
 - [Compilation Model](#compilation-model)
 - [Output Naming](#output-naming)
 - [Project Mode](#project-mode)
@@ -83,6 +84,20 @@ This compiles to a temp directory, starts the server, and watches all files in t
 - Build errors are displayed inline — the watcher stays active and rebuilds on the next save
 - Hidden directories (`.git`), `node_modules`, and `vendor` are excluded from watching
 - Ctrl+C cleanly shuts down both the watcher and the server
+
+### `httpdsl fmt`
+
+Format `.httpdsl` files in place:
+
+```bash
+# Format one file
+httpdsl fmt app.httpdsl
+
+# Format every .httpdsl file under a directory (recursive)
+httpdsl fmt .
+```
+
+Formatting currently normalizes indentation to 4 spaces based on block braces and keeps template/comment bodies intact.
 
 ## Compilation Model
 

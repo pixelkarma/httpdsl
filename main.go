@@ -34,6 +34,7 @@ func main() {
 		fmt.Println("Commands:")
 		fmt.Println("  run [path]    Compile, run, and watch for changes (requires Go)")
 		fmt.Println("  build [path]  Compile to native binary (requires Go)")
+		fmt.Println("  fmt [path]    Format .httpdsl files in place")
 		fmt.Println("")
 		fmt.Println("If no path given, looks for app.httpdsl in current directory")
 		fmt.Println("and recursively includes all .httpdsl files.")
@@ -59,6 +60,16 @@ func main() {
 			target = resolveDefault()
 		}
 		doRunWatch(target)
+	case "fmt":
+		if len(os.Args) >= 3 {
+			target = os.Args[2]
+		} else {
+			target = "."
+		}
+		if err := doFmt(target); err != nil {
+			fmt.Fprintf(os.Stderr, "Format error: %s\n", err)
+			os.Exit(1)
+		}
 	default:
 		target = cmd
 		doRunWatch(target)

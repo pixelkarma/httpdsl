@@ -13,6 +13,7 @@ This is the complete language reference.
 - [**The Compiler**](compiler.md) — Installing, building, and using the `httpdsl` CLI
   - Building from source
   - `httpdsl build` command
+  - `httpdsl fmt` command
   - Compilation model (`.httpdsl` → Go source → native binary)
   - Go version requirements
   - Project structure conventions
