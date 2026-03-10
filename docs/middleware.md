@@ -211,7 +211,9 @@ server {
   port 3000
 }
 
-api_key = env("API_KEY", "default-key")
+init {
+  api_key = env("API_KEY", "default-key")
+}
 
 route GET "/public" {
   response.body = {message: "Public endpoint"}
@@ -247,7 +249,9 @@ server {
   port 3000
 }
 
-jwt_secret = env("JWT_SECRET")
+init {
+  jwt_secret = env("JWT_SECRET")
+}
 
 route POST "/auth/login" json {
   {email, password} = request.data
@@ -386,8 +390,6 @@ route GET "/api/data" {
 server {
   port 3000
 }
-
-request_counts = {}
 
 before {
   client_ip = request.ip

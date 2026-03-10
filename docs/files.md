@@ -345,10 +345,12 @@ server {
   port 3000
 }
 
-base_path = "./storage"
+init {
+  base_path = "./storage"
 
-if !file.exists(base_path) {
-  file.mkdir(base_path)
+  if !file.exists(base_path) {
+    file.mkdir(base_path)
+  }
 }
 
 route GET "/files" {
@@ -403,7 +405,9 @@ server {
   port 3000
 }
 
-config_file = "./config.json"
+init {
+  config_file = "./config.json"
+}
 
 fn load_config() {
   if file.exists(config_file) {
@@ -424,7 +428,9 @@ fn save_config(config) {
   file.write_json(config_file, config)
 }
 
-config = load_config()
+init {
+  config = load_config()
+}
 
 route GET "/config" {
   response.body = config
@@ -460,7 +466,9 @@ server {
   port 3000
 }
 
-log = file.open("./app.log")
+init {
+  log = file.open("./app.log")
+}
 
 route GET "/logs" {
   if !log.exists() {
@@ -504,7 +512,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 route POST "/backup" {
   users = db_conn.query("SELECT * FROM users", [])

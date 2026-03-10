@@ -188,7 +188,9 @@ server {
   port 3000
 }
 
-api_key = env("API_KEY", "secret-key")
+init {
+  api_key = env("API_KEY", "secret-key")
+}
 
 route GET "/public" {
   response.body = {message: "Public endpoint"}

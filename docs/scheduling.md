@@ -134,7 +134,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 every "0 2 * * *" {
   log_info("Starting database backup")
@@ -187,7 +189,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 every 5 m {
   log_info("Syncing with external API")
@@ -218,7 +222,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 every 1 m {
   pending = db_conn.query(
@@ -259,7 +265,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 every 10 m {
   log_info("Warming cache")
@@ -285,7 +293,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 every "0 8 * * 1" {
   log_info("Generating weekly report")
@@ -326,7 +336,9 @@ server {
   }
 }
 
-db_conn = db.open("sqlite", "./sessions.db")
+init {
+  db_conn = db.open("sqlite", "./sessions.db")
+}
 
 every 1 h {
   log_info("Cleaning expired sessions")

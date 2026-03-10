@@ -155,7 +155,9 @@ log(counter2())
 Capturing route context:
 
 ```httpdsl
-api_key = env("API_KEY")
+init {
+  api_key = env("API_KEY")
+}
 
 fn check_auth(headers) {
   token = headers["authorization"] ?? ""
@@ -271,18 +273,12 @@ route POST "/api/register" json {
 ### Database Query Helper
 
 ```httpdsl
-db_conn = null
-
-fn get_db() {
-  if db_conn == null {
-    db_conn = db.open("sqlite", "./data.db")
-  }
-  return db_conn
+init {
+  db_conn = db.open("sqlite", "./data.db")
 }
 
 fn find_user_by_id(id) {
-  conn = get_db()
-  user = conn.query_one("SELECT * FROM users WHERE id = ?", [id])
+  user = db_conn.query_one("SELECT * FROM users WHERE id = ?", [id])
   
   if user == null {
     return null, "User not found"

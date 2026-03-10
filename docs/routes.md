@@ -250,7 +250,9 @@ server {
   port 3000
 }
 
-items = []
+init {
+  items = []
+}
 
 route GET "/api/items" {
   response.body = {items: items, count: len(items)}

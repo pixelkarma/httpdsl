@@ -268,7 +268,9 @@ server {
   port 3000
 }
 
-is_production = env("ENV") == "production"
+init {
+  is_production = env("ENV") == "production"
+}
 
 error 500 {
   if is_production {

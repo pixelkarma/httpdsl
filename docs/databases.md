@@ -170,16 +170,18 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
 
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    created_at TEXT
-  )
-`, [])
+  db_conn.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      created_at TEXT
+    )
+  `, [])
+}
 
 route GET "/users" {
   users = db_conn.query("SELECT * FROM users", [])
@@ -360,7 +362,9 @@ server {
   port 3000
 }
 
-mongo = db.open("mongo", "mongodb://localhost:27017/myapp")
+init {
+  mongo = db.open("mongo", "mongodb://localhost:27017/myapp")
+}
 
 route GET "/products" {
   products = mongo.find("products", {})
@@ -431,7 +435,9 @@ route DELETE "/products/:id" {
 Connections are reused across requests:
 
 ```httpdsl
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 route GET "/data" {
   rows = db_conn.query("SELECT * FROM data", [])
@@ -446,7 +452,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 route POST "/transfer" json {
   {from_id, to_id, amount} = request.data
@@ -479,10 +487,11 @@ route POST "/transfer" json {
 ## Environment Configuration
 
 ```httpdsl
-db_url = env("DATABASE_URL", "sqlite::memory:")
-db_type = env("DB_TYPE", "sqlite")
-
-conn = db.open(db_type, db_url)
+init {
+  db_url = env("DATABASE_URL", "sqlite::memory:")
+  db_type = env("DB_TYPE", "sqlite")
+  conn = db.open(db_type, db_url)
+}
 
 route GET "/stats" {
   count = conn.query_value("SELECT COUNT(*) FROM users", [])

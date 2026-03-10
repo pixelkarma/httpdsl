@@ -37,7 +37,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 shutdown {
   log_info("Closing database connection")
@@ -53,7 +55,9 @@ server {
   port 3000
 }
 
-counter = 0
+init {
+  counter = 0
+}
 
 route GET "/increment" {
   counter += 1
@@ -81,7 +85,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 shutdown {
   log_info("Graceful shutdown initiated")
@@ -131,8 +137,10 @@ server {
   port 3000
 }
 
-db_conn = db.open("postgres", env("DATABASE_URL"))
-redis_conn = db.open("redis", "localhost:6379")
+init {
+  db_conn = db.open("postgres", env("DATABASE_URL"))
+  redis_conn = db.open("redis", "localhost:6379")
+}
 
 shutdown {
   log_info("Closing connections")
@@ -187,9 +195,10 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
-
-store.sync("./store.json", 60)
+init {
+  db_conn = db.open("sqlite", "./app.db")
+  store.sync("./store.json", 60)
+}
 
 route GET "/" {
   visits = store.get("visits", 0)
@@ -237,9 +246,10 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
-
-in_transaction = false
+init {
+  db_conn = db.open("sqlite", "./app.db")
+  in_transaction = false
+}
 
 route POST "/transaction/start" {
   db_conn.exec("BEGIN TRANSACTION", [])
@@ -302,9 +312,10 @@ server {
   port 3000
 }
 
-lock_file = "./server.lock"
-
-file.write(lock_file, str(now()))
+init {
+  lock_file = "./server.lock"
+  file.write(lock_file, str(now()))
+}
 
 shutdown {
   log_info("Removing lock file")
@@ -343,11 +354,11 @@ server {
   port 3000
 }
 
-is_production = env("ENV") == "production"
-
-db_conn = db.open("postgres", env("DATABASE_URL", "postgres://localhost/myapp"))
-
-store.sync(db_conn, "kv_store", 30)
+init {
+  is_production = env("ENV") == "production"
+  db_conn = db.open("postgres", env("DATABASE_URL", "postgres://localhost/myapp"))
+  store.sync(db_conn, "kv_store", 30)
+}
 
 shutdown {
   timestamp = date_format(now(), "2006-01-02T15:04:05Z")

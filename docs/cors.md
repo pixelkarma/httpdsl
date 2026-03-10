@@ -102,11 +102,13 @@ server {
   port 3000
 }
 
-allowed_origins = [
-  "https://example.com",
-  "https://app.example.com",
-  "https://mobile.example.com"
-]
+init {
+  allowed_origins = [
+    "https://example.com",
+    "https://app.example.com",
+    "https://mobile.example.com"
+  ]
+}
 
 before {
   origin = request.headers["origin"] ?? ""
@@ -242,8 +244,10 @@ server {
   port 3000
 }
 
-is_production = env("ENV") == "production"
-allowed_origin = is_production ? "https://example.com" : "*"
+init {
+  is_production = env("ENV") == "production"
+  allowed_origin = is_production ? "https://example.com" : "*"
+}
 
 before {
   response.headers = {
@@ -290,10 +294,12 @@ server {
   port 3000
 }
 
-allowed_origins = [
-  "https://example.com",
-  "https://app.example.com"
-]
+init {
+  allowed_origins = [
+    "https://example.com",
+    "https://app.example.com"
+  ]
+}
 
 fn is_origin_allowed(origin) {
   each allowed in allowed_origins {

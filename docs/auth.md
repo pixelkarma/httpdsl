@@ -71,7 +71,9 @@ route POST "/login" json {
 Create JWT tokens:
 
 ```httpdsl
-secret = env("JWT_SECRET")
+init {
+  secret = env("JWT_SECRET")
+}
 
 route POST "/auth/login" json {
   {email, password} = request.data
@@ -107,7 +109,9 @@ Default is HS256.
 Verify and decode JWT tokens:
 
 ```httpdsl
-secret = env("JWT_SECRET")
+init {
+  secret = env("JWT_SECRET")
+}
 
 route GET "/api/profile" {
   token = request.bearer
@@ -142,18 +146,20 @@ server {
   port 3000
 }
 
-jwt_secret = env("JWT_SECRET", "dev-secret-key")
+init {
+  jwt_secret = env("JWT_SECRET", "dev-secret-key")
 
-db_conn = db.open("sqlite", "./auth.db")
+  db_conn = db.open("sqlite", "./auth.db")
 
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    email TEXT UNIQUE,
-    password_hash TEXT,
-    created_at TEXT
-  )
-`, [])
+  db_conn.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      created_at TEXT
+    )
+  `, [])
+}
 
 route POST "/auth/register" json {
   {email, password} = request.data
@@ -311,15 +317,17 @@ server {
   }
 }
 
-db_conn = db.open("sqlite", "./users.db")
+init {
+  db_conn = db.open("sqlite", "./users.db")
 
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    username TEXT UNIQUE,
-    password_hash TEXT
-  )
-`, [])
+  db_conn.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      username TEXT UNIQUE,
+      password_hash TEXT
+    )
+  `, [])
+}
 
 route POST "/register" json {
   {username, password} = request.data
@@ -421,9 +429,11 @@ server {
   port 3000
 }
 
-api_keys = {
-  "key123": {user_id: 1, name: "App 1"},
-  "key456": {user_id: 2, name: "App 2"}
+init {
+  api_keys = {
+    "key123": {user_id: 1, name: "App 1"},
+    "key456": {user_id: 2, name: "App 2"}
+  }
 }
 
 route GET "/api/data" {
@@ -457,7 +467,9 @@ server {
   port 3000
 }
 
-jwt_secret = env("JWT_SECRET")
+init {
+  jwt_secret = env("JWT_SECRET")
+}
 
 route POST "/oauth/token" json {
   {grant_type, username, password} = request.data

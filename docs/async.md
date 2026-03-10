@@ -95,7 +95,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 route GET "/dashboard" {
   f1 = async db_conn.query("SELECT * FROM users", [])
@@ -325,11 +327,13 @@ server {
   port 3000
 }
 
-webhook_urls = [
-  "https://webhook1.example.com/notify",
-  "https://webhook2.example.com/notify",
-  "https://webhook3.example.com/notify"
-]
+init {
+  webhook_urls = [
+    "https://webhook1.example.com/notify",
+    "https://webhook2.example.com/notify",
+    "https://webhook3.example.com/notify"
+  ]
+}
 
 route POST "/notify" json {
   payload = request.data

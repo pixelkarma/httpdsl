@@ -152,8 +152,10 @@ server {
   }
 }
 
-db_conn = db.open("sqlite", "./app.db")
-set_session_store(db_conn, "sessions", 60)
+init {
+  db_conn = db.open("sqlite", "./app.db")
+  set_session_store(db_conn, "sessions", 60)
+}
 
 route GET "/" {
   visits = store.get("visits", 0)
@@ -170,7 +172,9 @@ server {
   port 3000
 }
 
-db_conn = db.open("sqlite", "./app.db")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+}
 
 fn get_user(id) {
   cache_key = `user:${id}`

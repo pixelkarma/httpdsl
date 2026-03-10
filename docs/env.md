@@ -239,8 +239,10 @@ server {
   }
 }
 
-verbose = args["verbose"]
-api_key = env("API_KEY")
+init {
+  verbose = args["verbose"]
+  api_key = env("API_KEY")
+}
 
 before {
   if verbose {
@@ -276,10 +278,11 @@ Run it:
 ### Database Connection
 
 ```httpdsl
-db_type = args["db-type"] ?? env("DB_TYPE", "sqlite")
-db_url = args["db"] ?? env("DATABASE_URL", "./app.db")
-
-db_conn = db.open(db_type, db_url)
+init {
+  db_type = args["db-type"] ?? env("DB_TYPE", "sqlite")
+  db_url = args["db"] ?? env("DATABASE_URL", "./app.db")
+  db_conn = db.open(db_type, db_url)
+}
 
 route GET "/stats" {
   count = db_conn.query_value("SELECT COUNT(*) FROM users", [])
@@ -290,8 +293,10 @@ route GET "/stats" {
 ### Environment Detection
 
 ```httpdsl
-mode = args["mode"] ?? env("MODE", "development")
-is_production = mode == "production"
+init {
+  mode = args["mode"] ?? env("MODE", "development")
+  is_production = mode == "production"
+}
 
 route GET "/" {
   response.body = {

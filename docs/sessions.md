@@ -248,17 +248,19 @@ server {
   }
 }
 
-db_conn = db.open("sqlite", "./sessions.db")
+init {
+  db_conn = db.open("sqlite", "./sessions.db")
 
-db_conn.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    expires_at INTEGER
-  )
-`, [])
+  db_conn.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      expires_at INTEGER
+    )
+  `, [])
 
-set_session_store(db_conn, "sessions", 60)
+  set_session_store(db_conn, "sessions", 60)
+}
 
 route POST "/login" json {
   {username, password} = request.data
