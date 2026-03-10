@@ -314,7 +314,9 @@ route POST "/api/posts/:id/comments" json {
 Use a `before` block for cross-cutting request validation:
 
 ```httpdsl
-api_key = env("API_KEY")
+init {
+  api_key = env("API_KEY")
+}
 
 before {
   key = request.headers["x-api-key"] ?? ""

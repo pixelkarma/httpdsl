@@ -181,8 +181,6 @@ route GET "/protected" {
 }
 
 route DELETE "/account" {
-  }
-  
   user_id = request.session.user_id
   request.session.destroy()
   

@@ -518,6 +518,9 @@ func (p *Parser) parseEveryStatement() Statement {
 	// Cron expression: every "0 3 * * *" { ... }
 	if p.curTokenIs(TOKEN_STRING) {
 		stmt.CronExpr = p.curTok.Literal
+		if err := validateCronExpr(stmt.CronExpr); err != nil {
+			p.addError("invalid cron expression %q: %v", stmt.CronExpr, err)
+		}
 		p.nextToken()
 		if !p.curTokenIs(TOKEN_LBRACE) {
 			p.addError("expected '{' after cron expression, got %s", p.curTok.Type)
@@ -561,6 +564,89 @@ func (p *Parser) parseEveryStatement() Statement {
 	}
 	stmt.Body = p.parseBlockStatement()
 	return stmt
+}
+
+func validateCronExpr(expr string) error {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return fmt.Errorf("expected 5 fields (min hour dom month dow), got %d", len(fields))
+	}
+	ranges := [][2]int{
+		{0, 59}, // minute
+		{0, 23}, // hour
+		{1, 31}, // day of month
+		{1, 12}, // month
+		{0, 6},  // day of week
+	}
+	for i, f := range fields {
+		if err := validateCronField(f, ranges[i][0], ranges[i][1]); err != nil {
+			return fmt.Errorf("field %d (%q): %w", i+1, f, err)
+		}
+	}
+	return nil
+}
+
+func validateCronField(field string, min, max int) error {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return fmt.Errorf("empty field")
+	}
+	parts := strings.Split(field, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return fmt.Errorf("empty list item")
+		}
+
+		base := part
+		step := 1
+		if strings.Count(part, "/") > 1 {
+			return fmt.Errorf("too many step separators")
+		}
+		if idx := strings.Index(part, "/"); idx >= 0 {
+			base = part[:idx]
+			stepStr := part[idx+1:]
+			n, err := strconv.Atoi(stepStr)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("invalid step %q", stepStr)
+			}
+			step = n
+		}
+
+		if base == "*" {
+			_ = step
+			continue
+		}
+
+		if strings.Count(base, "-") > 1 {
+			return fmt.Errorf("invalid range %q", base)
+		}
+		if idx := strings.Index(base, "-"); idx >= 0 {
+			lo, errLo := strconv.Atoi(base[:idx])
+			hi, errHi := strconv.Atoi(base[idx+1:])
+			if errLo != nil || errHi != nil {
+				return fmt.Errorf("invalid range %q", base)
+			}
+			if lo > hi {
+				return fmt.Errorf("range start greater than end in %q", base)
+			}
+			if lo < min || hi > max {
+				return fmt.Errorf("range %q out of bounds (%d-%d)", base, min, max)
+			}
+			_ = step
+			continue
+		}
+
+		n, err := strconv.Atoi(base)
+		if err != nil {
+			return fmt.Errorf("invalid value %q", base)
+		}
+		if n < min || n > max {
+			return fmt.Errorf("value %d out of bounds (%d-%d)", n, min, max)
+		}
+		_ = step
+	}
+	return nil
 }
 
 func (p *Parser) parseSwitchStatement() Statement {
@@ -731,7 +817,9 @@ func (p *Parser) parseServerStatement() Statement {
 						p.nextToken()
 					}
 				}
-				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
+				if p.curTokenIs(TOKEN_RBRACE) {
+					p.nextToken()
+				}
 				stmt.Settings["cors"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(corsMap)}
 			} else if key == "session" && p.curTokenIs(TOKEN_LBRACE) {
 				// session { cookie "sid" expires 24 h secret "..." }
@@ -752,9 +840,12 @@ func (p *Parser) parseServerStatement() Statement {
 							}
 							multiplier := int64(1)
 							switch unit {
-							case "m": multiplier = 60
-							case "h": multiplier = 3600
-							case "d": multiplier = 86400
+							case "m":
+								multiplier = 60
+							case "h":
+								multiplier = 3600
+							case "d":
+								multiplier = 86400
 							}
 							n, _ := strconv.ParseInt(val, 10, 64)
 							sessionMap["expires"] = &IntegerLiteral{Value: n * multiplier}
@@ -765,11 +856,15 @@ func (p *Parser) parseServerStatement() Statement {
 						p.nextToken()
 					}
 				}
-				if p.curTokenIs(TOKEN_RBRACE) { p.nextToken() }
+				if p.curTokenIs(TOKEN_RBRACE) {
+					p.nextToken()
+				}
 				stmt.Settings["session"] = &HashLiteral{Token: p.curTok, Pairs: corsMapToPairs(sessionMap)}
 			} else {
 				// Allow optional '=' for settings: both "port 8080" and "port = 8080"
-				if p.curTokenIs(TOKEN_ASSIGN) { p.nextToken() }
+				if p.curTokenIs(TOKEN_ASSIGN) {
+					p.nextToken()
+				}
 				val := p.parseExpression(PREC_LOWEST)
 				stmt.Settings[key] = val
 			}
@@ -1238,12 +1333,12 @@ func (p *Parser) parseTemplateString() Expression {
 			parts = append(parts, &StringLiteral{Token: tok, Value: raw[i:]})
 			break
 		}
-		// Add static text before ${  
+		// Add static text before ${
 		if idx > 0 {
 			parts = append(parts, &StringLiteral{Token: tok, Value: raw[i : i+idx]})
 		}
 		// Find matching }
-		start := i + idx + 2 // skip ${  
+		start := i + idx + 2 // skip ${
 		depth := 1
 		j := start
 		for j < len(raw) && depth > 0 {
@@ -1262,7 +1357,7 @@ func (p *Parser) parseTemplateString() Expression {
 		subParser := NewParser(subLexer)
 		exprNode := subParser.parseExpression(PREC_LOWEST)
 		if exprNode != nil {
-			// Wrap in a call to valueToString via a string concatenation 
+			// Wrap in a call to valueToString via a string concatenation
 			parts = append(parts, exprNode)
 		}
 		i = j + 1 // skip past }

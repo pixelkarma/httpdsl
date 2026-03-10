@@ -140,6 +140,13 @@ func parseTarget(target string) *compiler.Program {
 			}
 			os.Exit(1)
 		}
+		if errs := validateTopLevelStatements(fileProgram); len(errs) > 0 {
+			fmt.Fprintf(os.Stderr, "Validation errors in %s:\n", src)
+			for _, e := range errs {
+				fmt.Fprintf(os.Stderr, "  %s\n", e)
+			}
+			os.Exit(1)
+		}
 		program.Statements = append(program.Statements, fileProgram.Statements...)
 	}
 	return program
@@ -204,9 +211,86 @@ func parseTargetSoft(target string) (*compiler.Program, error) {
 			}
 			return nil, fmt.Errorf("parse errors in %s:\n  %s", src, strings.Join(msgs, "\n  "))
 		}
+		if errs := validateTopLevelStatements(fileProgram); len(errs) > 0 {
+			return nil, fmt.Errorf("validation errors in %s:\n  %s", src, strings.Join(errs, "\n  "))
+		}
 		program.Statements = append(program.Statements, fileProgram.Statements...)
 	}
 	return program, nil
+}
+
+func validateTopLevelStatements(program *compiler.Program) []string {
+	var errs []string
+	for _, stmt := range program.Statements {
+		switch stmt.(type) {
+		case *compiler.RouteStatement,
+			*compiler.FnStatement,
+			*compiler.ServerStatement,
+			*compiler.GroupStatement,
+			*compiler.BeforeStatement,
+			*compiler.AfterStatement,
+			*compiler.InitStatement,
+			*compiler.ShutdownStatement,
+			*compiler.HelpStatement,
+			*compiler.ErrorStatement,
+			*compiler.EveryStatement:
+			continue
+		default:
+			line, col := statementLocation(stmt)
+			switch stmt.(type) {
+			case *compiler.AssignStatement,
+				*compiler.CompoundAssignStatement,
+				*compiler.IndexAssignStatement,
+				*compiler.ObjectDestructureStatement,
+				*compiler.ArrayDestructureStatement:
+				errs = append(errs, fmt.Sprintf("line %d, col %d: top-level assignments are not allowed; move this into init {}", line, col))
+			default:
+				errs = append(errs, fmt.Sprintf("line %d, col %d: invalid top-level statement; only blocks are allowed", line, col))
+			}
+		}
+	}
+	return errs
+}
+
+func statementLocation(stmt compiler.Statement) (int, int) {
+	switch s := stmt.(type) {
+	case *compiler.RouteStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.FnStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ServerStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.GroupStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.BeforeStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.AfterStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.InitStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ShutdownStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.HelpStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ErrorStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.EveryStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.AssignStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.CompoundAssignStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.IndexAssignStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ExpressionStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ObjectDestructureStatement:
+		return s.Token.Line, s.Token.Column
+	case *compiler.ArrayDestructureStatement:
+		return s.Token.Line, s.Token.Column
+	default:
+		return 0, 0
+	}
 }
 
 // extractPort reads the port from a parsed program's server block

@@ -37,7 +37,7 @@ before {
 }
 
 after {
-  response.headers["X-Powered-By"] = "httpdsl"
+  log_info(`${request.method} ${request.path} -> ${response.status}`)
 }
 
 route GET "/" {
@@ -79,7 +79,7 @@ shutdown {
 | `route METHOD "/path" { }` | HTTP endpoint handlers | [Routes](routes.md) |
 | `group "/prefix" { }` | Route collections with shared middleware | [Groups](groups.md) |
 | `before { }` | Runs before every request | [Middleware](middleware.md) |
-| `after { }` | Runs after every request | [Middleware](middleware.md) |
+| `after { }` | Runs after every request (post-response, for side effects only) | [Middleware](middleware.md) |
 | `error <code> { }` | Custom error pages (404, 500, etc.) | [Error Pages](error-pages.md) |
 | `every <interval> { }` | Scheduled tasks (interval or cron) | [Scheduling](scheduling.md) |
 | `shutdown { }` | Cleanup on SIGINT/SIGTERM | [Shutdown](shutdown.md) |

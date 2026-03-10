@@ -16,7 +16,7 @@
 - [Compression Headers](#compression-headers)
 - [Error Recovery](#error-recovery)
 
-Middleware functions run before or after route handlers, enabling cross-cutting concerns like logging, authentication, and response modification.
+Middleware functions run before or after route handlers, enabling cross-cutting concerns like logging, authentication, and async side effects.
 
 ## Global Middleware
 
@@ -67,7 +67,9 @@ route GET "/api/data" {
 
 ## After Middleware
 
-Runs after the route handler:
+Runs after the route handler **and after the response is written**.
+Use `after` for logging, metrics, and fire-and-forget side effects.
+`after` cannot modify the response body/headers/status seen by the client.
 
 ```httpdsl
 server {
@@ -75,10 +77,7 @@ server {
 }
 
 after {
-  response.headers = {
-    "X-Powered-By": "HTTPDSL",
-    "X-Response-Time": str(now())
-  }
+  log_info(`Completed ${request.method} ${request.path} with status ${response.status}`)
 }
 
 route GET "/" {
@@ -105,7 +104,7 @@ group "/api" {
   }
   
   after {
-    response.headers = {"X-API-Version": "1.0"}
+    log_info(`API request finished: ${request.path}`)
   }
   
   route GET "/users" {
@@ -123,8 +122,9 @@ group "/api" {
 1. Global `before`
 2. Group `before` (if route is in a group)
 3. Route handler
-4. Group `after` (if route is in a group)
-5. Global `after`
+4. Response is written
+5. Global `after` (async)
+6. Group `after` (async)
 
 ```httpdsl
 server {
@@ -340,7 +340,7 @@ server {
   port 3000
 }
 
-after {
+before {
   response.headers = {
     "X-Powered-By": "HTTPDSL",
     "X-Frame-Options": "DENY",
@@ -371,9 +371,7 @@ before {
     response.body = ""
     return
   }
-}
-
-after {
+  
   response.headers = {
     "Access-Control-Allow-Origin": "*"
   }
@@ -448,15 +446,14 @@ server {
 }
 
 after {
-  if response.status == 200 {
-    response.headers = {
-      "Cache-Control": "public, max-age=3600",
-      "Vary": "Accept-Encoding"
-    }
-  }
+  log_info(`Large data endpoint served: ${request.path}`)
 }
 
 route GET "/api/large-data" {
+  response.headers = {
+    "Cache-Control": "public, max-age=3600",
+    "Vary": "Accept-Encoding"
+  }
   response.body = {data: range(1000)}
 }
 ```

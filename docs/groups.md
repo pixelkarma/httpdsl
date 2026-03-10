@@ -382,7 +382,7 @@ group "/admin" {
 }
 
 group "/public" {
-  after {
+  before {
     response.headers = {"Cache-Control": "public, max-age=3600"}
   }
   
@@ -399,8 +399,9 @@ For a request to `/api/users`:
 1. Global `before` (if any)
 2. Group `before`
 3. Route handler
-4. Group `after`
-5. Global `after` (if any)
+4. Response is written
+5. Global `after` (if any, async)
+6. Group `after` (async)
 
 ```httpdsl
 server {

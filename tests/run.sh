@@ -33,7 +33,7 @@ echo ""
 # Start server
 TEST_PORT=$PORT $BIN -p $PORT &
 SRV_PID=$!
-trap "kill -TERM $SRV_PID 2>/dev/null; rm -f ../test_server" EXIT
+trap "kill -TERM $SRV_PID 2>/dev/null || true; rm -f ../test_server" EXIT
 rm -f /tmp/httpdsl_shutdown_proof.txt
 sleep 1
 
@@ -599,14 +599,26 @@ echo ""
 
 # PostgreSQL tests
 echo "PostgreSQL:"
-run_test GET /test/postgres/crud
-run_test GET /test/postgres/types
+if [[ "${TEST_POSTGRES:-0}" == "1" ]]; then
+    run_test GET /test/postgres/crud
+    run_test GET /test/postgres/types
+else
+    echo -e "  ${YELLOW}SKIP${NC} GET /test/postgres/crud (set TEST_POSTGRES=1 to enable)"
+    echo -e "  ${YELLOW}SKIP${NC} GET /test/postgres/types (set TEST_POSTGRES=1 to enable)"
+    SKIPPED=$((SKIPPED + 2))
+fi
 echo ""
 
 # MySQL tests
 echo "MySQL:"
-run_test GET /test/mysql/crud
-run_test GET /test/mysql/types
+if [[ "${TEST_MYSQL:-0}" == "1" ]]; then
+    run_test GET /test/mysql/crud
+    run_test GET /test/mysql/types
+else
+    echo -e "  ${YELLOW}SKIP${NC} GET /test/mysql/crud (set TEST_MYSQL=1 to enable)"
+    echo -e "  ${YELLOW}SKIP${NC} GET /test/mysql/types (set TEST_MYSQL=1 to enable)"
+    SKIPPED=$((SKIPPED + 2))
+fi
 echo ""
 
 # Builtin functions
@@ -1148,7 +1160,7 @@ sleep 1
 SSE_URL="http://localhost:$SSE_PORT"
 
 # Test: SSE welcome event with stream.id
-SSE_OUT=$(timeout 2 curl -sN $SSE_URL/sse/connect 2>/dev/null || true)
+SSE_OUT=$(curl -sN --max-time 2 $SSE_URL/sse/connect 2>/dev/null || true)
 if echo "$SSE_OUT" | grep -q 'event: welcome' && echo "$SSE_OUT" | grep -q '"id":"'; then
     echo -e "  ${GREEN}PASS${NC} SSE connect sends welcome event with stream.id"
     PASSED=$((PASSED + 1))
@@ -1159,7 +1171,7 @@ else
 fi
 
 # Test: SSE channel join
-SSE_OUT=$(timeout 2 curl -sN "$SSE_URL/sse/channel?ch=test-room" 2>/dev/null || true)
+SSE_OUT=$(curl -sN --max-time 2 "$SSE_URL/sse/channel?ch=test-room" 2>/dev/null || true)
 if echo "$SSE_OUT" | grep -q 'event: joined' && echo "$SSE_OUT" | grep -q 'test-room'; then
     echo -e "  ${GREEN}PASS${NC} SSE stream.join() channel"
     PASSED=$((PASSED + 1))

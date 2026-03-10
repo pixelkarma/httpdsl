@@ -139,7 +139,7 @@ server {
 
 init {
   db_conn = db.open("postgres", env("DATABASE_URL"))
-  redis_conn = db.open("redis", "localhost:6379")
+  mongo_conn = db.open("mongo", "mongodb://localhost:27017/myapp")
 }
 
 shutdown {
@@ -153,10 +153,10 @@ shutdown {
   }
   
   try {
-    redis_conn.close()
-    log_info("Redis connection closed")
+    mongo_conn.close()
+    log_info("MongoDB connection closed")
   } catch(err) {
-    log_error(`Failed to close Redis: ${err}`)
+    log_error(`Failed to close MongoDB: ${err}`)
   }
   
   log_info("All connections closed")
@@ -177,7 +177,7 @@ route SSE "/events" {
 shutdown {
   log_info("Broadcasting shutdown notice")
   
-  broadcast("shutdown", {
+  sse.broadcast("shutdown", {
     message: "Server is shutting down",
     timestamp: now()
   })
@@ -210,7 +210,7 @@ shutdown {
   log_info("=== Starting graceful shutdown ===")
   
   log_info("1. Broadcasting shutdown to connected clients")
-  broadcast("shutdown", {message: "Server shutting down"})
+  sse.broadcast("shutdown", {message: "Server shutting down"})
   sleep(1000)
   
   log_info("2. Saving statistics")
@@ -381,7 +381,7 @@ shutdown {
   }
   
   log_info("Broadcasting shutdown to clients")
-  broadcast("server_shutdown", {
+  sse.broadcast("server_shutdown", {
     message: "Server is shutting down",
     timestamp: timestamp
   })

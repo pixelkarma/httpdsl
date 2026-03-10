@@ -196,11 +196,15 @@ log(counter())
 
 ## Global Variables
 
-Variables defined at the top level are accessible everywhere:
+Top-level variable assignments are not allowed.
+
+To create globals, assign variables inside `init {}`. Variables set in `init` are accessible everywhere:
 
 ```httpdsl
-api_version = "v1"
-max_items = 100
+init {
+  api_version = "v1"
+  max_items = 100
+}
 
 route GET "/api/info" {
   response.body = {
@@ -218,6 +222,8 @@ route GET "/api/items" {
   }
 }
 ```
+
+See [Init](init.md) for details.
 
 ## Practical Examples
 

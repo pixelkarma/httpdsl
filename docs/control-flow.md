@@ -292,21 +292,25 @@ route GET "/api/users/search" {
 ### Role-Based Permission Check
 
 ```httpdsl
-allowed_roles = ["admin", "moderator", "editor"]
-user_role = request.session.role ?? "guest"
-has_permission = false
+route GET "/api" {
+  allowed_roles = ["admin", "moderator", "editor"]
+  user_role = request.session.role ?? "guest"
+  has_permission = false
 
-each role in allowed_roles {
-  if role == user_role {
-    has_permission = true
-    break
+  each role in allowed_roles {
+    if role == user_role {
+      has_permission = true
+      break
+    }
   }
-}
 
-if !has_permission {
-  response.status = 403
-  response.body = {error: "Access denied"}
-  return
+  if !has_permission {
+    response.status = 403
+    response.body = {error: "Access denied"}
+    return
+  }
+
+  // Allowed
 }
 ```
 

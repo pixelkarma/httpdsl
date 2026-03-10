@@ -391,7 +391,7 @@ route SSE "/events" {
 }
 
 every 30 s {
-  broadcast("heartbeat", {
+  sse.broadcast("heartbeat", {
     timestamp: now(),
     uptime: server_stats().uptime_human
   })
@@ -433,7 +433,9 @@ server {
   port 3000
 }
 
-store.set("last_sync", now())
+init {
+  store.set("last_sync", now())
+}
 
 every 1 m {
   last_sync = store.get("last_sync", 0)

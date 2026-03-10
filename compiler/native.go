@@ -10,61 +10,61 @@ import (
 )
 
 type NativeCompiler struct {
-	b            strings.Builder
-	indent       int
-	port         int
-	routes       []*RouteStatement
-	groups       []*GroupStatement
-	functions    []*FnStatement
-	usedBuiltins map[string]bool
-	usedImports  map[string]bool
-	needsBcrypt      bool
-	needsArgon2      bool
-	dbDrivers    map[string]bool // "sqlite", "postgres", "mysql", "mongo"
-	tmpCounter   int
-	typeEnv      *TypeEnv // current function's type info
-	fnTypes      map[string]*TypeEnv // per-function type info
-	corsOrigins    string // CORS: allowed origins ("*" or comma-separated)
-	corsMethods    string // CORS: allowed methods
-	corsHeaders    string // CORS: allowed headers
-	errorHandlers  []*ErrorStatement
-	inRouteHandler bool // true when emitting code inside a route/error handler
-	inSSERoute     bool // true when emitting code inside an SSE route handler
-	throttleRPS    int  // per-IP requests/second limit; 0 = disabled
-	defaultTimeout int  // server-level timeout in seconds; 0 = no timeout
-	gzipEnabled    bool // gzip compression
-	globalBefore   []*BlockStatement
-	globalAfter    []*BlockStatement
-	routeBeforeMap map[*RouteStatement][]*BlockStatement // group before blocks per route
-	routeAfterMap  map[*RouteStatement][]*BlockStatement // group after blocks per route
-	staticMounts   []staticMount // static file serving
-	everyBlocks    []*EveryStatement
-	initBlocks     []*BlockStatement
-	shutdownBlocks []*BlockStatement
-	globalVars     map[string]bool // variables declared in init blocks
-	sessionEnabled bool
-	sessionCookie  string // cookie name, default "sid"
-	sessionExpires int    // seconds, default 86400 (24h)
-	sessionSecret  string     // HMAC signing secret (literal)
-	sessionSecretExpr Expression // secret expression (e.g., env("..."))
-	csrfEnabled    bool
-	csrfSafeOrigins []string
-	templatesDir   string              // path to templates directory
-	templateFiles  map[string]string   // name -> content (embedded at compile time)
-	hasSSE         bool                // whether any SSE routes exist
-	hasCron        bool                // whether any cron expressions are used
-	hasExec        bool                // whether exec() builtin is used
-	helpText       string              // help text from help block
-	sslCert        string              // path to SSL certificate file (literal)
-	sslKey         string              // path to SSL private key file (literal)
-	sslCertExpr    Expression          // SSL cert expression (e.g., env("SSL_CERT"))
-	sslKeyExpr     Expression          // SSL key expression (e.g., env("SSL_KEY"))
-	autocertDomain string              // autocert domain (literal)
-	autocertDomainExpr Expression      // autocert domain expression
-	autocertDir    string              // autocert cache directory (literal)
-	autocertDirExpr Expression         // autocert cache dir expression
-	httpsRedirect  string              // true, false, or empty (auto: true when TLS active)
-	wwwRedirect    string              // true or false (default: false)
+	b                  strings.Builder
+	indent             int
+	port               int
+	routes             []*RouteStatement
+	groups             []*GroupStatement
+	functions          []*FnStatement
+	usedBuiltins       map[string]bool
+	usedImports        map[string]bool
+	needsBcrypt        bool
+	needsArgon2        bool
+	dbDrivers          map[string]bool // "sqlite", "postgres", "mysql", "mongo"
+	tmpCounter         int
+	typeEnv            *TypeEnv            // current function's type info
+	fnTypes            map[string]*TypeEnv // per-function type info
+	corsOrigins        string              // CORS: allowed origins ("*" or comma-separated)
+	corsMethods        string              // CORS: allowed methods
+	corsHeaders        string              // CORS: allowed headers
+	errorHandlers      []*ErrorStatement
+	inRouteHandler     bool // true when emitting code inside a route/error handler
+	inSSERoute         bool // true when emitting code inside an SSE route handler
+	throttleRPS        int  // per-IP requests/second limit; 0 = disabled
+	defaultTimeout     int  // server-level timeout in seconds; 0 = no timeout
+	gzipEnabled        bool // gzip compression
+	globalBefore       []*BlockStatement
+	globalAfter        []*BlockStatement
+	routeBeforeMap     map[*RouteStatement][]*BlockStatement // group before blocks per route
+	routeAfterMap      map[*RouteStatement][]*BlockStatement // group after blocks per route
+	staticMounts       []staticMount                         // static file serving
+	everyBlocks        []*EveryStatement
+	initBlocks         []*BlockStatement
+	shutdownBlocks     []*BlockStatement
+	globalVars         map[string]bool // variables declared in init blocks
+	sessionEnabled     bool
+	sessionCookie      string     // cookie name, default "sid"
+	sessionExpires     int        // seconds, default 86400 (24h)
+	sessionSecret      string     // HMAC signing secret (literal)
+	sessionSecretExpr  Expression // secret expression (e.g., env("..."))
+	csrfEnabled        bool
+	csrfSafeOrigins    []string
+	templatesDir       string            // path to templates directory
+	templateFiles      map[string]string // name -> content (embedded at compile time)
+	hasSSE             bool              // whether any SSE routes exist
+	hasCron            bool              // whether any cron expressions are used
+	hasExec            bool              // whether exec() builtin is used
+	helpText           string            // help text from help block
+	sslCert            string            // path to SSL certificate file (literal)
+	sslKey             string            // path to SSL private key file (literal)
+	sslCertExpr        Expression        // SSL cert expression (e.g., env("SSL_CERT"))
+	sslKeyExpr         Expression        // SSL key expression (e.g., env("SSL_KEY"))
+	autocertDomain     string            // autocert domain (literal)
+	autocertDomainExpr Expression        // autocert domain expression
+	autocertDir        string            // autocert cache directory (literal)
+	autocertDirExpr    Expression        // autocert cache dir expression
+	httpsRedirect      string            // true, false, or empty (auto: true when TLS active)
+	wwwRedirect        string            // true or false (default: false)
 }
 
 type staticMount struct {
@@ -94,10 +94,16 @@ func GenerateNativeCode(program *Program) (string, error) {
 		case *RouteStatement:
 			c.routes = append(c.routes, s)
 			c.scanBlock(s.Body)
-			if s.Method == "SSE" { c.hasSSE = true }
+			if s.Method == "SSE" {
+				c.hasSSE = true
+			}
 		case *GroupStatement:
-			for _, b := range s.Before { c.scanBlock(b) }
-			for _, a := range s.After { c.scanBlock(a) }
+			for _, b := range s.Before {
+				c.scanBlock(b)
+			}
+			for _, a := range s.After {
+				c.scanBlock(a)
+			}
 			for _, route := range s.Routes {
 				c.routes = append(c.routes, route)
 				c.scanBlock(route.Body)
@@ -122,7 +128,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 			c.scanBlock(s.Body)
 		case *EveryStatement:
 			c.everyBlocks = append(c.everyBlocks, s)
-			if s.CronExpr != "" { c.hasCron = true }
+			if s.CronExpr != "" {
+				c.hasCron = true
+			}
 			c.scanBlock(s.Body)
 		case *InitStatement:
 			c.initBlocks = append(c.initBlocks, s.Body)
@@ -167,13 +175,20 @@ func GenerateNativeCode(program *Program) (string, error) {
 				if h, ok := cors.(*HashLiteral); ok {
 					for _, p := range h.Pairs {
 						key := ""
-						if sl, ok := p.Key.(*StringLiteral); ok { key = sl.Value }
+						if sl, ok := p.Key.(*StringLiteral); ok {
+							key = sl.Value
+						}
 						val := ""
-						if sv, ok := p.Value.(*StringLiteral); ok { val = sv.Value }
+						if sv, ok := p.Value.(*StringLiteral); ok {
+							val = sv.Value
+						}
 						switch key {
-						case "origins": c.corsOrigins = val
-						case "methods": c.corsMethods = val
-						case "headers": c.corsHeaders = val
+						case "origins":
+							c.corsOrigins = val
+						case "methods":
+							c.corsMethods = val
+						case "headers":
+							c.corsHeaders = val
 						}
 					}
 				}
@@ -211,12 +226,20 @@ func GenerateNativeCode(program *Program) (string, error) {
 			// Redirect settings
 			if v, ok := s.Settings["https_redirect"]; ok {
 				if bl, ok := v.(*BooleanLiteral); ok {
-					if bl.Value { c.httpsRedirect = "true" } else { c.httpsRedirect = "false" }
+					if bl.Value {
+						c.httpsRedirect = "true"
+					} else {
+						c.httpsRedirect = "false"
+					}
 				}
 			}
 			if v, ok := s.Settings["www_redirect"]; ok {
 				if bl, ok := v.(*BooleanLiteral); ok {
-					if bl.Value { c.wwwRedirect = "true" } else { c.wwwRedirect = "false" }
+					if bl.Value {
+						c.wwwRedirect = "true"
+					} else {
+						c.wwwRedirect = "false"
+					}
 				}
 			}
 			// Templates config
@@ -233,12 +256,18 @@ func GenerateNativeCode(program *Program) (string, error) {
 				if h, ok := sess.(*HashLiteral); ok {
 					for _, p := range h.Pairs {
 						key := ""
-						if sl, ok := p.Key.(*StringLiteral); ok { key = sl.Value }
+						if sl, ok := p.Key.(*StringLiteral); ok {
+							key = sl.Value
+						}
 						switch key {
 						case "cookie":
-							if sv, ok := p.Value.(*StringLiteral); ok { c.sessionCookie = sv.Value }
+							if sv, ok := p.Value.(*StringLiteral); ok {
+								c.sessionCookie = sv.Value
+							}
 						case "expires":
-							if iv, ok := p.Value.(*IntegerLiteral); ok { c.sessionExpires = int(iv.Value) }
+							if iv, ok := p.Value.(*IntegerLiteral); ok {
+								c.sessionExpires = int(iv.Value)
+							}
 						case "secret":
 							if sv, ok := p.Value.(*StringLiteral); ok {
 								c.sessionSecret = sv.Value
@@ -431,13 +460,19 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 	case *ExpressionStatement:
 		c.scanExpr(s.Expression)
 	case *AssignStatement:
-		for _, v := range s.Values { c.scanExpr(v) }
+		for _, v := range s.Values {
+			c.scanExpr(v)
+		}
 	case *CompoundAssignStatement:
 		c.scanExpr(s.Value)
 	case *IndexAssignStatement:
-		c.scanExpr(s.Left); c.scanExpr(s.Index); c.scanExpr(s.Value)
+		c.scanExpr(s.Left)
+		c.scanExpr(s.Index)
+		c.scanExpr(s.Value)
 	case *ReturnStatement:
-		for _, v := range s.Values { c.scanExpr(v) }
+		for _, v := range s.Values {
+			c.scanExpr(v)
+		}
 	case *TryCatchStatement:
 		c.scanBlock(s.Try)
 		c.scanBlock(s.Catch)
@@ -448,21 +483,29 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 		c.scanBlock(s.Consequence)
 		if s.Alternative != nil {
 			switch alt := s.Alternative.(type) {
-			case *BlockStatement: c.scanBlock(alt)
-			case *IfStatement: c.scanStmt(alt)
+			case *BlockStatement:
+				c.scanBlock(alt)
+			case *IfStatement:
+				c.scanStmt(alt)
 			}
 		}
 	case *SwitchStatement:
 		c.scanExpr(s.Subject)
 		for _, cs := range s.Cases {
-			for _, v := range cs.Values { c.scanExpr(v) }
+			for _, v := range cs.Values {
+				c.scanExpr(v)
+			}
 			c.scanBlock(cs.Body)
 		}
-		if s.Default != nil { c.scanBlock(s.Default) }
+		if s.Default != nil {
+			c.scanBlock(s.Default)
+		}
 	case *WhileStatement:
-		c.scanExpr(s.Condition); c.scanBlock(s.Body)
+		c.scanExpr(s.Condition)
+		c.scanBlock(s.Body)
 	case *EachStatement:
-		c.scanExpr(s.Iterable); c.scanBlock(s.Body)
+		c.scanExpr(s.Iterable)
+		c.scanBlock(s.Body)
 	case *BlockStatement:
 		c.scanBlock(s)
 	case *FnStatement:
@@ -475,34 +518,47 @@ func (c *NativeCompiler) scanStmt(stmt Statement) {
 }
 
 func (c *NativeCompiler) scanExpr(expr Expression) {
-	if expr == nil { return }
+	if expr == nil {
+		return
+	}
 	switch e := expr.(type) {
 	case *Identifier:
 		c.usedBuiltins[e.Value] = true
 	case *CallExpression:
 		c.scanExpr(e.Function)
-		for _, a := range e.Arguments { c.scanExpr(a) }
+		for _, a := range e.Arguments {
+			c.scanExpr(a)
+		}
 		// Track exec() as top-level call (not db.exec())
 		if id, ok := e.Function.(*Identifier); ok && id.Value == "exec" {
 			c.hasExec = true
 		}
 	case *InfixExpression:
-		c.scanExpr(e.Left); c.scanExpr(e.Right)
+		c.scanExpr(e.Left)
+		c.scanExpr(e.Right)
 	case *TernaryExpression:
-		c.scanExpr(e.Condition); c.scanExpr(e.Consequence); c.scanExpr(e.Alternative)
+		c.scanExpr(e.Condition)
+		c.scanExpr(e.Consequence)
+		c.scanExpr(e.Alternative)
 	case *PrefixExpression:
 		c.scanExpr(e.Right)
 	case *IndexExpression:
-		c.scanExpr(e.Left); c.scanExpr(e.Index)
+		c.scanExpr(e.Left)
+		c.scanExpr(e.Index)
 	case *DotExpression:
 		c.scanExpr(e.Left)
 		if id, ok := e.Left.(*Identifier); ok {
 			c.usedBuiltins[id.Value] = true
 		}
 	case *ArrayLiteral:
-		for _, el := range e.Elements { c.scanExpr(el) }
+		for _, el := range e.Elements {
+			c.scanExpr(el)
+		}
 	case *HashLiteral:
-		for _, p := range e.Pairs { c.scanExpr(p.Key); c.scanExpr(p.Value) }
+		for _, p := range e.Pairs {
+			c.scanExpr(p.Key)
+			c.scanExpr(p.Value)
+		}
 	case *FunctionLiteral:
 		c.scanBlock(e.Body)
 	case *AsyncExpression:
@@ -512,13 +568,17 @@ func (c *NativeCompiler) scanExpr(expr Expression) {
 
 // --- emit helpers ---
 func (c *NativeCompiler) ln(s string) {
-	for i := 0; i < c.indent; i++ { c.b.WriteByte('\t') }
+	for i := 0; i < c.indent; i++ {
+		c.b.WriteByte('\t')
+	}
 	c.b.WriteString(s)
 	c.b.WriteByte('\n')
 }
 
 func (c *NativeCompiler) lnf(f string, a ...interface{}) {
-	for i := 0; i < c.indent; i++ { c.b.WriteByte('\t') }
+	for i := 0; i < c.indent; i++ {
+		c.b.WriteByte('\t')
+	}
 	fmt.Fprintf(&c.b, f, a...)
 	c.b.WriteByte('\n')
 }
@@ -533,19 +593,31 @@ func (c *NativeCompiler) detectDBDrivers(program *Program) {
 }
 
 func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
-	if stmt == nil { return }
+	if stmt == nil {
+		return
+	}
 	switch s := stmt.(type) {
 	case *AssignStatement:
-		for _, v := range s.Values { c.detectDBInExpr(v) }
+		for _, v := range s.Values {
+			c.detectDBInExpr(v)
+		}
 	case *ExpressionStatement:
 		c.detectDBInExpr(s.Expression)
 	case *IfStatement:
 		c.detectDBInBlock(s.Consequence)
-		if alt, ok := s.Alternative.(*BlockStatement); ok { c.detectDBInBlock(alt) }
-		if alt, ok := s.Alternative.(*IfStatement); ok { c.detectDBInStmt(alt) }
+		if alt, ok := s.Alternative.(*BlockStatement); ok {
+			c.detectDBInBlock(alt)
+		}
+		if alt, ok := s.Alternative.(*IfStatement); ok {
+			c.detectDBInStmt(alt)
+		}
 	case *SwitchStatement:
-		for _, cs := range s.Cases { c.detectDBInBlock(cs.Body) }
-		if s.Default != nil { c.detectDBInBlock(s.Default) }
+		for _, cs := range s.Cases {
+			c.detectDBInBlock(cs.Body)
+		}
+		if s.Default != nil {
+			c.detectDBInBlock(s.Default)
+		}
 	case *WhileStatement:
 		c.detectDBInBlock(s.Body)
 	case *EachStatement:
@@ -554,11 +626,19 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		c.detectDBInBlock(s)
 	case *RouteStatement:
 		c.detectDBInBlock(s.Body)
-		if s.ElseBlock != nil { c.detectDBInBlock(s.ElseBlock) }
+		if s.ElseBlock != nil {
+			c.detectDBInBlock(s.ElseBlock)
+		}
 	case *GroupStatement:
-		for _, r := range s.Routes { c.detectDBInStmt(r) }
-		for _, b := range s.Before { c.detectDBInBlock(b) }
-		for _, a := range s.After { c.detectDBInBlock(a) }
+		for _, r := range s.Routes {
+			c.detectDBInStmt(r)
+		}
+		for _, b := range s.Before {
+			c.detectDBInBlock(b)
+		}
+		for _, a := range s.After {
+			c.detectDBInBlock(a)
+		}
 	case *BeforeStatement:
 		c.detectDBInBlock(s.Body)
 	case *AfterStatement:
@@ -575,7 +655,9 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 		c.detectDBInBlock(s.Try)
 		c.detectDBInBlock(s.Catch)
 	case *ReturnStatement:
-		for _, v := range s.Values { c.detectDBInExpr(v) }
+		for _, v := range s.Values {
+			c.detectDBInExpr(v)
+		}
 	case *ObjectDestructureStatement:
 		c.detectDBInExpr(s.Value)
 	case *ArrayDestructureStatement:
@@ -584,12 +666,18 @@ func (c *NativeCompiler) detectDBInStmt(stmt Statement) {
 }
 
 func (c *NativeCompiler) detectDBInBlock(block *BlockStatement) {
-	if block == nil { return }
-	for _, stmt := range block.Statements { c.detectDBInStmt(stmt) }
+	if block == nil {
+		return
+	}
+	for _, stmt := range block.Statements {
+		c.detectDBInStmt(stmt)
+	}
 }
 
 func (c *NativeCompiler) detectDBInExpr(expr Expression) {
-	if expr == nil { return }
+	if expr == nil {
+		return
+	}
 	switch e := expr.(type) {
 	case *CallExpression:
 		if dot, ok := e.Function.(*DotExpression); ok {
@@ -601,21 +689,32 @@ func (c *NativeCompiler) detectDBInExpr(expr Expression) {
 				}
 			}
 		}
-		for _, a := range e.Arguments { c.detectDBInExpr(a) }
+		for _, a := range e.Arguments {
+			c.detectDBInExpr(a)
+		}
 	case *InfixExpression:
-		c.detectDBInExpr(e.Left); c.detectDBInExpr(e.Right)
+		c.detectDBInExpr(e.Left)
+		c.detectDBInExpr(e.Right)
 	case *TernaryExpression:
-		c.detectDBInExpr(e.Condition); c.detectDBInExpr(e.Consequence); c.detectDBInExpr(e.Alternative)
+		c.detectDBInExpr(e.Condition)
+		c.detectDBInExpr(e.Consequence)
+		c.detectDBInExpr(e.Alternative)
 	case *PrefixExpression:
 		c.detectDBInExpr(e.Right)
 	case *DotExpression:
 		c.detectDBInExpr(e.Left)
 	case *IndexExpression:
-		c.detectDBInExpr(e.Left); c.detectDBInExpr(e.Index)
+		c.detectDBInExpr(e.Left)
+		c.detectDBInExpr(e.Index)
 	case *ArrayLiteral:
-		for _, el := range e.Elements { c.detectDBInExpr(el) }
+		for _, el := range e.Elements {
+			c.detectDBInExpr(el)
+		}
 	case *HashLiteral:
-		for _, p := range e.Pairs { c.detectDBInExpr(p.Key); c.detectDBInExpr(p.Value) }
+		for _, p := range e.Pairs {
+			c.detectDBInExpr(p.Key)
+			c.detectDBInExpr(p.Value)
+		}
 	case *AsyncExpression:
 		c.detectDBInExpr(e.Expression)
 	}
@@ -876,7 +975,9 @@ func (c *NativeCompiler) emitGlobalVars() {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if name == "args" { continue } // handled by _argsMap
+		if name == "args" {
+			continue
+		} // handled by _argsMap
 		c.lnf("var %s Value = null", safeIdent(name))
 	}
 	if c.usedBuiltins["server_stats"] {
@@ -1339,10 +1440,24 @@ func (rt *dslRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if seg.param != "" { params[seg.param] = Value(parts[i]) }
 		}
-		ctx := context.WithValue(r.Context(), paramsKey, params)
-		route.handler(w, r.WithContext(ctx))
-		return
-	}
+			ctx := context.WithValue(r.Context(), paramsKey, params)
+			reqWithParams := r.WithContext(ctx)
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						if h, ok := rt.errorHandlers[500]; ok {
+							h(w, reqWithParams)
+							return
+						}
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(500)
+						w.Write([]byte("{\"error\":\"internal server error\"}"))
+					}
+				}()
+				route.handler(w, reqWithParams)
+			}()
+			return
+		}
 	// Static file mounts
 	for _, s := range rt.statics {
 		if strings.HasPrefix(r.URL.Path, s.prefix) {
@@ -3407,26 +3522,48 @@ type cronSchedule struct {
 	weekdays []int
 }
 
-func parseCron(expr string) cronSchedule {
+func parseCron(expr string) (cronSchedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
-		panic("cron: expected 5 fields (min hour dom month dow), got " + expr)
+		return cronSchedule{}, fmt.Errorf("expected 5 fields (min hour dom month dow), got %q", expr)
 	}
+	minutes, err := parseCronField(fields[0], 0, 59)
+	if err != nil { return cronSchedule{}, fmt.Errorf("minute field: %w", err) }
+	hours, err := parseCronField(fields[1], 0, 23)
+	if err != nil { return cronSchedule{}, fmt.Errorf("hour field: %w", err) }
+	days, err := parseCronField(fields[2], 1, 31)
+	if err != nil { return cronSchedule{}, fmt.Errorf("day-of-month field: %w", err) }
+	months, err := parseCronField(fields[3], 1, 12)
+	if err != nil { return cronSchedule{}, fmt.Errorf("month field: %w", err) }
+	weekdays, err := parseCronField(fields[4], 0, 6)
+	if err != nil { return cronSchedule{}, fmt.Errorf("day-of-week field: %w", err) }
 	return cronSchedule{
-		minutes:  parseCronField(fields[0], 0, 59),
-		hours:    parseCronField(fields[1], 0, 23),
-		days:     parseCronField(fields[2], 1, 31),
-		months:   parseCronField(fields[3], 1, 12),
-		weekdays: parseCronField(fields[4], 0, 6),
-	}
+		minutes: minutes,
+		hours: hours,
+		days: days,
+		months: months,
+		weekdays: weekdays,
+	}, nil
 }
 
-func parseCronField(field string, min, max int) []int {
+func parseCronField(field string, min, max int) ([]int, error) {
 	var result []int
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return nil, fmt.Errorf("empty field")
+	}
 	for _, part := range strings.Split(field, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("empty list item")
+		}
 		step := 1
 		if idx := strings.Index(part, "/"); idx >= 0 {
-			step, _ = strconv.Atoi(part[idx+1:])
+			var err error
+			step, err = strconv.Atoi(part[idx+1:])
+			if err != nil || step <= 0 {
+				return nil, fmt.Errorf("invalid step in %q", part)
+			}
 			part = part[:idx]
 		}
 		if part == "*" {
@@ -3434,17 +3571,32 @@ func parseCronField(field string, min, max int) []int {
 				result = append(result, i)
 			}
 		} else if idx := strings.Index(part, "-"); idx >= 0 {
-			lo, _ := strconv.Atoi(part[:idx])
-			hi, _ := strconv.Atoi(part[idx+1:])
+			lo, errLo := strconv.Atoi(part[:idx])
+			hi, errHi := strconv.Atoi(part[idx+1:])
+			if errLo != nil || errHi != nil {
+				return nil, fmt.Errorf("invalid range %q", part)
+			}
+			if lo > hi {
+				return nil, fmt.Errorf("invalid range %q (start > end)", part)
+			}
+			if lo < min || hi > max {
+				return nil, fmt.Errorf("value out of range in %q (allowed %d-%d)", part, min, max)
+			}
 			for i := lo; i <= hi; i += step {
 				result = append(result, i)
 			}
 		} else {
-			n, _ := strconv.Atoi(part)
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value %q", part)
+			}
+			if n < min || n > max {
+				return nil, fmt.Errorf("value out of range %q (allowed %d-%d)", part, min, max)
+			}
 			result = append(result, n)
 		}
 	}
-	return result
+	return result, nil
 }
 
 func (cs cronSchedule) matches(t time.Time) bool {
@@ -3461,7 +3613,11 @@ func containsInt(s []int, v int) bool {
 }
 
 func cronRun(expr string, fn func()) {
-	sched := parseCron(expr)
+	sched, err := parseCron(expr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cron parse error for %q: %v\n", expr, err)
+		return
+	}
 	go func() {
 		// Align to next minute boundary
 		now := time.Now()
@@ -4818,7 +4974,9 @@ func (c *NativeCompiler) emitSwitchTyped(s *SwitchStatement) {
 
 // typedExpr returns a Go expression with concrete types (no Value)
 func (c *NativeCompiler) typedExpr(e Expression) string {
-	if e == nil { return "0" }
+	if e == nil {
+		return "0"
+	}
 	switch ex := e.(type) {
 	case *IntegerLiteral:
 		return fmt.Sprintf("int64(%d)", ex.Value)
@@ -4827,7 +4985,9 @@ func (c *NativeCompiler) typedExpr(e Expression) string {
 	case *StringLiteral:
 		return fmt.Sprintf("%q", ex.Value)
 	case *BooleanLiteral:
-		if ex.Value { return "true" }
+		if ex.Value {
+			return "true"
+		}
 		return "false"
 	case *Identifier:
 		// If it's a typed local, use directly
@@ -4841,24 +5001,39 @@ func (c *NativeCompiler) typedExpr(e Expression) string {
 		l := c.typedExpr(ex.Left)
 		r := c.typedExpr(ex.Right)
 		switch ex.Operator {
-		case "+": return fmt.Sprintf("(%s + %s)", l, r)
-		case "-": return fmt.Sprintf("(%s - %s)", l, r)
-		case "*": return fmt.Sprintf("(%s * %s)", l, r)
-		case "/": return fmt.Sprintf("(%s / %s)", l, r)
-		case "%%": return fmt.Sprintf("(%s %% %s)", l, r)
-		case "==": return fmt.Sprintf("(%s == %s)", l, r)
-		case "!=": return fmt.Sprintf("(%s != %s)", l, r)
-		case "<": return fmt.Sprintf("(%s < %s)", l, r)
-		case ">": return fmt.Sprintf("(%s > %s)", l, r)
-		case "<=": return fmt.Sprintf("(%s <= %s)", l, r)
-		case ">=": return fmt.Sprintf("(%s >= %s)", l, r)
-		case "&&": return fmt.Sprintf("(%s && %s)", l, r)
-		case "||": return fmt.Sprintf("(%s || %s)", l, r)
+		case "+":
+			return fmt.Sprintf("(%s + %s)", l, r)
+		case "-":
+			return fmt.Sprintf("(%s - %s)", l, r)
+		case "*":
+			return fmt.Sprintf("(%s * %s)", l, r)
+		case "/":
+			return fmt.Sprintf("(%s / %s)", l, r)
+		case "%%":
+			return fmt.Sprintf("(%s %% %s)", l, r)
+		case "==":
+			return fmt.Sprintf("(%s == %s)", l, r)
+		case "!=":
+			return fmt.Sprintf("(%s != %s)", l, r)
+		case "<":
+			return fmt.Sprintf("(%s < %s)", l, r)
+		case ">":
+			return fmt.Sprintf("(%s > %s)", l, r)
+		case "<=":
+			return fmt.Sprintf("(%s <= %s)", l, r)
+		case ">=":
+			return fmt.Sprintf("(%s >= %s)", l, r)
+		case "&&":
+			return fmt.Sprintf("(%s && %s)", l, r)
+		case "||":
+			return fmt.Sprintf("(%s || %s)", l, r)
 		}
 	case *PrefixExpression:
 		switch ex.Operator {
-		case "-": return fmt.Sprintf("(-%s)", c.typedExpr(ex.Right))
-		case "!": return fmt.Sprintf("(!%s)", c.typedExpr(ex.Right))
+		case "-":
+			return fmt.Sprintf("(-%s)", c.typedExpr(ex.Right))
+		case "!":
+			return fmt.Sprintf("(!%s)", c.typedExpr(ex.Right))
 		}
 	case *CallExpression:
 		if ident, ok := ex.Function.(*Identifier); ok {
@@ -4868,7 +5043,9 @@ func (c *NativeCompiler) typedExpr(e Expression) string {
 				for _, fn := range c.functions {
 					if fn.Name == ident.Value {
 						for _, p := range fn.Params {
-							if !tenv.Get(p).IsTyped() { allParamsTyped = false }
+							if !tenv.Get(p).IsTyped() {
+								allParamsTyped = false
+							}
 						}
 					}
 				}
@@ -4922,7 +5099,9 @@ func (c *NativeCompiler) emitUntypedFn(fn *FnStatement, tenv *TypeEnv) {
 
 func safeIdent(name string) string {
 	// Map DSL 'args' to the built-in _argsMap
-	if name == "args" { return "_argsMap" }
+	if name == "args" {
+		return "_argsMap"
+	}
 	// Avoid Go keywords
 	switch name {
 	case "type", "map", "func", "var", "range", "select", "case", "default", "chan", "go", "defer", "interface", "struct", "package", "import", "return", "break", "continue", "for", "if", "else", "switch":
@@ -4962,13 +5141,12 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 			// SSE routes have no response object — bare return exits the handler
 			c.ln("return")
 		} else if isRoute && len(s.Values) == 0 {
-			// In route context, bare return sends the response and exits
-			c.ln("writeResponse(_w, response)")
+			// In route context, return exits the route closure.
+			// Response is written once by the outer handler.
 			c.ln("return")
 		} else if isRoute && len(s.Values) == 1 {
 			// return response (or return controllerFn(request, response))
 			c.lnf("response = %s", c.expr(s.Values[0]))
-			c.ln("writeResponse(_w, response)")
 			c.ln("return")
 		} else if len(s.Values) == 0 {
 			c.ln("return null")
@@ -5028,7 +5206,9 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 
 func (c *NativeCompiler) isPushCall(e Expression) bool {
 	call, ok := e.(*CallExpression)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	ident, ok := call.Function.(*Identifier)
 	return ok && ident.Value == "push" && len(call.Arguments) >= 2
 }
@@ -5046,7 +5226,9 @@ func (c *NativeCompiler) emitPushStmt(e Expression) {
 
 func (c *NativeCompiler) isRenderCall(e Expression) bool {
 	call, ok := e.(*CallExpression)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	ident, ok := call.Function.(*Identifier)
 	return ok && ident.Value == "render"
 }
@@ -5149,7 +5331,9 @@ func (c *NativeCompiler) emitSwitch(s *SwitchStatement) {
 	c.lnf("%s := %s", subj, c.expr(s.Subject))
 	for i, cs := range s.Cases {
 		kw := "if"
-		if i > 0 { kw = "} else if" }
+		if i > 0 {
+			kw = "} else if"
+		}
 		conds := make([]string, len(cs.Values))
 		for j, v := range cs.Values {
 			conds[j] = fmt.Sprintf("valuesEqual(%s, %s)", subj, c.expr(v))
@@ -5358,12 +5542,12 @@ func (c *NativeCompiler) identExpr(name string) string {
 		"sum": true, "min": true, "max": true, "clamp": true,
 		"pad_left": true, "pad_right": true, "truncate": true, "capitalize": true,
 		"date": true, "date_format": true, "date_parse": true, "strtotime": true,
-		"redirect": true,
-		"server_stats": true,
+		"redirect":          true,
+		"server_stats":      true,
 		"set_session_store": true,
-		"csrf_token": true,
-		"csrf_field": true,
-		"render": true,
+		"csrf_token":        true,
+		"csrf_field":        true,
+		"render":            true,
 
 		"exec": true,
 	}
@@ -5726,10 +5910,14 @@ func (c *NativeCompiler) callExpr(e *CallExpression) string {
 		case "csrf_field":
 			return "csrfField(_sessData)"
 		case "render":
-			if len(args) < 1 { return "null" }
+			if len(args) < 1 {
+				return "null"
+			}
 			nameExpr := args[0]
 			pageExpr := "Value(map[string]Value{})"
-			if len(args) >= 2 { pageExpr = args[1] }
+			if len(args) >= 2 {
+				pageExpr = args[1]
+			}
 			if c.csrfEnabled && c.sessionEnabled {
 				return fmt.Sprintf("_render(valueToString(%s), %s, request, _sessData)", nameExpr, pageExpr)
 			}
@@ -6026,11 +6214,11 @@ func (c *NativeCompiler) emitMain() {
 	c.indent--
 	c.ln("} else { i++ }")
 	c.indent--
-	c.ln("}")  // end switch
+	c.ln("}") // end switch
 	c.indent--
-	c.ln("}")  // end for
+	c.ln("}") // end for
 	c.indent--
-	c.ln("}")  // end block scope
+	c.ln("}") // end block scope
 	c.ln("")
 
 	// Handle -v
@@ -6111,14 +6299,14 @@ func (c *NativeCompiler) emitMain() {
 				c.lnf("prefix: %q,", prefix)
 				c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(_staticDir))})),", prefix)
 				c.indent--
-				c.ln("})") 
+				c.ln("})")
 			} else {
 				c.lnf("rt.statics = append(rt.statics, staticMountEntry{")
 				c.indent++
 				c.lnf("prefix: %q,", prefix)
 				c.lnf("handler: http.StripPrefix(%q, http.FileServer(noDirFS{http.Dir(filepath.Clean(%q))})),", prefix, sm.Dir)
 				c.indent--
-				c.ln("})") 
+				c.ln("})")
 			}
 		}
 	}
@@ -6151,7 +6339,7 @@ func (c *NativeCompiler) emitMain() {
 			}
 			c.emitBlock(ev.Body, false)
 			c.indent--
-			c.ln("})") 
+			c.ln("})")
 		} else {
 			// Interval
 			c.lnf("go func() { // every %ds", ev.Interval)
@@ -6269,10 +6457,14 @@ func (c *NativeCompiler) emitMain() {
 		c.indent++
 		c.lnf("w.Header().Set(\"Access-Control-Allow-Origin\", %q)", c.corsOrigins)
 		methods := c.corsMethods
-		if methods == "" { methods = "GET, POST, PUT, PATCH, DELETE, OPTIONS" }
+		if methods == "" {
+			methods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+		}
 		c.lnf("w.Header().Set(\"Access-Control-Allow-Methods\", %q)", methods)
 		headers := c.corsHeaders
-		if headers == "" { headers = "Content-Type, Authorization" }
+		if headers == "" {
+			headers = "Content-Type, Authorization"
+		}
 		c.lnf("w.Header().Set(\"Access-Control-Allow-Headers\", %q)", headers)
 		c.ln("if r.Method == \"OPTIONS\" { w.WriteHeader(204); return }")
 		c.ln("rt.ServeHTTP(w, r)")
@@ -6448,7 +6640,6 @@ func (c *NativeCompiler) emitMain() {
 	c.ln("}")
 }
 
-
 // collectVars finds all variable names assigned in a block
 func (c *NativeCompiler) collectVars(block *BlockStatement) map[string]bool {
 	vars := make(map[string]bool)
@@ -6464,29 +6655,41 @@ func (c *NativeCompiler) collectRefs(block *BlockStatement) map[string]bool {
 }
 
 func (c *NativeCompiler) collectRefsFromBlock(block *BlockStatement, refs map[string]bool) {
-	if block == nil { return }
+	if block == nil {
+		return
+	}
 	for _, stmt := range block.Statements {
 		c.collectRefsFromStmt(stmt, refs)
 	}
 }
 
 func (c *NativeCompiler) collectRefsFromStmt(stmt Statement, refs map[string]bool) {
-	if stmt == nil { return }
+	if stmt == nil {
+		return
+	}
 	switch s := stmt.(type) {
 	case *AssignStatement:
-		for _, v := range s.Values { c.collectRefsFromExpr(v, refs) }
+		for _, v := range s.Values {
+			c.collectRefsFromExpr(v, refs)
+		}
 	case *CompoundAssignStatement:
 		refs[s.Name] = true
 		c.collectRefsFromExpr(s.Value, refs)
 	case *ExpressionStatement:
 		c.collectRefsFromExpr(s.Expression, refs)
 	case *ReturnStatement:
-		for _, v := range s.Values { c.collectRefsFromExpr(v, refs) }
+		for _, v := range s.Values {
+			c.collectRefsFromExpr(v, refs)
+		}
 	case *IfStatement:
 		c.collectRefsFromExpr(s.Condition, refs)
 		c.collectRefsFromBlock(s.Consequence, refs)
-		if alt, ok := s.Alternative.(*BlockStatement); ok { c.collectRefsFromBlock(alt, refs) }
-		if alt, ok := s.Alternative.(*IfStatement); ok { c.collectRefsFromStmt(alt, refs) }
+		if alt, ok := s.Alternative.(*BlockStatement); ok {
+			c.collectRefsFromBlock(alt, refs)
+		}
+		if alt, ok := s.Alternative.(*IfStatement); ok {
+			c.collectRefsFromStmt(alt, refs)
+		}
 	case *WhileStatement:
 		c.collectRefsFromExpr(s.Condition, refs)
 		c.collectRefsFromBlock(s.Body, refs)
@@ -6495,8 +6698,12 @@ func (c *NativeCompiler) collectRefsFromStmt(stmt Statement, refs map[string]boo
 		c.collectRefsFromBlock(s.Body, refs)
 	case *SwitchStatement:
 		c.collectRefsFromExpr(s.Subject, refs)
-		for _, cs := range s.Cases { c.collectRefsFromBlock(cs.Body, refs) }
-		if s.Default != nil { c.collectRefsFromBlock(s.Default, refs) }
+		for _, cs := range s.Cases {
+			c.collectRefsFromBlock(cs.Body, refs)
+		}
+		if s.Default != nil {
+			c.collectRefsFromBlock(s.Default, refs)
+		}
 	case *BlockStatement:
 		c.collectRefsFromBlock(s, refs)
 	case *TryCatchStatement:
@@ -6512,7 +6719,9 @@ func (c *NativeCompiler) collectRefsFromStmt(stmt Statement, refs map[string]boo
 }
 
 func (c *NativeCompiler) collectRefsFromExpr(expr Expression, refs map[string]bool) {
-	if expr == nil { return }
+	if expr == nil {
+		return
+	}
 	switch e := expr.(type) {
 	case *Identifier:
 		refs[e.Value] = true
@@ -6523,14 +6732,18 @@ func (c *NativeCompiler) collectRefsFromExpr(expr Expression, refs map[string]bo
 		c.collectRefsFromExpr(e.Right, refs)
 	case *CallExpression:
 		c.collectRefsFromExpr(e.Function, refs)
-		for _, a := range e.Arguments { c.collectRefsFromExpr(a, refs) }
+		for _, a := range e.Arguments {
+			c.collectRefsFromExpr(a, refs)
+		}
 	case *DotExpression:
 		c.collectRefsFromExpr(e.Left, refs)
 	case *IndexExpression:
 		c.collectRefsFromExpr(e.Left, refs)
 		c.collectRefsFromExpr(e.Index, refs)
 	case *ArrayLiteral:
-		for _, el := range e.Elements { c.collectRefsFromExpr(el, refs) }
+		for _, el := range e.Elements {
+			c.collectRefsFromExpr(el, refs)
+		}
 	case *HashLiteral:
 		for _, p := range e.Pairs {
 			c.collectRefsFromExpr(p.Key, refs)
@@ -6574,8 +6787,12 @@ func (c *NativeCompiler) collectVarsFromStmt(stmt Statement, vars map[string]boo
 			}
 		}
 	case *SwitchStatement:
-		for _, cs := range s.Cases { c.collectVarsFromBlock(cs.Body, vars) }
-		if s.Default != nil { c.collectVarsFromBlock(s.Default, vars) }
+		for _, cs := range s.Cases {
+			c.collectVarsFromBlock(cs.Body, vars)
+		}
+		if s.Default != nil {
+			c.collectVarsFromBlock(s.Default, vars)
+		}
 	case *WhileStatement:
 		c.collectVarsFromBlock(s.Body, vars)
 	case *BlockStatement:
@@ -6975,7 +7192,6 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.indent--
 	c.ln("})")
 
-
 	// Build response object
 	c.ln("response := Value(map[string]Value{")
 	c.indent++
@@ -7031,10 +7247,14 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	// Declare all variables (before + body + after)
 	vars := c.collectVars(route.Body)
 	for _, bb := range beforeBlocks {
-		for k, v := range c.collectVars(bb) { vars[k] = v }
+		for k, v := range c.collectVars(bb) {
+			vars[k] = v
+		}
 	}
 	for _, ab := range afterBlocks {
-		for k, v := range c.collectVars(ab) { vars[k] = v }
+		for k, v := range c.collectVars(ab) {
+			vars[k] = v
+		}
 	}
 	for name := range vars {
 		if name != "request" && name != "response" && !c.globalVars[name] {
@@ -7045,14 +7265,12 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 	c.ln("_ = response")
 	c.ln("")
 
-	// Wrap before + body in func so return in before skips body
-	hasBefore := len(beforeBlocks) > 0
-	if hasBefore {
-		c.ln("func() {")
-		c.indent++
-		for _, bb := range beforeBlocks {
-			c.emitBlock(bb, true)
-		}
+	// Wrap before + body in a closure so route-level return exits this closure
+	// and still flows through session save + single response write.
+	c.ln("func() {")
+	c.indent++
+	for _, bb := range beforeBlocks {
+		c.emitBlock(bb, true)
 	}
 
 	// Wrap route body in recover for throw — catch goes to else block
@@ -7090,10 +7308,8 @@ func (c *NativeCompiler) emitRoute(route *RouteStatement) {
 		c.ln("}()")
 	}
 
-	if hasBefore {
-		c.indent--
-		c.ln("}()")
-	}
+	c.indent--
+	c.ln("}()")
 
 	// Session save
 	if c.sessionEnabled {

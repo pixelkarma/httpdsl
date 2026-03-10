@@ -28,16 +28,20 @@ The in-memory store provides key-value storage with optional TTL and persistence
 Store a value:
 
 ```httpdsl
-store.set("key", "value")
-store.set("counter", 0)
-store.set("user", {id: 1, name: "Alice"})
+init {
+  store.set("key", "value")
+  store.set("counter", 0)
+  store.set("user", {id: 1, name: "Alice"})
+}
 ```
 
 With TTL (time-to-live in seconds):
 
 ```httpdsl
-store.set("session", "token123", 3600)
-store.set("cache", data, 300)
+init {
+  store.set("session", "token123", 3600)
+  store.set("cache", {fresh: true}, 300)
+}
 ```
 
 ### get()
@@ -45,18 +49,23 @@ store.set("cache", data, 300)
 Retrieve a value:
 
 ```httpdsl
-value = store.get("key")
+route GET "/store/value" {
+  value = store.get("key")
 
-if value != null {
-  log_info(value)
+  if value != null {
+    log_info(value)
+  }
 }
 ```
 
 With default value:
 
 ```httpdsl
-count = store.get("counter", 0)
-name = store.get("username", "Guest")
+route GET "/store/defaults" {
+  count = store.get("counter", 0)
+  name = store.get("username", "Guest")
+  response.body = {count: count, name: name}
+}
 ```
 
 ### has()
@@ -64,8 +73,11 @@ name = store.get("username", "Guest")
 Check if key exists:
 
 ```httpdsl
-if store.has("key") {
-  log_info("Key exists")
+route GET "/store/has/:key" {
+  if store.has(request.params.key) {
+    log_info("Key exists")
+  }
+  response.body = {exists: store.has(request.params.key)}
 }
 ```
 
@@ -74,7 +86,10 @@ if store.has("key") {
 Remove a key:
 
 ```httpdsl
-store.delete("key")
+route DELETE "/store/:key" {
+  store.delete(request.params.key)
+  response.body = {deleted: request.params.key}
+}
 ```
 
 ### incr()
@@ -82,17 +97,24 @@ store.delete("key")
 Increment a numeric value:
 
 ```httpdsl
-store.set("counter", 0)
-store.incr("counter", 1)
-store.incr("counter", 5)
+init {
+  store.set("counter", 0)
+}
 
-count = store.get("counter")
+route POST "/store/counter/incr" {
+  store.incr("counter", 1)
+  store.incr("counter", 5)
+  count = store.get("counter")
+  response.body = {count: count}
+}
 ```
 
 With TTL:
 
 ```httpdsl
-store.incr("rate_limit", 1, 60)
+before {
+  store.incr("rate_limit", 1, 60)
+}
 ```
 
 ### Getting All Keys
@@ -100,10 +122,14 @@ store.incr("rate_limit", 1, 60)
 Use `keys()` on `store.all()` to list all non-expired keys:
 
 ```httpdsl
-all_keys = keys(store.all())
-
-each key in all_keys {
-  log_info(key)
+route GET "/store/keys" {
+  all_keys = keys(store.all())
+  
+  each key in all_keys {
+    log_info(key)
+  }
+  
+  response.body = {keys: all_keys}
 }
 ```
 
@@ -114,13 +140,17 @@ each key in all_keys {
 Persist to JSON file:
 
 ```httpdsl
-store.sync("./store.json")
+init {
+  store.sync("./store.json")
+}
 ```
 
 With auto-flush interval (seconds):
 
 ```httpdsl
-store.sync("./store.json", 60)
+init {
+  store.sync("./store.json", 60)
+}
 ```
 
 ### Database Sync
@@ -128,14 +158,19 @@ store.sync("./store.json", 60)
 Persist to database (table is auto-created):
 
 ```httpdsl
-db_conn = db.open("sqlite", "./app.db")
-store.sync(db_conn, "store")
+init {
+  db_conn = db.open("sqlite", "./app.db")
+  store.sync(db_conn, "store")
+}
 ```
 
 With flush interval:
 
 ```httpdsl
-store.sync(db_conn, "store", 30)
+init {
+  db_conn = db.open("sqlite", "./app.db")
+  store.sync(db_conn, "store", 30)
+}
 ```
 
 ## Session Storage
@@ -262,7 +297,9 @@ server {
   port 3000
 }
 
-store.sync("./counters.json", 10)
+init {
+  store.sync("./counters.json", 10)
+}
 
 route GET "/counter/:name" {
   name = request.params.name
@@ -304,8 +341,10 @@ server {
   port 3000
 }
 
-store.set("feature_new_ui", true)
-store.set("feature_beta", false)
+init {
+  store.set("feature_new_ui", true)
+  store.set("feature_beta", false)
+}
 
 route GET "/api/features" {
   all_keys = keys(store.all())
@@ -347,7 +386,9 @@ server {
   port 3000
 }
 
-store.sync("./analytics.json", 60)
+init {
+  store.sync("./analytics.json", 60)
+}
 
 before {
   path = request.path
@@ -420,11 +461,12 @@ server {
   port 3000
 }
 
-store.sync("./config.json")
-
-store.set("site_name", "My Site")
-store.set("maintenance_mode", false)
-store.set("max_upload_size", 10485760)
+init {
+  store.sync("./config.json")
+  store.set("site_name", "My Site")
+  store.set("maintenance_mode", false)
+  store.set("max_upload_size", 10485760)
+}
 
 before {
   if store.get("maintenance_mode", false) {
