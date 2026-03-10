@@ -208,14 +208,14 @@ This is the complete language reference.
   - Async-compatible builtins (`fetch`, `exec`, etc.)
 
 - [**Server-Sent Events**](sse.md) — Real-time streaming
-  - `route SSE "/path" { }` — SSE endpoint declaration
-  - `stream.send(event, data)` — send event to connected client
-  - `stream.send(data)` — send with default "message" event
-  - `stream.join(channel)` — subscribe client to a channel
-  - `broadcast(event, data)` — send to all connected clients
-  - `broadcast(event, data, channel)` — send to specific channel
-  - Auto-cleanup on disconnect
-  - Channel-based pub/sub architecture
+  - `route SSE "/path" { } disconnect { }` — SSE endpoint with optional disconnect handler
+  - `stream` — per-connection handle with UUID, metadata, and channel membership
+  - `stream.send(type, data)`, `.set()`, `.get()`, `.join()`, `.leave()`, `.channels()`, `.close()`
+  - `sse.broadcast(type, data)` — send to all connections
+  - `sse.channel(name)` — channel handle: `.send()`, `.streams()`, `.count()`
+  - `sse.find(id)`, `sse.find_by(key, value)` — look up streams from any route
+  - `sse.count()`, `sse.channels()` — connection and channel queries
+  - Indexed channels (no full-scan), automatic heartbeat, auto-cleanup on disconnect
 
 ### VII. Scheduled Tasks
 
@@ -256,7 +256,7 @@ This is the complete language reference.
   - `index_of`
 
 - [**Hash Functions**](builtins/hashes.md)
-  - `keys`, `values`, `merge`, `delete`, `contains`
+  - `keys`, `values`, `merge`, `patch`, `delete`, `contains`
 
 - [**Functional Iteration**](builtins/functional.md)
   - `map`, `filter`, `reduce`, `find`, `some`, `every`
