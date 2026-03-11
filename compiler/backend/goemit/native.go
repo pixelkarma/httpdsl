@@ -73,13 +73,6 @@ type staticMount struct {
 	Dir    string // filesystem directory, e.g. "./public"
 }
 
-// DetectDBDrivers returns which database drivers are used in the program
-func DetectDBDrivers(program *Program) map[string]bool {
-	c := &NativeCompiler{dbDrivers: make(map[string]bool)}
-	c.detectDBDrivers(program)
-	return c.dbDrivers
-}
-
 func newNativeCompiler() *NativeCompiler {
 	return &NativeCompiler{
 		port:           8080,
@@ -90,14 +83,6 @@ func newNativeCompiler() *NativeCompiler {
 		routeAfterMap:  make(map[*RouteStatement][]*BlockStatement),
 		globalVars:     make(map[string]bool),
 	}
-}
-
-func GenerateNativeCode(program *Program) (string, error) {
-	c := newNativeCompiler()
-	if err := c.prepareProgram(program); err != nil {
-		return "", err
-	}
-	return c.emitProgram()
 }
 
 func GenerateGoFromIR(program *Program, dbDrivers map[string]bool) (string, error) {
