@@ -1,0 +1,137 @@
+// ===== Cron Runtime =====
+type cronSchedule struct {
+	minutes  []int
+	hours    []int
+	days     []int
+	months   []int
+	weekdays []int
+}
+
+func parseCron(expr string) (cronSchedule, error) {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return cronSchedule{}, fmt.Errorf("expected 5 fields (min hour dom month dow), got %q", expr)
+	}
+	minutes, err := parseCronField(fields[0], 0, 59)
+	if err != nil {
+		return cronSchedule{}, fmt.Errorf("minute field: %w", err)
+	}
+	hours, err := parseCronField(fields[1], 0, 23)
+	if err != nil {
+		return cronSchedule{}, fmt.Errorf("hour field: %w", err)
+	}
+	days, err := parseCronField(fields[2], 1, 31)
+	if err != nil {
+		return cronSchedule{}, fmt.Errorf("day-of-month field: %w", err)
+	}
+	months, err := parseCronField(fields[3], 1, 12)
+	if err != nil {
+		return cronSchedule{}, fmt.Errorf("month field: %w", err)
+	}
+	weekdays, err := parseCronField(fields[4], 0, 6)
+	if err != nil {
+		return cronSchedule{}, fmt.Errorf("day-of-week field: %w", err)
+	}
+	return cronSchedule{
+		minutes:  minutes,
+		hours:    hours,
+		days:     days,
+		months:   months,
+		weekdays: weekdays,
+	}, nil
+}
+
+func parseCronField(field string, min, max int) ([]int, error) {
+	var result []int
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return nil, fmt.Errorf("empty field")
+	}
+	for _, part := range strings.Split(field, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("empty list item")
+		}
+		step := 1
+		if idx := strings.Index(part, "/"); idx >= 0 {
+			var err error
+			step, err = strconv.Atoi(part[idx+1:])
+			if err != nil || step <= 0 {
+				return nil, fmt.Errorf("invalid step in %q", part)
+			}
+			part = part[:idx]
+		}
+		if part == "*" {
+			for i := min; i <= max; i += step {
+				result = append(result, i)
+			}
+		} else if idx := strings.Index(part, "-"); idx >= 0 {
+			lo, errLo := strconv.Atoi(part[:idx])
+			hi, errHi := strconv.Atoi(part[idx+1:])
+			if errLo != nil || errHi != nil {
+				return nil, fmt.Errorf("invalid range %q", part)
+			}
+			if lo > hi {
+				return nil, fmt.Errorf("invalid range %q (start > end)", part)
+			}
+			if lo < min || hi > max {
+				return nil, fmt.Errorf("value out of range in %q (allowed %d-%d)", part, min, max)
+			}
+			for i := lo; i <= hi; i += step {
+				result = append(result, i)
+			}
+		} else {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value %q", part)
+			}
+			if n < min || n > max {
+				return nil, fmt.Errorf("value out of range %q (allowed %d-%d)", part, min, max)
+			}
+			result = append(result, n)
+		}
+	}
+	return result, nil
+}
+
+func (cs cronSchedule) matches(t time.Time) bool {
+	return containsInt(cs.minutes, t.Minute()) &&
+		containsInt(cs.hours, t.Hour()) &&
+		containsInt(cs.days, t.Day()) &&
+		containsInt(cs.months, int(t.Month())) &&
+		containsInt(cs.weekdays, int(t.Weekday()))
+}
+
+func containsInt(s []int, v int) bool {
+	for _, n := range s {
+		if n == v {
+			return true
+		}
+	}
+	return false
+}
+
+func cronRun(expr string, fn func()) {
+	sched, err := parseCron(expr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cron parse error for %q: %v\n", expr, err)
+		return
+	}
+	go func() {
+		// Align to next minute boundary
+		now := time.Now()
+		next := now.Truncate(time.Minute).Add(time.Minute)
+		time.Sleep(next.Sub(now))
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		// Check immediately at first aligned minute
+		if sched.matches(time.Now()) {
+			fn()
+		}
+		for t := range ticker.C {
+			if sched.matches(t) {
+				fn()
+			}
+		}
+	}()
+}

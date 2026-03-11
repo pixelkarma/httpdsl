@@ -1,0 +1,78 @@
+var _csrfSafeOrigins = []string{ {{joinQuoted .SafeOrigins}} }
+
+func csrfToken(sessData map[string]Value) Value {
+	if tok, ok := sessData["_csrf_token"]; ok {
+		if s, ok := tok.(string); ok && s != "" {
+			return Value(s)
+		}
+	}
+	// Generate new token
+	b := make([]byte, 32)
+	crand.Read(b)
+	tok := hex.EncodeToString(b)
+	sessData["_csrf_token"] = Value(tok)
+	return Value(tok)
+}
+
+func csrfField(sessData map[string]Value) Value {
+	tok := valueToString(csrfToken(sessData))
+	return Value(fmt.Sprintf(`<input type="hidden" name="_csrf" value="%s">`, tok))
+}
+
+func csrfValidate(r *http.Request, sessData map[string]Value, bodyStr string) bool {
+	// Safe methods don't need CSRF
+	switch r.Method {
+	case "GET", "HEAD", "OPTIONS", "TRACE":
+		return true
+	}
+
+	// Check safe origins
+	if len(_csrfSafeOrigins) > 0 {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = r.Header.Get("Referer")
+		}
+		for _, safe := range _csrfSafeOrigins {
+			if strings.HasPrefix(origin, safe) {
+				return true
+			}
+		}
+	}
+
+	// Get expected token from session
+	expected := ""
+	if tok, ok := sessData["_csrf_token"]; ok {
+		expected = valueToString(tok)
+	}
+	if expected == "" {
+		return false
+	}
+
+	// Check token from header first
+	submitted := r.Header.Get("X-CSRF-Token")
+	if submitted == "" {
+		submitted = r.Header.Get("X-XSRF-Token")
+	}
+	// Check URL query parameter
+	if submitted == "" {
+		submitted = r.URL.Query().Get("_csrf")
+	}
+	// Check form body (already read)
+	if submitted == "" && bodyStr != "" {
+		vals, err := url.ParseQuery(bodyStr)
+		if err == nil {
+			submitted = vals.Get("_csrf")
+		}
+		// Also check JSON body
+		if submitted == "" {
+			var jsonBody map[string]interface{}
+			if json.Unmarshal([]byte(bodyStr), &jsonBody) == nil {
+				if tok, ok := jsonBody["_csrf"]; ok {
+					submitted = fmt.Sprintf("%v", tok)
+				}
+			}
+		}
+	}
+
+	return hmac.Equal([]byte(submitted), []byte(expected))
+}

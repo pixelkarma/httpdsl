@@ -1,0 +1,271 @@
+var _sessionSecret = {{.SessionSecretExpr}}
+var _sessionExpires = int64({{.SessionExpires}})
+var _sessionCookie = {{quote .SessionCookie}}
+
+// Session runtime
+type sessionStore struct {
+	mu          sync.RWMutex
+	data        map[string]sessionEntry
+	dirtyKeys   map[string]bool
+	deletedKeys map[string]bool
+	db          *dslDB
+	tableName   string
+}
+
+type sessionEntry struct {
+	data    map[string]Value
+	expires int64
+}
+
+var _sessions = &sessionStore{
+	data:        make(map[string]sessionEntry),
+	dirtyKeys:   make(map[string]bool),
+	deletedKeys: make(map[string]bool),
+}
+
+func sessionSign(id string) string {
+	mac := hmac.New(sha256.New, []byte(_sessionSecret))
+	mac.Write([]byte(id))
+	sig := hex.EncodeToString(mac.Sum(nil))[:16]
+	return id + "." + sig
+}
+
+func sessionVerify(cookie string) (string, bool) {
+	parts := strings.SplitN(cookie, ".", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	id := parts[0]
+	expected := sessionSign(id)
+	if !hmac.Equal([]byte(cookie), []byte(expected)) {
+		return "", false
+	}
+	return id, true
+}
+
+func sessionLoad(r *http.Request) (string, map[string]Value, bool) {
+	c, err := r.Cookie(_sessionCookie)
+	if err != nil || c.Value == "" {
+		return "", make(map[string]Value), false
+	}
+	id, ok := sessionVerify(c.Value)
+	if !ok {
+		return "", make(map[string]Value), false
+	}
+	_sessions.mu.RLock()
+	entry, exists := _sessions.data[id]
+	_sessions.mu.RUnlock()
+	if !exists {
+		return "", make(map[string]Value), false
+	}
+	if entry.expires > 0 && entry.expires < time.Now().Unix() {
+		// Expired — clean up
+		_sessions.mu.Lock()
+		delete(_sessions.data, id)
+		_sessions.deletedKeys[id] = true
+		delete(_sessions.dirtyKeys, id)
+		_sessions.mu.Unlock()
+		return "", make(map[string]Value), false
+	}
+	// Return a copy
+	copy := make(map[string]Value, len(entry.data))
+	for k, v := range entry.data {
+		copy[k] = v
+	}
+	return id, copy, true
+}
+
+func sessionSave(w http.ResponseWriter, id string, data map[string]Value, destroyed bool) {
+	if destroyed {
+		if id != "" {
+			_sessions.mu.Lock()
+			delete(_sessions.data, id)
+			_sessions.deletedKeys[id] = true
+			delete(_sessions.dirtyKeys, id)
+			_sessions.mu.Unlock()
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     _sessionCookie,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		return
+	}
+	if len(data) == 0 {
+		return
+	}
+	// Generate new session ID if needed
+	if id == "" {
+		b := make([]byte, 24)
+		crand.Read(b)
+		id = hex.EncodeToString(b)
+	}
+	_sessions.mu.Lock()
+	_sessions.data[id] = sessionEntry{
+		data:    data,
+		expires: time.Now().Unix() + _sessionExpires,
+	}
+	_sessions.dirtyKeys[id] = true
+	delete(_sessions.deletedKeys, id)
+	_sessions.mu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name:     _sessionCookie,
+		Value:    sessionSign(id),
+		Path:     "/",
+		MaxAge:   int(_sessionExpires),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func sessionFlush() {
+	if _sessions.db == nil {
+		return
+	}
+	_sessions.mu.Lock()
+	if len(_sessions.dirtyKeys) == 0 && len(_sessions.deletedKeys) == 0 {
+		_sessions.mu.Unlock()
+		return
+	}
+	dirty := make(map[string]sessionEntry, len(_sessions.dirtyKeys))
+	for k := range _sessions.dirtyKeys {
+		if e, ok := _sessions.data[k]; ok {
+			dirty[k] = e
+		}
+	}
+	deleted := make(map[string]bool, len(_sessions.deletedKeys))
+	for k := range _sessions.deletedKeys {
+		deleted[k] = true
+	}
+	_sessions.dirtyKeys = make(map[string]bool)
+	_sessions.deletedKeys = make(map[string]bool)
+	_sessions.mu.Unlock()
+
+	tx, err := _sessions.db.db.Begin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "session flush error: %v\n", err)
+		_sessions.mu.Lock()
+		for k := range dirty {
+			_sessions.dirtyKeys[k] = true
+		}
+		for k := range deleted {
+			_sessions.deletedKeys[k] = true
+		}
+		_sessions.mu.Unlock()
+		return
+	}
+	for k, e := range dirty {
+		jBytes, _ := json.Marshal(valueToGo(Value(e.data)))
+		switch _sessions.db.driver {
+		case "postgres":
+			tx.Exec(fmt.Sprintf("INSERT INTO %s (id, data, expires) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, expires = $3", _sessions.tableName), k, string(jBytes), e.expires)
+		case "mysql":
+			tx.Exec("REPLACE INTO " + _sessions.tableName + " (id, data, expires) VALUES (?, ?, ?)", k, string(jBytes), e.expires)
+		default:
+			tx.Exec(fmt.Sprintf("INSERT OR REPLACE INTO %s (id, data, expires) VALUES (?, ?, ?)", _sessions.tableName), k, string(jBytes), e.expires)
+		}
+	}
+	for k := range deleted {
+		switch _sessions.db.driver {
+		case "postgres":
+			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = $1", _sessions.tableName), k)
+		default:
+			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = ?", _sessions.tableName), k)
+		}
+	}
+	tx.Commit()
+}
+
+func set_session_store(args ...Value) Value {
+	if len(args) < 2 {
+		throw(Value("set_session_store requires db and table name"))
+		return null
+	}
+	dbVal, ok := args[0].(*dslDB)
+	if !ok {
+		throw(Value("set_session_store: first argument must be a database connection"))
+		return null
+	}
+	tableName := valueToString(args[1])
+
+	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL)", tableName)
+	if _, err := dbVal.db.Exec(createSQL); err != nil {
+		throw(Value("set_session_store: create table: " + err.Error()))
+		return null
+	}
+
+	// Load existing sessions
+	rows, err := dbVal.db.Query(fmt.Sprintf("SELECT id, data, expires FROM %s", tableName))
+	if err != nil {
+		throw(Value("set_session_store: load: " + err.Error()))
+		return null
+	}
+	defer rows.Close()
+	now := time.Now().Unix()
+	_sessions.mu.Lock()
+	for rows.Next() {
+		var id, data string
+		var expires int64
+		if err := rows.Scan(&id, &data, &expires); err != nil {
+			continue
+		}
+		if expires > 0 && expires < now {
+			continue // skip expired
+		}
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+			continue
+		}
+		if m, ok := goToValue(parsed).(map[string]Value); ok {
+			_sessions.data[id] = sessionEntry{data: m, expires: expires}
+		}
+	}
+	_sessions.db = dbVal
+	_sessions.tableName = tableName
+	_sessions.mu.Unlock()
+
+	// Flush goroutine
+	flushSec := int64(5)
+	if len(args) >= 3 {
+		flushSec = toInt64(args[2])
+		if flushSec < 1 {
+			flushSec = 1
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
+		defer ticker.Stop()
+		cleanupCounter := 0
+		for range ticker.C {
+			sessionFlush()
+			cleanupCounter++
+			if cleanupCounter >= 60 { // every ~5 minutes at 5s interval
+				cleanupCounter = 0
+				// Sweep expired sessions from memory
+				now := time.Now().Unix()
+				_sessions.mu.Lock()
+				for id, e := range _sessions.data {
+					if e.expires > 0 && e.expires < now {
+						delete(_sessions.data, id)
+						_sessions.deletedKeys[id] = true
+					}
+				}
+				_sessions.mu.Unlock()
+				// DB cleanup
+				if _sessions.db != nil {
+					switch _sessions.db.driver {
+					case "postgres":
+						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < $1", _sessions.tableName), now)
+					default:
+						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < ?", _sessions.tableName), now)
+					}
+				}
+			}
+		}
+	}()
+
+	return null
+}

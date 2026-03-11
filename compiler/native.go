@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	runtimeassets "httpdsl/compiler/runtime"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +66,7 @@ type NativeCompiler struct {
 	autocertDirExpr    Expression        // autocert cache dir expression
 	httpsRedirect      string            // true, false, or empty (auto: true when TLS active)
 	wwwRedirect        string            // true or false (default: false)
+	emitErr            error
 }
 
 type staticMount struct {
@@ -440,6 +442,9 @@ func GenerateNativeCode(program *Program) (string, error) {
 	c.emitSSERuntime()
 	c.emitUserFunctions()
 	c.emitMain()
+	if c.emitErr != nil {
+		return "", c.emitErr
+	}
 	return c.b.String(), nil
 }
 
@@ -584,6 +589,28 @@ func (c *NativeCompiler) lnf(f string, a ...interface{}) {
 }
 
 func (c *NativeCompiler) raw(s string) { c.b.WriteString(s) }
+
+func (c *NativeCompiler) emitRuntimeTemplate(name string, data any) {
+	if c.emitErr != nil {
+		return
+	}
+	out, err := runtimeassets.Render(name, data)
+	if err != nil {
+		c.emitErr = err
+		return
+	}
+	c.raw(out)
+}
+
+type sessionRuntimeTemplateData struct {
+	SessionSecretExpr string
+	SessionExpires    int
+	SessionCookie     string
+}
+
+type csrfRuntimeTemplateData struct {
+	SafeOrigins []string
+}
 
 // detectDBDrivers scans all db.open() calls for the driver string literal
 func (c *NativeCompiler) detectDBDrivers(program *Program) {
@@ -987,44 +1014,7 @@ func (c *NativeCompiler) emitGlobalVars() {
 }
 
 func (c *NativeCompiler) emitEnvRuntime() {
-	c.raw(`func _loadEnvFile(path string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Strip optional "export " prefix
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(line[7:])
-		}
-		idx := strings.IndexByte(line, '=')
-		if idx < 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		val := strings.TrimSpace(line[idx+1:])
-		// Handle quoted values
-		if len(val) >= 2 {
-			if val[0] == '"' && val[len(val)-1] == '"' {
-				val = val[1 : len(val)-1]
-				// Process escape sequences in double-quoted strings
-				val = strings.ReplaceAll(val, "\\n", "\n")
-				val = strings.ReplaceAll(val, "\\t", "\t")
-				val = strings.ReplaceAll(val, "\\\"", "\"")
-				val = strings.ReplaceAll(val, "\\\\", "\\")
-			} else if val[0] == '\'' && val[len(val)-1] == '\'' {
-				val = val[1 : len(val)-1]
-			}
-		}
-		_envMap[key] = val
-	}
-}
-
-`)
+	c.emitRuntimeTemplate("env_runtime.gotmpl", nil)
 }
 
 func (c *NativeCompiler) emitRuntime() {
@@ -3512,127 +3502,7 @@ func (c *NativeCompiler) emitCronRuntime() {
 	if !c.hasCron {
 		return
 	}
-	c.raw(`
-// ===== Cron Runtime =====
-type cronSchedule struct {
-	minutes []int
-	hours   []int
-	days    []int
-	months  []int
-	weekdays []int
-}
-
-func parseCron(expr string) (cronSchedule, error) {
-	fields := strings.Fields(expr)
-	if len(fields) != 5 {
-		return cronSchedule{}, fmt.Errorf("expected 5 fields (min hour dom month dow), got %q", expr)
-	}
-	minutes, err := parseCronField(fields[0], 0, 59)
-	if err != nil { return cronSchedule{}, fmt.Errorf("minute field: %w", err) }
-	hours, err := parseCronField(fields[1], 0, 23)
-	if err != nil { return cronSchedule{}, fmt.Errorf("hour field: %w", err) }
-	days, err := parseCronField(fields[2], 1, 31)
-	if err != nil { return cronSchedule{}, fmt.Errorf("day-of-month field: %w", err) }
-	months, err := parseCronField(fields[3], 1, 12)
-	if err != nil { return cronSchedule{}, fmt.Errorf("month field: %w", err) }
-	weekdays, err := parseCronField(fields[4], 0, 6)
-	if err != nil { return cronSchedule{}, fmt.Errorf("day-of-week field: %w", err) }
-	return cronSchedule{
-		minutes: minutes,
-		hours: hours,
-		days: days,
-		months: months,
-		weekdays: weekdays,
-	}, nil
-}
-
-func parseCronField(field string, min, max int) ([]int, error) {
-	var result []int
-	field = strings.TrimSpace(field)
-	if field == "" {
-		return nil, fmt.Errorf("empty field")
-	}
-	for _, part := range strings.Split(field, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			return nil, fmt.Errorf("empty list item")
-		}
-		step := 1
-		if idx := strings.Index(part, "/"); idx >= 0 {
-			var err error
-			step, err = strconv.Atoi(part[idx+1:])
-			if err != nil || step <= 0 {
-				return nil, fmt.Errorf("invalid step in %q", part)
-			}
-			part = part[:idx]
-		}
-		if part == "*" {
-			for i := min; i <= max; i += step {
-				result = append(result, i)
-			}
-		} else if idx := strings.Index(part, "-"); idx >= 0 {
-			lo, errLo := strconv.Atoi(part[:idx])
-			hi, errHi := strconv.Atoi(part[idx+1:])
-			if errLo != nil || errHi != nil {
-				return nil, fmt.Errorf("invalid range %q", part)
-			}
-			if lo > hi {
-				return nil, fmt.Errorf("invalid range %q (start > end)", part)
-			}
-			if lo < min || hi > max {
-				return nil, fmt.Errorf("value out of range in %q (allowed %d-%d)", part, min, max)
-			}
-			for i := lo; i <= hi; i += step {
-				result = append(result, i)
-			}
-		} else {
-			n, err := strconv.Atoi(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value %q", part)
-			}
-			if n < min || n > max {
-				return nil, fmt.Errorf("value out of range %q (allowed %d-%d)", part, min, max)
-			}
-			result = append(result, n)
-		}
-	}
-	return result, nil
-}
-
-func (cs cronSchedule) matches(t time.Time) bool {
-	return containsInt(cs.minutes, t.Minute()) &&
-		containsInt(cs.hours, t.Hour()) &&
-		containsInt(cs.days, t.Day()) &&
-		containsInt(cs.months, int(t.Month())) &&
-		containsInt(cs.weekdays, int(t.Weekday()))
-}
-
-func containsInt(s []int, v int) bool {
-	for _, n := range s { if n == v { return true } }
-	return false
-}
-
-func cronRun(expr string, fn func()) {
-	sched, err := parseCron(expr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cron parse error for %q: %v\n", expr, err)
-		return
-	}
-	go func() {
-		// Align to next minute boundary
-		now := time.Now()
-		next := now.Truncate(time.Minute).Add(time.Minute)
-		time.Sleep(next.Sub(now))
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		// Check immediately at first aligned minute
-		if sched.matches(time.Now()) { fn() }
-		for t := range ticker.C {
-			if sched.matches(t) { fn() }
-		}
-	}()
-}
-`)
+	c.emitRuntimeTemplate("cron_runtime.gotmpl", nil)
 }
 
 func (c *NativeCompiler) emitDBRuntime() {
@@ -3984,246 +3854,15 @@ func (c *NativeCompiler) emitSessionRuntime() {
 	if !c.sessionEnabled {
 		return
 	}
-	// Session secret expression
 	secretExpr := fmt.Sprintf("%q", c.sessionSecret)
 	if c.sessionSecretExpr != nil {
 		secretExpr = fmt.Sprintf("valueToString(%s)", c.expr(c.sessionSecretExpr))
 	}
-	c.lnf("var _sessionSecret = %s", secretExpr)
-	c.lnf("var _sessionExpires = int64(%d)", c.sessionExpires)
-	c.lnf("var _sessionCookie = %q", c.sessionCookie)
-	c.raw(`
-// Session runtime
-type sessionStore struct {
-	mu          sync.RWMutex
-	data        map[string]sessionEntry
-	dirtyKeys   map[string]bool
-	deletedKeys map[string]bool
-	db          *dslDB
-	tableName   string
-}
-
-type sessionEntry struct {
-	data    map[string]Value
-	expires int64
-}
-
-var _sessions = &sessionStore{
-	data:        make(map[string]sessionEntry),
-	dirtyKeys:   make(map[string]bool),
-	deletedKeys: make(map[string]bool),
-}
-
-func sessionSign(id string) string {
-	mac := hmac.New(sha256.New, []byte(_sessionSecret))
-	mac.Write([]byte(id))
-	sig := hex.EncodeToString(mac.Sum(nil))[:16]
-	return id + "." + sig
-}
-
-func sessionVerify(cookie string) (string, bool) {
-	parts := strings.SplitN(cookie, ".", 2)
-	if len(parts) != 2 { return "", false }
-	id := parts[0]
-	expected := sessionSign(id)
-	if !hmac.Equal([]byte(cookie), []byte(expected)) { return "", false }
-	return id, true
-}
-
-func sessionLoad(r *http.Request) (string, map[string]Value, bool) {
-	c, err := r.Cookie(_sessionCookie)
-	if err != nil || c.Value == "" {
-		return "", make(map[string]Value), false
-	}
-	id, ok := sessionVerify(c.Value)
-	if !ok {
-		return "", make(map[string]Value), false
-	}
-	_sessions.mu.RLock()
-	entry, exists := _sessions.data[id]
-	_sessions.mu.RUnlock()
-	if !exists {
-		return "", make(map[string]Value), false
-	}
-	if entry.expires > 0 && entry.expires < time.Now().Unix() {
-		// Expired — clean up
-		_sessions.mu.Lock()
-		delete(_sessions.data, id)
-		_sessions.deletedKeys[id] = true
-		delete(_sessions.dirtyKeys, id)
-		_sessions.mu.Unlock()
-		return "", make(map[string]Value), false
-	}
-	// Return a copy
-	copy := make(map[string]Value, len(entry.data))
-	for k, v := range entry.data { copy[k] = v }
-	return id, copy, true
-}
-
-func sessionSave(w http.ResponseWriter, id string, data map[string]Value, destroyed bool) {
-	if destroyed {
-		if id != "" {
-			_sessions.mu.Lock()
-			delete(_sessions.data, id)
-			_sessions.deletedKeys[id] = true
-			delete(_sessions.dirtyKeys, id)
-			_sessions.mu.Unlock()
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     _sessionCookie,
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
-		return
-	}
-	if len(data) == 0 { return }
-	// Generate new session ID if needed
-	if id == "" {
-		b := make([]byte, 24)
-		crand.Read(b)
-		id = hex.EncodeToString(b)
-	}
-	_sessions.mu.Lock()
-	_sessions.data[id] = sessionEntry{
-		data:    data,
-		expires: time.Now().Unix() + _sessionExpires,
-	}
-	_sessions.dirtyKeys[id] = true
-	delete(_sessions.deletedKeys, id)
-	_sessions.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{
-		Name:     _sessionCookie,
-		Value:    sessionSign(id),
-		Path:     "/",
-		MaxAge:   int(_sessionExpires),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+	c.emitRuntimeTemplate("session_runtime.gotmpl", sessionRuntimeTemplateData{
+		SessionSecretExpr: secretExpr,
+		SessionExpires:    c.sessionExpires,
+		SessionCookie:     c.sessionCookie,
 	})
-}
-
-func sessionFlush() {
-	if _sessions.db == nil { return }
-	_sessions.mu.Lock()
-	if len(_sessions.dirtyKeys) == 0 && len(_sessions.deletedKeys) == 0 {
-		_sessions.mu.Unlock()
-		return
-	}
-	dirty := make(map[string]sessionEntry, len(_sessions.dirtyKeys))
-	for k := range _sessions.dirtyKeys {
-		if e, ok := _sessions.data[k]; ok { dirty[k] = e }
-	}
-	deleted := make(map[string]bool, len(_sessions.deletedKeys))
-	for k := range _sessions.deletedKeys { deleted[k] = true }
-	_sessions.dirtyKeys = make(map[string]bool)
-	_sessions.deletedKeys = make(map[string]bool)
-	_sessions.mu.Unlock()
-
-	tx, err := _sessions.db.db.Begin()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "session flush error: %v\n", err)
-		_sessions.mu.Lock()
-		for k := range dirty { _sessions.dirtyKeys[k] = true }
-		for k := range deleted { _sessions.deletedKeys[k] = true }
-		_sessions.mu.Unlock()
-		return
-	}
-	for k, e := range dirty {
-		jBytes, _ := json.Marshal(valueToGo(Value(e.data)))
-		switch _sessions.db.driver {
-		case "postgres":
-			tx.Exec(fmt.Sprintf("INSERT INTO %s (id, data, expires) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET data = $2, expires = $3", _sessions.tableName), k, string(jBytes), e.expires)
-		case "mysql":
-`)
-	// MySQL with backtick-quoted table reference
-	c.ln(`			tx.Exec("REPLACE INTO " + _sessions.tableName + " (id, data, expires) VALUES (?, ?, ?)", k, string(jBytes), e.expires)`)
-	c.raw(`		default:
-			tx.Exec(fmt.Sprintf("INSERT OR REPLACE INTO %s (id, data, expires) VALUES (?, ?, ?)", _sessions.tableName), k, string(jBytes), e.expires)
-		}
-	}
-	for k := range deleted {
-		switch _sessions.db.driver {
-		case "postgres":
-			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = $1", _sessions.tableName), k)
-		default:
-			tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = ?", _sessions.tableName), k)
-		}
-	}
-	tx.Commit()
-}
-
-func set_session_store(args ...Value) Value {
-	if len(args) < 2 { throw(Value("set_session_store requires db and table name")); return null }
-	dbVal, ok := args[0].(*dslDB)
-	if !ok { throw(Value("set_session_store: first argument must be a database connection")); return null }
-	tableName := valueToString(args[1])
-
-	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL)", tableName)
-	if _, err := dbVal.db.Exec(createSQL); err != nil {
-		throw(Value("set_session_store: create table: " + err.Error())); return null
-	}
-
-	// Load existing sessions
-	rows, err := dbVal.db.Query(fmt.Sprintf("SELECT id, data, expires FROM %s", tableName))
-	if err != nil { throw(Value("set_session_store: load: " + err.Error())); return null }
-	defer rows.Close()
-	now := time.Now().Unix()
-	_sessions.mu.Lock()
-	for rows.Next() {
-		var id, data string
-		var expires int64
-		if err := rows.Scan(&id, &data, &expires); err != nil { continue }
-		if expires > 0 && expires < now { continue } // skip expired
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(data), &parsed); err != nil { continue }
-		if m, ok := goToValue(parsed).(map[string]Value); ok {
-			_sessions.data[id] = sessionEntry{data: m, expires: expires}
-		}
-	}
-	_sessions.db = dbVal
-	_sessions.tableName = tableName
-	_sessions.mu.Unlock()
-
-	// Flush goroutine
-	flushSec := int64(5)
-	if len(args) >= 3 { flushSec = toInt64(args[2]); if flushSec < 1 { flushSec = 1 } }
-	go func() {
-		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
-		defer ticker.Stop()
-		cleanupCounter := 0
-		for range ticker.C {
-			sessionFlush()
-			cleanupCounter++
-			if cleanupCounter >= 60 { // every ~5 minutes at 5s interval
-				cleanupCounter = 0
-				// Sweep expired sessions from memory
-				now := time.Now().Unix()
-				_sessions.mu.Lock()
-				for id, e := range _sessions.data {
-					if e.expires > 0 && e.expires < now {
-						delete(_sessions.data, id)
-						_sessions.deletedKeys[id] = true
-					}
-				}
-				_sessions.mu.Unlock()
-				// DB cleanup
-				if _sessions.db != nil {
-					switch _sessions.db.driver {
-					case "postgres":
-						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < $1", _sessions.tableName), now)
-					default:
-						_sessions.db.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE expires < ?", _sessions.tableName), now)
-					}
-				}
-			}
-		}
-	}()
-
-	return null
-}
-`)
 
 	// CSRF runtime
 	if c.csrfEnabled {
@@ -4232,94 +3871,9 @@ func set_session_store(args ...Value) Value {
 }
 
 func (c *NativeCompiler) emitCSRFRuntime() {
-	// Emit safe origins slice
-	originsStr := "var _csrfSafeOrigins = []string{}"
-	if len(c.csrfSafeOrigins) > 0 {
-		parts := make([]string, len(c.csrfSafeOrigins))
-		for i, o := range c.csrfSafeOrigins {
-			parts[i] = fmt.Sprintf("%q", o)
-		}
-		originsStr = fmt.Sprintf("var _csrfSafeOrigins = []string{%s}", strings.Join(parts, ", "))
-	}
-	c.ln(originsStr)
-	c.raw(`
-func csrfToken(sessData map[string]Value) Value {
-	if tok, ok := sessData["_csrf_token"]; ok {
-		if s, ok := tok.(string); ok && s != "" {
-			return Value(s)
-		}
-	}
-	// Generate new token
-	b := make([]byte, 32)
-	crand.Read(b)
-	tok := hex.EncodeToString(b)
-	sessData["_csrf_token"] = Value(tok)
-	return Value(tok)
-}
-
-func csrfField(sessData map[string]Value) Value {
-	tok := valueToString(csrfToken(sessData))
-	return Value(fmt.Sprintf(` + "`" + `<input type="hidden" name="_csrf" value="%s">` + "`" + `, tok))
-}
-
-func csrfValidate(r *http.Request, sessData map[string]Value, bodyStr string) bool {
-	// Safe methods don't need CSRF
-	switch r.Method {
-	case "GET", "HEAD", "OPTIONS", "TRACE":
-		return true
-	}
-
-	// Check safe origins
-	if len(_csrfSafeOrigins) > 0 {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = r.Header.Get("Referer")
-		}
-		for _, safe := range _csrfSafeOrigins {
-			if strings.HasPrefix(origin, safe) {
-				return true
-			}
-		}
-	}
-
-	// Get expected token from session
-	expected := ""
-	if tok, ok := sessData["_csrf_token"]; ok {
-		expected = valueToString(tok)
-	}
-	if expected == "" {
-		return false
-	}
-
-	// Check token from header first
-	submitted := r.Header.Get("X-CSRF-Token")
-	if submitted == "" {
-		submitted = r.Header.Get("X-XSRF-Token")
-	}
-	// Check URL query parameter
-	if submitted == "" {
-		submitted = r.URL.Query().Get("_csrf")
-	}
-	// Check form body (already read)
-	if submitted == "" && bodyStr != "" {
-		vals, err := url.ParseQuery(bodyStr)
-		if err == nil {
-			submitted = vals.Get("_csrf")
-		}
-		// Also check JSON body
-		if submitted == "" {
-			var jsonBody map[string]interface{}
-			if json.Unmarshal([]byte(bodyStr), &jsonBody) == nil {
-				if tok, ok := jsonBody["_csrf"]; ok {
-					submitted = fmt.Sprintf("%v", tok)
-				}
-			}
-		}
-	}
-
-	return hmac.Equal([]byte(submitted), []byte(expected))
-}
-`)
+	c.emitRuntimeTemplate("csrf_runtime.gotmpl", csrfRuntimeTemplateData{
+		SafeOrigins: c.csrfSafeOrigins,
+	})
 }
 
 func (c *NativeCompiler) loadTemplateFiles() error {
