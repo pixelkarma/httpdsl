@@ -668,6 +668,10 @@ type csrfRuntimeTemplateData struct {
 	SafeOrigins []string
 }
 
+type storeSyncRuntimeTemplateData struct {
+	EnableDB bool
+}
+
 // detectDBDrivers scans all db.open() calls for the driver string literal
 func (c *NativeCompiler) detectDBDrivers(program *Program) {
 	for _, stmt := range program.Statements {
@@ -864,187 +868,9 @@ func (c *NativeCompiler) emitHeader() {
 }
 
 func (c *NativeCompiler) emitStoreSync() {
-	// JSON file sync — always emitted when store is used
-	c.raw(`
-func storeSyncJSON(filePath string, flushSec int64) {
-	// Load existing data from JSON file
-	if raw, err := os.ReadFile(filePath); err == nil && len(raw) > 0 {
-		var data map[string]interface{}
-		if err := json.Unmarshal(raw, &data); err == nil {
-			globalStore.mu.Lock()
-			for k, v := range data {
-				globalStore.data[k] = storeEntry{value: goToValue(v)}
-			}
-			globalStore.mu.Unlock()
-		} else {
-			fmt.Fprintf(os.Stderr, "store.sync: failed to parse %s: %v\n", filePath, err)
-		}
-	}
-	globalStore.mu.Lock()
-	globalStore.synced = true
-	globalStore.mu.Unlock()
-
-	flush := func() {
-		globalStore.mu.Lock()
-		if len(globalStore.dirtyKeys) == 0 && len(globalStore.deletedKeys) == 0 {
-			globalStore.mu.Unlock()
-			return
-		}
-		globalStore.dirtyKeys = make(map[string]bool)
-		globalStore.deletedKeys = make(map[string]bool)
-		// Snapshot entire store for full-file write
-		snapshot := make(map[string]interface{}, len(globalStore.data))
-		for k, e := range globalStore.data {
-			if !storeExpired(e) {
-				snapshot[k] = valueToGo(e.value)
-			}
-		}
-		globalStore.mu.Unlock()
-
-		jBytes, err := json.MarshalIndent(snapshot, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "store.sync json marshal error: %v\n", err)
-			return
-		}
-		if err := os.WriteFile(filePath, jBytes, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "store.sync json write error: %v\n", err)
-		}
-	}
-
-	go func() {
-		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
-		defer ticker.Stop()
-		for range ticker.C { flush() }
-	}()
-
-	_storeFlush = flush
-}
-`)
-
-	// SQL DB sync — only emitted when DB drivers are present
-	if len(c.dbDrivers) > 0 {
-		c.raw(`
-func storeSyncDB(args ...Value) {
-	dbVal, ok := args[0].(*dslDB)
-	if !ok { throw(Value("store.sync: first argument must be a database connection")); return }
-	tableName := valueToString(args[1])
-	flushSec := int64(5)
-	if len(args) >= 3 { flushSec = toInt64(args[2]); if flushSec < 1 { flushSec = 1 } }
-
-	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (key TEXT PRIMARY KEY, value TEXT NOT NULL)", tableName)
-	if _, err := dbVal.db.Exec(createSQL); err != nil {
-		throw(Value("store.sync: create table: " + err.Error())); return
-	}
-
-	rows, err := dbVal.db.Query(fmt.Sprintf("SELECT key, value FROM %s", tableName))
-	if err != nil { throw(Value("store.sync: load: " + err.Error())); return }
-	defer rows.Close()
-	globalStore.mu.Lock()
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil { continue }
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
-			globalStore.data[k] = storeEntry{value: goToValue(parsed)}
-		} else {
-			globalStore.data[k] = storeEntry{value: Value(v)}
-		}
-	}
-	globalStore.synced = true
-	globalStore.mu.Unlock()
-
-	var upsertSQL string
-	switch dbVal.driver {
-	case "postgres":
-		upsertSQL = fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2", tableName)
-	case "mysql":
-`)
-		c.ln(`		upsertSQL = fmt.Sprintf("REPLACE INTO %s (` + "`" + `key` + "`" + `, ` + "`" + `value` + "`" + `) VALUES (?, ?)", tableName)`)
-		c.raw(`	default:
-		upsertSQL = fmt.Sprintf("INSERT OR REPLACE INTO %s (key, value) VALUES (?, ?)", tableName)
-	}
-	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE key = ?", tableName)
-	if dbVal.driver == "postgres" {
-		deleteSQL = fmt.Sprintf("DELETE FROM %s WHERE key = $1", tableName)
-	}
-
-	flush := func() {
-		globalStore.mu.Lock()
-		if len(globalStore.dirtyKeys) == 0 && len(globalStore.deletedKeys) == 0 {
-			globalStore.mu.Unlock()
-			return
-		}
-		dirty := make(map[string]Value, len(globalStore.dirtyKeys))
-		for k := range globalStore.dirtyKeys {
-			if e, ok := globalStore.data[k]; ok { dirty[k] = e.value }
-		}
-		deleted := make(map[string]bool, len(globalStore.deletedKeys))
-		for k := range globalStore.deletedKeys { deleted[k] = true }
-		globalStore.dirtyKeys = make(map[string]bool)
-		globalStore.deletedKeys = make(map[string]bool)
-		globalStore.mu.Unlock()
-
-		tx, err := dbVal.db.Begin()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "store.sync flush error: %v\n", err)
-			globalStore.mu.Lock()
-			for k := range dirty { globalStore.dirtyKeys[k] = true }
-			for k := range deleted { globalStore.deletedKeys[k] = true }
-			globalStore.mu.Unlock()
-			return
-		}
-		for k, v := range dirty {
-			jBytes, _ := json.Marshal(valueToGo(v))
-			if _, err := tx.Exec(upsertSQL, k, string(jBytes)); err != nil {
-				fmt.Fprintf(os.Stderr, "store.sync upsert error [%s]: %v\n", k, err)
-			}
-		}
-		for k := range deleted {
-			if _, err := tx.Exec(deleteSQL, k); err != nil {
-				fmt.Fprintf(os.Stderr, "store.sync delete error [%s]: %v\n", k, err)
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			fmt.Fprintf(os.Stderr, "store.sync commit error: %v\n", err)
-		}
-	}
-
-	go func() {
-		ticker := time.NewTicker(time.Duration(flushSec) * time.Second)
-		defer ticker.Stop()
-		for range ticker.C { flush() }
-	}()
-
-	_storeFlush = flush
-}
-`)
-	}
-
-	// Dispatcher: detect string (JSON file) vs *dslDB (SQL)
-	c.raw(`
-func storeSync(args ...Value) Value {
-	if len(args) == 0 { throw(Value("store.sync requires a file path or database connection")); return null }
-	// JSON file mode: store.sync("path.json") or store.sync("path.json", flushSec)
-	if path, ok := args[0].(string); ok {
-		flushSec := int64(5)
-		if len(args) >= 2 { flushSec = toInt64(args[1]); if flushSec < 1 { flushSec = 1 } }
-		storeSyncJSON(path, flushSec)
-		return null
-	}
-`)
-	if len(c.dbDrivers) > 0 {
-		c.raw(`	// SQL DB mode: store.sync(db, table) or store.sync(db, table, flushSec)
-	if len(args) < 2 { throw(Value("store.sync: database mode requires db and table name")); return null }
-	storeSyncDB(args...)
-	return null
-`)
-	} else {
-		c.raw(`	throw(Value("store.sync: argument must be a file path string or database connection"))
-	return null
-`)
-	}
-	c.raw(`}
-`)
+	c.emitRuntimeTemplate("store_sync_runtime.gotmpl", storeSyncRuntimeTemplateData{
+		EnableDB: len(c.dbDrivers) > 0,
+	})
 }
 
 func (c *NativeCompiler) emitGlobalVars() {
