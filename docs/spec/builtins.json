@@ -1,0 +1,302 @@
+{
+  "$schema": "./schema/builtins.schema.json",
+  "meta": {
+    "name": "HTTPDSL Builtins",
+    "specVersion": "1.0.0",
+    "updatedAt": "2026-03-10",
+    "notes": [
+      "Builtins are listed by callable surface (functions, namespaces, and method-like APIs).",
+      "Availability can depend on runtime context (session enabled, SSE route, DB driver configured)."
+    ]
+  },
+  "groups": [
+    {
+      "id": "core-functions",
+      "name": "Core Functions",
+      "kind": "functions",
+      "items": [
+        { "name": "print", "syntax": "print(...values)", "summary": "Prints values to stdout/log output." },
+        { "name": "log", "syntax": "log(...values)", "summary": "Structured log message." },
+        { "name": "log_info", "syntax": "log_info(...values)", "summary": "Info-level log." },
+        { "name": "log_warn", "syntax": "log_warn(...values)", "summary": "Warn-level log." },
+        { "name": "log_error", "syntax": "log_error(...values)", "summary": "Error-level log." },
+        { "name": "env", "syntax": "env(name)", "summary": "Reads environment variable." },
+        { "name": "sleep", "syntax": "sleep(ms)", "summary": "Sleeps current flow for milliseconds." },
+        { "name": "fetch", "syntax": "fetch(url[, options])", "summary": "HTTP client request." },
+        { "name": "exec", "syntax": "exec(command[, options])", "summary": "Executes shell command." },
+        { "name": "now", "syntax": "now()", "summary": "Unix timestamp seconds." },
+        { "name": "now_ms", "syntax": "now_ms()", "summary": "Unix timestamp milliseconds." },
+        { "name": "server_stats", "syntax": "server_stats()", "summary": "Returns runtime server metrics." },
+        { "name": "await", "syntax": "await(task)", "summary": "Waits for async task result." },
+        { "name": "race", "syntax": "race(tasks)", "summary": "Resolves first task completion." },
+        { "name": "render", "syntax": "render(template[, data])", "summary": "Renders configured template." },
+        { "name": "redirect", "syntax": "redirect(url[, status])", "summary": "Returns redirect response payload." },
+        { "name": "broadcast", "syntax": "broadcast(data)", "summary": "Broadcasts to SSE clients.", "availability": "Only meaningful when SSE is enabled." },
+        { "name": "set_session_store", "syntax": "set_session_store(adapter)", "summary": "Sets backing session store." },
+        { "name": "csrf_token", "syntax": "csrf_token()", "summary": "Gets CSRF token for active session.", "availability": "Requires session+CSRF configuration." },
+        { "name": "csrf_field", "syntax": "csrf_field()", "summary": "Gets CSRF hidden form field markup.", "availability": "Requires session+CSRF configuration." }
+      ]
+    },
+    {
+      "id": "types-and-conversion",
+      "name": "Types and Conversion",
+      "kind": "functions",
+      "items": [
+        { "name": "len", "syntax": "len(value)", "summary": "Length of string/array/map." },
+        { "name": "type", "syntax": "type(value)", "summary": "Runtime type name." },
+        { "name": "str", "syntax": "str(value)", "summary": "Converts to string." },
+        { "name": "int", "syntax": "int(value)", "summary": "Converts to integer." },
+        { "name": "float", "syntax": "float(value)", "summary": "Converts to float." },
+        { "name": "bool", "syntax": "bool(value)", "summary": "Converts to boolean." }
+      ]
+    },
+    {
+      "id": "strings",
+      "name": "String Functions",
+      "kind": "functions",
+      "items": [
+        { "name": "trim", "syntax": "trim(text)", "summary": "Trims outer whitespace." },
+        { "name": "split", "syntax": "split(text, sep)", "summary": "Splits string to array." },
+        { "name": "join", "syntax": "join(arr, sep)", "summary": "Joins array into string." },
+        { "name": "upper", "syntax": "upper(text)", "summary": "Uppercases string." },
+        { "name": "lower", "syntax": "lower(text)", "summary": "Lowercases string." },
+        { "name": "replace", "syntax": "replace(text, old, new)", "summary": "Replaces substring." },
+        { "name": "starts_with", "syntax": "starts_with(text, prefix)", "summary": "Prefix check." },
+        { "name": "ends_with", "syntax": "ends_with(text, suffix)", "summary": "Suffix check." },
+        { "name": "contains", "syntax": "contains(container, needle)", "summary": "Contains check for string/array." },
+        { "name": "index_of", "syntax": "index_of(container, needle)", "summary": "First index, or -1." },
+        { "name": "repeat", "syntax": "repeat(text, n)", "summary": "String repeat." },
+        { "name": "slice", "syntax": "slice(value, start[, end])", "summary": "Slice string or array." },
+        { "name": "pad_left", "syntax": "pad_left(text, len[, pad])", "summary": "Left pad." },
+        { "name": "pad_right", "syntax": "pad_right(text, len[, pad])", "summary": "Right pad." },
+        { "name": "truncate", "syntax": "truncate(text, maxLen)", "summary": "Truncates with ellipsis semantics." },
+        { "name": "capitalize", "syntax": "capitalize(text)", "summary": "Capitalizes first letter." },
+        { "name": "regex_match", "syntax": "regex_match(pattern, text)", "summary": "Regex match." },
+        { "name": "regex_replace", "syntax": "regex_replace(pattern, repl, text)", "summary": "Regex replace." }
+      ]
+    },
+    {
+      "id": "arrays",
+      "name": "Array Functions",
+      "kind": "functions",
+      "items": [
+        { "name": "append", "syntax": "append(arr, value[, ...])", "summary": "Returns new array with appended values." },
+        { "name": "push", "syntax": "push(arr, value[, ...])", "summary": "Alias behavior of append in expression form." },
+        { "name": "reverse", "syntax": "reverse(arr)", "summary": "Reversed copy." },
+        { "name": "unique", "syntax": "unique(arr)", "summary": "Deduplicated array." },
+        { "name": "flat", "syntax": "flat(arr[, depth])", "summary": "Flattens nested arrays." },
+        { "name": "sort", "syntax": "sort(arr)", "summary": "Sorted copy." },
+        { "name": "sort_by", "syntax": "sort_by(arr, keyOrFn)", "summary": "Sort by key or selector." },
+        { "name": "chunk", "syntax": "chunk(arr, size)", "summary": "Chunks array into sub-arrays." },
+        { "name": "range", "syntax": "range(end) | range(start, end[, step])", "summary": "Generates integer range array." }
+      ]
+    },
+    {
+      "id": "objects",
+      "name": "Object Functions",
+      "kind": "functions",
+      "items": [
+        { "name": "keys", "syntax": "keys(obj)", "summary": "Object keys array." },
+        { "name": "values", "syntax": "values(obj)", "summary": "Object values array." },
+        { "name": "merge", "syntax": "merge(a, b[, ...])", "summary": "Shallow object merge." },
+        { "name": "patch", "syntax": "patch(target, patchObj)", "summary": "Deep-ish patch merge semantics." },
+        { "name": "delete", "syntax": "delete(obj, key)", "summary": "Returns object without key." }
+      ]
+    },
+    {
+      "id": "functional",
+      "name": "Functional Helpers",
+      "kind": "functions",
+      "items": [
+        { "name": "map", "syntax": "map(arr, fn)", "summary": "Maps array values." },
+        { "name": "filter", "syntax": "filter(arr, fn)", "summary": "Filters array by predicate." },
+        { "name": "reduce", "syntax": "reduce(arr, fn, initial)", "summary": "Reduces array." },
+        { "name": "find", "syntax": "find(arr, fn)", "summary": "First element matching predicate." },
+        { "name": "some", "syntax": "some(arr, fn)", "summary": "True if any match." },
+        { "name": "every", "syntax": "every(arr, fn)", "summary": "True if all match." },
+        { "name": "count", "syntax": "count(arr, fn)", "summary": "Count matching predicate." },
+        { "name": "pluck", "syntax": "pluck(arr, key)", "summary": "Extract field from each object." },
+        { "name": "group_by", "syntax": "group_by(arr, keyOrFn)", "summary": "Groups by key/selector." },
+        { "name": "sum", "syntax": "sum(arr)", "summary": "Numeric sum." },
+        { "name": "min", "syntax": "min(a, b[, ...])", "summary": "Minimum value." },
+        { "name": "max", "syntax": "max(a, b[, ...])", "summary": "Maximum value." },
+        { "name": "clamp", "syntax": "clamp(value, lo, hi)", "summary": "Clamps value to range." }
+      ]
+    },
+    {
+      "id": "math",
+      "name": "Math Functions",
+      "kind": "functions",
+      "items": [
+        { "name": "rand", "syntax": "rand() | rand(max) | rand(min, max)", "summary": "Random integer helper." },
+        { "name": "abs", "syntax": "abs(n)", "summary": "Absolute value." },
+        { "name": "ceil", "syntax": "ceil(n)", "summary": "Round up." },
+        { "name": "floor", "syntax": "floor(n)", "summary": "Round down." },
+        { "name": "round", "syntax": "round(n)", "summary": "Round nearest." }
+      ]
+    },
+    {
+      "id": "encoding",
+      "name": "Encoding and Hashing",
+      "kind": "functions",
+      "items": [
+        { "name": "base64_encode", "syntax": "base64_encode(text)", "summary": "Base64 encode." },
+        { "name": "base64_decode", "syntax": "base64_decode(text)", "summary": "Base64 decode." },
+        { "name": "url_encode", "syntax": "url_encode(text)", "summary": "URL encode." },
+        { "name": "url_decode", "syntax": "url_decode(text)", "summary": "URL decode." },
+        { "name": "hash", "syntax": "hash(value[, algorithm])", "summary": "Hash helper (sha256 default)." },
+        { "name": "hmac_hash", "syntax": "hmac_hash(value, secret[, algorithm])", "summary": "HMAC helper." },
+        { "name": "hash_password", "syntax": "hash_password(password[, opts])", "summary": "Password hash." },
+        { "name": "verify_password", "syntax": "verify_password(password, hash)", "summary": "Password hash verification." },
+        { "name": "uuid", "syntax": "uuid()", "summary": "UUID helper." },
+        { "name": "cuid2", "syntax": "cuid2()", "summary": "CUID2 helper." }
+      ]
+    },
+    {
+      "id": "datetime",
+      "name": "Date and Time",
+      "kind": "functions",
+      "items": [
+        { "name": "date", "syntax": "date([value])", "summary": "Date object/value constructor." },
+        { "name": "date_format", "syntax": "date_format(value, format)", "summary": "Date formatting." },
+        { "name": "date_parse", "syntax": "date_parse(text[, format])", "summary": "Date parsing." },
+        { "name": "strtotime", "syntax": "strtotime(text)", "summary": "Parse relative/time text to timestamp." }
+      ]
+    },
+    {
+      "id": "validation",
+      "name": "Validation",
+      "kind": "functions",
+      "items": [
+        { "name": "validate", "syntax": "validate(value, schema)", "summary": "Schema-based validation." },
+        { "name": "is_email", "syntax": "is_email(text)", "summary": "Email format check." },
+        { "name": "is_url", "syntax": "is_url(text)", "summary": "URL format check." },
+        { "name": "is_uuid", "syntax": "is_uuid(text)", "summary": "UUID format check." },
+        { "name": "is_numeric", "syntax": "is_numeric(value)", "summary": "Numeric check." }
+      ]
+    },
+    {
+      "id": "json-namespace",
+      "name": "json Namespace",
+      "kind": "namespace",
+      "items": [
+        { "name": "json.parse", "syntax": "json.parse(text)", "summary": "Parses JSON text." },
+        { "name": "json.stringify", "syntax": "json.stringify(value)", "summary": "Serializes JSON text." }
+      ]
+    },
+    {
+      "id": "file-namespace",
+      "name": "file Namespace",
+      "kind": "namespace",
+      "items": [
+        { "name": "file.open", "syntax": "file.open(path[, mode])", "summary": "Opens file handle." },
+        { "name": "file.read", "syntax": "file.read(path)", "summary": "Reads file." },
+        { "name": "file.write", "syntax": "file.write(path, data)", "summary": "Writes file." },
+        { "name": "file.append", "syntax": "file.append(path, data)", "summary": "Appends file." },
+        { "name": "file.read_json", "syntax": "file.read_json(path)", "summary": "Reads JSON file." },
+        { "name": "file.write_json", "syntax": "file.write_json(path, value)", "summary": "Writes JSON file." },
+        { "name": "file.exists", "syntax": "file.exists(path)", "summary": "File existence check." },
+        { "name": "file.delete", "syntax": "file.delete(path)", "summary": "Deletes file." },
+        { "name": "file.list", "syntax": "file.list(path)", "summary": "Lists directory entries." },
+        { "name": "file.mkdir", "syntax": "file.mkdir(path)", "summary": "Creates directory." },
+        { "name": "file.chmod", "syntax": "file.chmod(path, mode)", "summary": "Changes file mode." }
+      ]
+    },
+    {
+      "id": "file-handle-methods",
+      "name": "File Handle Methods",
+      "kind": "methods",
+      "items": [
+        { "name": "read", "syntax": "fh.read()", "summary": "Reads from opened file handle." },
+        { "name": "write", "syntax": "fh.write(data)", "summary": "Writes through file handle." },
+        { "name": "append", "syntax": "fh.append(data)", "summary": "Appends through file handle." },
+        { "name": "lines", "syntax": "fh.lines([limit])", "summary": "Reads lines." },
+        { "name": "json", "syntax": "fh.json()", "summary": "Reads JSON from file handle." },
+        { "name": "write_json", "syntax": "fh.write_json(value)", "summary": "Writes JSON to file handle." },
+        { "name": "exists", "syntax": "fh.exists()", "summary": "Checks handle path existence." },
+        { "name": "size", "syntax": "fh.size()", "summary": "Reads file size." },
+        { "name": "delete", "syntax": "fh.delete()", "summary": "Deletes file at handle path." },
+        { "name": "path", "syntax": "fh.path()", "summary": "Returns handle path." }
+      ]
+    },
+    {
+      "id": "db-and-jwt",
+      "name": "DB and JWT Namespaces",
+      "kind": "namespace",
+      "items": [
+        { "name": "db.open", "syntax": "db.open(dsnOrConfig)", "summary": "Opens database handle." },
+        { "name": "jwt.sign", "syntax": "jwt.sign(payload, secret[, opts])", "summary": "JWT signing." },
+        { "name": "jwt.verify", "syntax": "jwt.verify(token, secret[, opts])", "summary": "JWT verification." }
+      ]
+    },
+    {
+      "id": "db-handle-methods",
+      "name": "DB Handle Methods",
+      "kind": "methods",
+      "items": [
+        { "name": "exec", "syntax": "dbh.exec(query[, args])", "summary": "Executes write/query statement." },
+        { "name": "query", "syntax": "dbh.query(query[, args])", "summary": "Returns row collection." },
+        { "name": "query_one", "syntax": "dbh.query_one(query[, args])", "summary": "Returns first row." },
+        { "name": "query_value", "syntax": "dbh.query_value(query[, args])", "summary": "Returns first scalar value." },
+        { "name": "insert", "syntax": "dbh.insert(collection, doc)", "summary": "Mongo-like insert." },
+        { "name": "insert_many", "syntax": "dbh.insert_many(collection, docs)", "summary": "Mongo-like bulk insert." },
+        { "name": "find", "syntax": "dbh.find(collection, filter)", "summary": "Mongo-like find." },
+        { "name": "find_one", "syntax": "dbh.find_one(collection, filter)", "summary": "Mongo-like find one." },
+        { "name": "update", "syntax": "dbh.update(collection, filter, patch)", "summary": "Mongo-like update." },
+        { "name": "delete", "syntax": "dbh.delete(collection, filter)", "summary": "Mongo-like delete." },
+        { "name": "count", "syntax": "dbh.count(collection[, filter])", "summary": "Mongo-like count." },
+        { "name": "close", "syntax": "dbh.close()", "summary": "Closes DB handle." }
+      ]
+    },
+    {
+      "id": "store-namespace",
+      "name": "store Namespace",
+      "kind": "namespace",
+      "items": [
+        { "name": "store.get", "syntax": "store.get(key[, fallback])", "summary": "Gets store value." },
+        { "name": "store.set", "syntax": "store.set(key, value[, ttlSeconds])", "summary": "Sets store value." },
+        { "name": "store.delete", "syntax": "store.delete(key)", "summary": "Deletes key." },
+        { "name": "store.has", "syntax": "store.has(key)", "summary": "Existence check." },
+        { "name": "store.all", "syntax": "store.all()", "summary": "Returns full key-value snapshot." },
+        { "name": "store.incr", "syntax": "store.incr(key[, by[, ttlSeconds]])", "summary": "Atomically increments numeric key." },
+        { "name": "store.sync", "syntax": "store.sync([path])", "summary": "Flushes store state." }
+      ]
+    },
+    {
+      "id": "sse",
+      "name": "SSE Namespaces",
+      "kind": "namespace",
+      "items": [
+        { "name": "stream.send", "syntax": "stream.send([event,] data)", "summary": "Sends event on current SSE stream.", "availability": "Inside SSE route." },
+        { "name": "stream.join", "syntax": "stream.join(channel)", "summary": "Joins channel.", "availability": "Inside SSE route." },
+        { "name": "stream.leave", "syntax": "stream.leave(channel)", "summary": "Leaves channel.", "availability": "Inside SSE route." },
+        { "name": "stream.set", "syntax": "stream.set(key, value)", "summary": "Sets stream metadata.", "availability": "Inside SSE route." },
+        { "name": "stream.get", "syntax": "stream.get(key)", "summary": "Gets stream metadata.", "availability": "Inside SSE route." },
+        { "name": "stream.close", "syntax": "stream.close()", "summary": "Closes current stream.", "availability": "Inside SSE route." },
+        { "name": "stream.channels", "syntax": "stream.channels()", "summary": "Lists current stream channels.", "availability": "Inside SSE route." },
+        { "name": "sse.find", "syntax": "sse.find(streamId)", "summary": "Finds stream handle by ID." },
+        { "name": "sse.find_by", "syntax": "sse.find_by(key, value)", "summary": "Finds streams by metadata field." },
+        { "name": "sse.channel", "syntax": "sse.channel(name)", "summary": "Returns channel handle." },
+        { "name": "sse.broadcast", "syntax": "sse.broadcast(data)", "summary": "Broadcasts all streams." },
+        { "name": "sse.count", "syntax": "sse.count()", "summary": "Connected stream count." },
+        { "name": "sse.channels", "syntax": "sse.channels()", "summary": "Known channel list." }
+      ]
+    },
+    {
+      "id": "sse-handle-methods",
+      "name": "SSE Handle Methods",
+      "kind": "methods",
+      "items": [
+        { "name": "send", "syntax": "handle.send([event,] data)", "summary": "Sends event to a stream handle." },
+        { "name": "set", "syntax": "handle.set(key, value)", "summary": "Sets handle metadata." },
+        { "name": "get", "syntax": "handle.get(key)", "summary": "Gets handle metadata." },
+        { "name": "join", "syntax": "handle.join(channel)", "summary": "Joins channel." },
+        { "name": "leave", "syntax": "handle.leave(channel)", "summary": "Leaves channel." },
+        { "name": "close", "syntax": "handle.close()", "summary": "Closes handle stream." },
+        { "name": "channels", "syntax": "handle.channels()", "summary": "Lists handle channels." },
+        { "name": "streams", "syntax": "channelHandle.streams()", "summary": "Lists streams in channel." },
+        { "name": "count", "syntax": "channelHandle.count()", "summary": "Counts streams in channel." }
+      ]
+    }
+  ]
+}

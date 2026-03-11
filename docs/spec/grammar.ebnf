@@ -1,0 +1,111 @@
+(* HTTPDSL syntax sketch (implementation-oriented EBNF) *)
+
+program         = { topLevelStmt } ;
+
+topLevelStmt    = serverStmt
+                | routeStmt
+                | groupStmt
+                | fnDecl
+                | initStmt
+                | beforeStmt
+                | afterStmt
+                | shutdownStmt
+                | errorStmt
+                | everyStmt
+                | helpStmt ;
+
+serverStmt      = "server" block ;
+initStmt        = "init" block ;
+beforeStmt      = "before" block ;
+afterStmt       = "after" block ;
+shutdownStmt    = "shutdown" block ;
+helpStmt        = "help" templateString ;
+errorStmt       = "error" int block ;
+
+everyStmt       = "every" ( int timeUnit | string ) block ;
+timeUnit        = "s" | "m" | "h" ;
+
+groupStmt       = "group" string "{" { routeStmt | beforeStmt | afterStmt } "}" ;
+
+routeStmt       = "route" ident string [ routeType ] "{" [routeDirective] { stmt } "}"
+                  [ "else" block ]
+                  [ "disconnect" block ] ;
+routeType       = "json" | "text" | "form" ;
+routeDirective  = ( "timeout" int ) [ "csrf" "false" ]
+                | ( "csrf" "false" ) ;
+
+fnDecl          = "fn" ident "(" [ ident { "," ident } ] ")" block ;
+
+block           = "{" { stmt } "}" ;
+
+stmt            = assignStmt
+                | indexAssignStmt
+                | destructureStmt
+                | returnStmt
+                | ifStmt
+                | switchStmt
+                | whileStmt
+                | eachStmt
+                | breakStmt
+                | continueStmt
+                | tryCatchStmt
+                | throwStmt
+                | exprStmt ;
+
+assignStmt      = ident "=" expr
+                | ident "," ident { "," ident } "=" expr { "," expr }
+                | ident ("+=" | "-=") expr ;
+indexAssignStmt = (expr "." ident | expr "[" expr "]") "=" expr ;
+destructureStmt = ("{" ident { "," ident } "}" | "[" ident { "," ident } "]") "=" expr ;
+
+returnStmt      = "return" [ expr { "," expr } ] ;
+ifStmt          = "if" expr block [ "else" ( ifStmt | block ) ] ;
+switchStmt      = "switch" expr "{" { caseClause } [ defaultClause ] "}" ;
+caseClause      = "case" expr { "," expr } block ;
+defaultClause   = "default" block ;
+whileStmt       = "while" [ "(" ] expr [ ")" ] block ;
+eachStmt        = "each" ident [ "," ident ] "in" expr block ;
+breakStmt       = "break" ;
+continueStmt    = "continue" ;
+tryCatchStmt    = "try" block "catch" "(" ident ")" block ;
+throwStmt       = "throw" expr ;
+exprStmt        = expr ;
+
+expr            = ternary ;
+ternary         = nullish [ "?" expr ":" expr ] ;
+nullish         = logicalOr { "??" logicalOr } ;
+logicalOr       = logicalAnd { "||" logicalAnd } ;
+logicalAnd      = equality { "&&" equality } ;
+equality        = compare { ("==" | "!=") compare } ;
+compare         = sum { ("<" | ">" | "<=" | ">=") sum } ;
+sum             = product { ("+" | "-") product } ;
+product         = prefix { ("*" | "/" | "%") prefix } ;
+prefix          = ["!" | "-" | "async"] postfix ;
+postfix         = primary { call | member | index } ;
+call            = "(" [ expr { "," expr } ] ")" ;
+member          = "." ident ;
+index           = "[" expr "]" ;
+
+primary         = ident
+                | int
+                | float
+                | string
+                | templateString
+                | "true"
+                | "false"
+                | "null"
+                | array
+                | object
+                | "(" expr ")"
+                | fnLiteral ;
+
+fnLiteral       = "fn" "(" [ ident { "," ident } ] ")" block ;
+array           = "[" [ expr { "," expr } [","] ] "]" ;
+object          = "{" [ objectEntry { "," objectEntry } [","] ] "}" ;
+objectEntry     = expr [ ":" expr ] ;
+
+ident           = letter { letter | digit | "_" } ;
+int             = digit { digit } ;
+float           = int "." int ;
+string          = '"' { char } '"' ;
+templateString  = '`' { char | "${" expr "}" } '`' ;

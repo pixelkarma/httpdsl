@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://httpdsl.dev/spec/schema/language.schema.json",
+  "title": "HTTPDSL Language Spec",
+  "type": "object",
+  "required": [
+    "meta",
+    "topLevel",
+    "lexical",
+    "statements",
+    "expressions",
+    "semantics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "required": ["name", "specVersion", "sourceVersion", "updatedAt", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "specVersion": { "type": "string", "minLength": 1 },
+        "sourceVersion": { "type": "string", "minLength": 1 },
+        "updatedAt": { "type": "string", "format": "date" },
+        "description": { "type": "string", "minLength": 1 },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "topLevel": {
+      "type": "object",
+      "required": ["allowedBlocks", "forbidden"],
+      "additionalProperties": false,
+      "properties": {
+        "allowedBlocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/topLevelBlock" }
+        },
+        "forbidden": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ruleItem" }
+        }
+      }
+    },
+    "lexical": {
+      "type": "object",
+      "required": ["keywords", "operators", "delimiters", "literals"],
+      "additionalProperties": false,
+      "properties": {
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "operators": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "delimiters": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "literals": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "statements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/statement" }
+    },
+    "expressions": {
+      "type": "object",
+      "required": ["forms", "precedence"],
+      "additionalProperties": false,
+      "properties": {
+        "forms": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expressionForm" }
+        },
+        "precedence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/precedenceItem" }
+        }
+      }
+    },
+    "semantics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ruleItem" }
+    },
+    "knownLimits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ruleItem" }
+    }
+  },
+  "$defs": {
+    "topLevelBlock": {
+      "type": "object",
+      "required": ["name", "syntax", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "syntax": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ruleItem": {
+      "type": "object",
+      "required": ["id", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["id", "name", "contexts", "syntax", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "contexts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "syntax": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "examples": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "expressionForm": {
+      "type": "object",
+      "required": ["name", "syntax", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "syntax": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "precedenceItem": {
+      "type": "object",
+      "required": ["level", "operators"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "type": "integer", "minimum": 1 },
+        "operators": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "associativity": {
+          "type": "string",
+          "enum": ["left", "right", "n/a"]
+        }
+      }
+    }
+  }
+}

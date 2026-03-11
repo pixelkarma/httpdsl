@@ -1,0 +1,441 @@
+{
+  "$schema": "./schema/language.schema.json",
+  "meta": {
+    "name": "HTTPDSL",
+    "specVersion": "1.0.0",
+    "sourceVersion": "repo@main",
+    "updatedAt": "2026-03-10",
+    "description": "Language-level specification for HTTPDSL syntax and semantics. This spec is runtime/transpiler agnostic.",
+    "notes": [
+      "This file is intended to be machine-readable and AI-ingestible.",
+      "Compiler implementation currently lives in compiler/parser.go and main.go validation."
+    ]
+  },
+  "topLevel": {
+    "allowedBlocks": [
+      {
+        "name": "server",
+        "syntax": "server { ... }",
+        "summary": "Server configuration block."
+      },
+      {
+        "name": "route",
+        "syntax": "route METHOD \"/path\" [json|text|form] { ... } [else { ... }]",
+        "summary": "HTTP route definition."
+      },
+      {
+        "name": "group",
+        "syntax": "group \"/prefix\" { route ... before { ... } after { ... } }",
+        "summary": "Route grouping with scoped hooks."
+      },
+      {
+        "name": "fn",
+        "syntax": "fn name(arg1, arg2) { ... }",
+        "summary": "Named function declaration."
+      },
+      {
+        "name": "init",
+        "syntax": "init { ... }",
+        "summary": "Startup block for global initialization."
+      },
+      {
+        "name": "before",
+        "syntax": "before { ... }",
+        "summary": "Global pre-route hook."
+      },
+      {
+        "name": "after",
+        "syntax": "after { ... }",
+        "summary": "Global post-response hook."
+      },
+      {
+        "name": "shutdown",
+        "syntax": "shutdown { ... }",
+        "summary": "Graceful shutdown hook."
+      },
+      {
+        "name": "error",
+        "syntax": "error STATUS_CODE { ... }",
+        "summary": "Error-page handler by HTTP status code."
+      },
+      {
+        "name": "every",
+        "syntax": "every 30 s { ... } OR every \"0 3 * * *\" { ... }",
+        "summary": "Scheduler block (interval or cron)."
+      },
+      {
+        "name": "help",
+        "syntax": "help `...`",
+        "summary": "Help text shown in CLI output."
+      }
+    ],
+    "forbidden": [
+      {
+        "id": "no-top-level-assignment",
+        "rule": "Top-level assignments are not allowed. Place assignments in init {}.",
+        "reason": "Enforced by top-level validator.",
+        "source": "main.go:validateTopLevelStatements"
+      },
+      {
+        "id": "no-top-level-expression-statements",
+        "rule": "Arbitrary expression statements are not allowed at top level.",
+        "reason": "Only top-level block declarations are accepted.",
+        "source": "main.go:validateTopLevelStatements"
+      }
+    ]
+  },
+  "lexical": {
+    "keywords": [
+      "route",
+      "fn",
+      "return",
+      "if",
+      "else",
+      "while",
+      "each",
+      "in",
+      "server",
+      "json",
+      "text",
+      "true",
+      "false",
+      "null",
+      "env",
+      "file",
+      "db",
+      "break",
+      "continue",
+      "try",
+      "catch",
+      "throw",
+      "async",
+      "group",
+      "jwt",
+      "switch",
+      "case",
+      "default"
+    ],
+    "operators": [
+      "=",
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "!",
+      "==",
+      "!=",
+      "<",
+      ">",
+      "<=",
+      ">=",
+      "&&",
+      "||",
+      "??",
+      "? :",
+      "+=",
+      "-="
+    ],
+    "delimiters": [
+      ",",
+      ".",
+      ":",
+      "(",
+      ")",
+      "{",
+      "}",
+      "[",
+      "]"
+    ],
+    "literals": [
+      "integer",
+      "float",
+      "string",
+      "template string (backticks)",
+      "boolean",
+      "null",
+      "array",
+      "object/hash"
+    ]
+  },
+  "statements": [
+    {
+      "id": "route",
+      "name": "Route",
+      "contexts": ["top-level", "group"],
+      "syntax": "route METHOD \"/path\" [json|text|form] { ... } [else { ... }] [disconnect { ... }]",
+      "summary": "Defines a request handler.",
+      "notes": [
+        "Route-level directives inside body: timeout <seconds>, csrf false.",
+        "disconnect is only valid for SSE routes.",
+        "Path params use :name; wildcard params use *name."
+      ],
+      "examples": [
+        "route GET \"/users/:id\" { ... }",
+        "route POST \"/submit\" json { ... } else { ... }",
+        "route SSE \"/events\" { ... } disconnect { ... }"
+      ]
+    },
+    {
+      "id": "function",
+      "name": "Function Declaration",
+      "contexts": ["top-level"],
+      "syntax": "fn name(a, b) { ... }",
+      "summary": "Declares a named function.",
+      "examples": [
+        "fn add(a, b) { return a + b }"
+      ]
+    },
+    {
+      "id": "return",
+      "name": "Return",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "return | return expr[, expr...]",
+      "summary": "Returns from the current function/block context.",
+      "notes": [
+        "Route handlers return through generated response flow.",
+        "SSE route return exits handler without writing regular response body."
+      ]
+    },
+    {
+      "id": "assignment",
+      "name": "Assignment",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "x = expr | x, y = expr[, expr...] | x += expr | x -= expr",
+      "summary": "Variable assignment and compound assignment.",
+      "notes": [
+        "Not allowed at top level.",
+        "Object/array destructuring assignment is supported: {a,b}=obj, [a,b]=arr."
+      ]
+    },
+    {
+      "id": "if",
+      "name": "If/Else",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "if condition { ... } [else if condition { ... }] [else { ... }]",
+      "summary": "Conditional branching."
+    },
+    {
+      "id": "switch",
+      "name": "Switch",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "switch expr { case v1[, v2...] { ... } default { ... } }",
+      "summary": "Multi-branch dispatch with case values."
+    },
+    {
+      "id": "while",
+      "name": "While",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "while condition { ... }",
+      "summary": "Loop while condition is truthy."
+    },
+    {
+      "id": "each",
+      "name": "Each",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "each value[, index] in iterable { ... }",
+      "summary": "Iterates arrays/maps.",
+      "notes": [
+        "break and continue are valid inside loops."
+      ]
+    },
+    {
+      "id": "try-catch",
+      "name": "Try/Catch",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "try { ... } catch(err) { ... }",
+      "summary": "Exception handling for throw/panic paths."
+    },
+    {
+      "id": "throw",
+      "name": "Throw",
+      "contexts": ["function", "route", "hook"],
+      "syntax": "throw expr",
+      "summary": "Raises an error value."
+    },
+    {
+      "id": "before",
+      "name": "Before Hook",
+      "contexts": ["top-level", "group"],
+      "syntax": "before { ... }",
+      "summary": "Runs before matching route body."
+    },
+    {
+      "id": "after",
+      "name": "After Hook",
+      "contexts": ["top-level", "group"],
+      "syntax": "after { ... }",
+      "summary": "Runs asynchronously after response has been written.",
+      "notes": [
+        "Mutating response in after {} has no effect on client output."
+      ]
+    },
+    {
+      "id": "init",
+      "name": "Init Hook",
+      "contexts": ["top-level"],
+      "syntax": "init { ... }",
+      "summary": "Runs during startup; defines global variables."
+    },
+    {
+      "id": "shutdown",
+      "name": "Shutdown Hook",
+      "contexts": ["top-level"],
+      "syntax": "shutdown { ... }",
+      "summary": "Runs when process is terminating."
+    },
+    {
+      "id": "error",
+      "name": "Error Handler",
+      "contexts": ["top-level"],
+      "syntax": "error 404 { ... }",
+      "summary": "Custom handler for specific HTTP status codes."
+    },
+    {
+      "id": "every",
+      "name": "Scheduler",
+      "contexts": ["top-level"],
+      "syntax": "every 5 m { ... } OR every \"0 3 * * *\" { ... }",
+      "summary": "Runs scheduled jobs by interval or cron.",
+      "notes": [
+        "Cron expression is validated during parse/compile; invalid syntax is rejected."
+      ]
+    },
+    {
+      "id": "server",
+      "name": "Server Block",
+      "contexts": ["top-level"],
+      "syntax": "server { key value ... }",
+      "summary": "Configures runtime server behavior.",
+      "notes": [
+        "Supports nested blocks: cors { ... }, session { ... }.",
+        "Supports static mounts: static \"/prefix\" \"./dir\"."
+      ]
+    }
+  ],
+  "expressions": {
+    "forms": [
+      {
+        "name": "Identifier",
+        "syntax": "name",
+        "summary": "Variable/function reference."
+      },
+      {
+        "name": "Literals",
+        "syntax": "123, 3.14, \"text\", `tmpl ${expr}`",
+        "summary": "Primitive and template literals."
+      },
+      {
+        "name": "Array/Object",
+        "syntax": "[a, b], {a: 1, b}, {a, b}",
+        "summary": "Collection literals, including object shorthand."
+      },
+      {
+        "name": "Call",
+        "syntax": "fn(a, b)",
+        "summary": "Function call."
+      },
+      {
+        "name": "Member/Index",
+        "syntax": "obj.field, obj[idx]",
+        "summary": "Property and indexed access."
+      },
+      {
+        "name": "Anonymous Function",
+        "syntax": "fn(a, b) { ... }",
+        "summary": "Function literal expression."
+      },
+      {
+        "name": "Async Wrapper",
+        "syntax": "async expr",
+        "summary": "Marks expression for asynchronous execution context."
+      },
+      {
+        "name": "Ternary",
+        "syntax": "cond ? yes : no",
+        "summary": "Conditional expression."
+      }
+    ],
+    "precedence": [
+      {
+        "level": 1,
+        "operators": ["?:"],
+        "associativity": "right"
+      },
+      {
+        "level": 2,
+        "operators": ["||"],
+        "associativity": "left"
+      },
+      {
+        "level": 3,
+        "operators": ["??"],
+        "associativity": "left"
+      },
+      {
+        "level": 4,
+        "operators": ["&&"],
+        "associativity": "left"
+      },
+      {
+        "level": 5,
+        "operators": ["==", "!="],
+        "associativity": "left"
+      },
+      {
+        "level": 6,
+        "operators": ["<", ">", "<=", ">="],
+        "associativity": "left"
+      },
+      {
+        "level": 7,
+        "operators": ["+", "-"],
+        "associativity": "left"
+      },
+      {
+        "level": 8,
+        "operators": ["*", "/", "%"],
+        "associativity": "left"
+      },
+      {
+        "level": 9,
+        "operators": ["call", "dot", "index"],
+        "associativity": "left"
+      }
+    ]
+  },
+  "semantics": [
+    {
+      "id": "init-global-vars",
+      "rule": "Variables assigned in init {} become global variables available in route and function execution.",
+      "source": "compiler/native.go:collectVars/initBlocks"
+    },
+    {
+      "id": "after-is-post-response",
+      "rule": "after {} executes after writeResponse and cannot change the already-sent client response.",
+      "source": "compiler/native.go:emitRouteHandler"
+    },
+    {
+      "id": "route-type-check",
+      "rule": "route ... json/text/form performs request type check before main route body.",
+      "source": "compiler/parser.go:parseRouteStatement"
+    },
+    {
+      "id": "every-cron-validated",
+      "rule": "every \"cron\" uses 5-field cron syntax with compile-time field validation.",
+      "source": "compiler/parser.go:validateCronExpr"
+    }
+  ],
+  "knownLimits": [
+    {
+      "id": "contextual-keywords",
+      "rule": "init/before/after/shutdown/help/every/error are contextual and parsed from identifier tokens.",
+      "source": "compiler/parser.go:parseStatement"
+    },
+    {
+      "id": "cron-fields",
+      "rule": "Cron supports numeric ranges, lists, wildcards, and steps in five fields only.",
+      "source": "compiler/parser.go:validateCronField"
+    }
+  ]
+}
