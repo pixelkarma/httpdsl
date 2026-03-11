@@ -620,10 +620,11 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 		return nil, 0, err
 	}
 
-	src, err := pipeline.GenerateCode(program)
+	genPkg, err := pipeline.GeneratePackage(program)
 	if err != nil {
 		return nil, 0, fmt.Errorf("code generation: %w", err)
 	}
+	src := genPkg.CombinedSource()
 
 	buildDir, err := os.MkdirTemp("", "httpdsl-build-*")
 	if err != nil {
@@ -631,8 +632,8 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 	}
 	defer os.RemoveAll(buildDir)
 
-	if err := os.WriteFile(filepath.Join(buildDir, "main.go"), []byte(src), 0644); err != nil {
-		return nil, 0, fmt.Errorf("writing source: %w", err)
+	if err := writeGeneratedPackageFiles(buildDir, genPkg); err != nil {
+		return nil, 0, fmt.Errorf("writing generated package: %w", err)
 	}
 
 	goMod := "module httpdsl-app\n\ngo 1.24.0\n"
@@ -685,11 +686,12 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 }
 
 func doBuild(program *compiler.Program, target string, outputOverride ...string) {
-	src, err := pipeline.GenerateCode(program)
+	genPkg, err := pipeline.GeneratePackage(program)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
 		os.Exit(1)
 	}
+	src := genPkg.CombinedSource()
 
 	buildDir, err := os.MkdirTemp("", "httpdsl-build-*")
 	if err != nil {
@@ -698,8 +700,8 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 	}
 	defer os.RemoveAll(buildDir)
 
-	if err := os.WriteFile(filepath.Join(buildDir, "main.go"), []byte(src), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing source: %s\n", err)
+	if err := writeGeneratedPackageFiles(buildDir, genPkg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing generated package: %s\n", err)
 		os.Exit(1)
 	}
 
@@ -776,6 +778,19 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 		fi, _ := os.Stat(outputPath)
 		fmt.Printf("Built %s → %s (%s)\n", target, outputPath, humanSize(fi.Size()))
 	}
+}
+
+func writeGeneratedPackageFiles(dir string, pkg *pipeline.GeneratedPackage) error {
+	if pkg == nil {
+		return fmt.Errorf("nil generated package")
+	}
+	for _, f := range pkg.Files {
+		path := filepath.Join(dir, f.Name)
+		if err := os.WriteFile(path, []byte(f.Content), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func humanSize(b int64) string {

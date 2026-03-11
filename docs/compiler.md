@@ -95,7 +95,7 @@ The pipeline has four stages:
 
 1. **Parse** — The compiler lexes and parses your `.httpdsl` files into an AST. Syntax errors are reported with line numbers.
 2. **Lower/Validate IR** — AST is lowered into IR and validated (`disconnect` constraints, top-level rules, etc.).
-3. **Generate** — The IR path emits a single `main.go` in a temp directory, alongside a `go.mod` with auto-detected dependencies.
+3. **Generate** — The IR path emits multiple Go files in a temp directory (currently `gen_core.go` and `main.go`), alongside a `go.mod` with auto-detected dependencies.
 4. **Build** — `go build -ldflags="-s -w" -o <binary> .` with `CGO_ENABLED=0` produces a statically-linked binary.
 
 The temp directory is cleaned up after compilation. If the build fails, the generated source is saved to `/tmp/<name>.go` for debugging.

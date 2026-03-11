@@ -16,6 +16,7 @@ Validation snapshot (March 11, 2026):
 2. `./tests/parity.sh` passes.
 3. `./tests/golden/verify.sh` passes.
 4. Example build metric (`tests/test_server.httpdsl`): ~1.35s build, ~16MB output binary.
+5. CI workflow gate exists at `.github/workflows/ci.yml` (unit + parity/golden checks).
 
 ## 1. Purpose
 
