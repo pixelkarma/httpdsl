@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"httpdsl/compiler"
+	"httpdsl/compiler/pipeline"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -52,12 +53,7 @@ func main() {
 			target = resolveDefault()
 		}
 		program := parseTarget(target)
-		backend, err := compiler.BackendFromEnv()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Backend selection error: %s\n", err)
-			os.Exit(1)
-		}
-		src, err := compiler.GenerateCode(program, backend)
+		src, err := pipeline.GenerateCode(program)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
 			os.Exit(1)
@@ -624,12 +620,7 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 		return nil, 0, err
 	}
 
-	backend, err := compiler.BackendFromEnv()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	src, err := compiler.GenerateCode(program, backend)
+	src, err := pipeline.GenerateCode(program)
 	if err != nil {
 		return nil, 0, fmt.Errorf("code generation: %w", err)
 	}
@@ -649,7 +640,7 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 	if strings.Contains(src, "golang.org/x/crypto/") {
 		requires = append(requires, "golang.org/x/crypto v0.48.0")
 	}
-	drivers := compiler.DetectDBDrivers(program)
+	drivers := pipeline.DetectDBDrivers(program)
 	if drivers["sqlite"] {
 		requires = append(requires, "modernc.org/sqlite v1.46.1")
 	}
@@ -694,13 +685,7 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 }
 
 func doBuild(program *compiler.Program, target string, outputOverride ...string) {
-	backend, err := compiler.BackendFromEnv()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Backend selection error: %s\n", err)
-		os.Exit(1)
-	}
-
-	src, err := compiler.GenerateCode(program, backend)
+	src, err := pipeline.GenerateCode(program)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
 		os.Exit(1)
@@ -723,7 +708,7 @@ func doBuild(program *compiler.Program, target string, outputOverride ...string)
 	if strings.Contains(src, "golang.org/x/crypto/") {
 		requires = append(requires, "golang.org/x/crypto v0.48.0")
 	}
-	drivers := compiler.DetectDBDrivers(program)
+	drivers := pipeline.DetectDBDrivers(program)
 	if drivers["sqlite"] {
 		requires = append(requires, "modernc.org/sqlite v1.46.1")
 	}

@@ -1,5 +1,22 @@
 # HTTPDSL Compiler Rewrite Plan
 
+## Status
+
+As of March 11, 2026, the rewrite cutover is complete:
+
+1. IR pipeline is the only generation path.
+2. Legacy backend selection/remnants were removed from CLI flow.
+3. Emitter moved under `compiler/backend/goemit`.
+4. IR moved under `compiler/ir`.
+5. Pipeline orchestration moved under `compiler/pipeline`.
+
+Validation snapshot (March 11, 2026):
+
+1. `go test ./...` passes.
+2. `./tests/parity.sh` passes.
+3. `./tests/golden/verify.sh` passes.
+4. Example build metric (`tests/test_server.httpdsl`): ~1.35s build, ~16MB output binary.
+
 ## 1. Purpose
 
 This document defines a complete rewrite strategy for the HTTPDSL compiler backend, with strict behavior parity and controlled rollout.
@@ -121,13 +138,10 @@ Checks include:
 
 ## 8. Migration Strategy
 
-Use dual backend mode:
+Migration is complete; the compiler now uses a single backend path:
 
-- Legacy backend: current `native.go` path.
-- New backend: IR + goemit path.
-- Selection flag: `HTTPDSL_BACKEND=legacy|ir` (or CLI hidden flag).
-
-Default remains `legacy` until final cutover.
+- Frontend parse/AST -> `compiler/ir` lowering + validation -> `compiler/backend/goemit`.
+- No backend selection flag is used by normal CLI flows.
 
 ## 9. Milestones
 
@@ -191,7 +205,7 @@ Deliverables:
 
 Acceptance criteria:
 
-1. Expression-heavy tests pass with `HTTPDSL_BACKEND=ir` where statement handling is still delegated or adapted.
+1. Expression-heavy tests pass through the IR pipeline.
 
 Rollback:
 
@@ -284,9 +298,9 @@ Rollback:
 
 ## 10.3 Differential execution
 
-1. Compile same fixture with both backends.
+1. Compile representative fixtures with the IR pipeline.
 2. Run HTTP scenario scripts.
-3. Compare status/body/header/cookie outputs.
+3. Compare status/body/header/cookie outputs to golden baselines.
 
 ## 11. Performance and Reliability Gates
 
@@ -301,7 +315,7 @@ Track on each milestone:
 
 1. Use branch prefix `codex/` for rewrite slices.
 2. Keep milestones as small mergeable PR-sized commits.
-3. No commit should break legacy backend default path.
+3. No commit should regress IR pipeline parity.
 4. Use feature flags for incomplete subsystems.
 
 ## 13. Risk Register

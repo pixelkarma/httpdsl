@@ -1,26 +1,32 @@
-package compiler
+package ir
 
-import "fmt"
+import (
+	"fmt"
 
-// LowerToIR converts AST to a normalized IR snapshot.
-func LowerToIR(program *Program) *IRProgram {
-	ir := &IRProgram{}
+	front "httpdsl/compiler"
+)
+
+// Lower converts AST to a normalized IR snapshot.
+func Lower(program *front.Program) *Program {
+	ir := &Program{}
 	if program == nil {
 		return ir
 	}
 	for _, stmt := range program.Statements {
-		ir.TopLevel = append(ir.TopLevel, IRTopLevelNode{
-			Kind:      classifyTopLevel(stmt),
-			Statement: stmt,
+		line, col := statementLocation(stmt)
+		ir.TopLevel = append(ir.TopLevel, TopLevelNode{
+			Kind:   classifyTopLevel(stmt),
+			Line:   line,
+			Column: col,
 		})
 		switch s := stmt.(type) {
-		case *ServerStatement:
+		case *front.ServerStatement:
 			if ir.Server == nil {
-				ir.Server = &IRServer{}
+				ir.Server = &Server{}
 			}
 			ir.Server.HasServerBlock = true
 			if pe, ok := s.Settings["port"]; ok {
-				if lit, ok := pe.(*IntegerLiteral); ok {
+				if lit, ok := pe.(*front.IntegerLiteral); ok {
 					ir.Server.Port = int(lit.Value)
 				}
 			}
@@ -41,8 +47,8 @@ func LowerToIR(program *Program) *IRProgram {
 				ir.Server.HasSession = true
 				ir.Features.HasSession = true
 			}
-		case *RouteStatement:
-			r := IRRoute{
+		case *front.RouteStatement:
+			r := Route{
 				Method:        s.Method,
 				Path:          s.Path,
 				TypeCheck:     s.TypeCheck,
@@ -61,8 +67,8 @@ func LowerToIR(program *Program) *IRProgram {
 			if routeHasBuiltin(s.Body, "exec") {
 				ir.Features.HasExec = true
 			}
-		case *GroupStatement:
-			g := IRGroup{
+		case *front.GroupStatement:
+			g := Group{
 				Prefix:      s.Prefix,
 				RouteCount:  len(s.Routes),
 				BeforeCount: len(s.Before),
@@ -70,7 +76,7 @@ func LowerToIR(program *Program) *IRProgram {
 			}
 			ir.Groups = append(ir.Groups, g)
 			for _, route := range s.Routes {
-				r := IRRoute{
+				r := Route{
 					Method:        route.Method,
 					Path:          route.Path,
 					TypeCheck:     route.TypeCheck,
@@ -87,24 +93,24 @@ func LowerToIR(program *Program) *IRProgram {
 					ir.Features.HasSSE = true
 				}
 			}
-		case *FnStatement:
-			ir.Functions = append(ir.Functions, IRFunction{
+		case *front.FnStatement:
+			ir.Functions = append(ir.Functions, Function{
 				Name:        s.Name,
 				Params:      append([]string(nil), s.Params...),
 				BodyPreview: previewBlockLines(s.Body),
 			})
-		case *BeforeStatement:
+		case *front.BeforeStatement:
 			ir.Hooks.BeforeCount++
-		case *AfterStatement:
+		case *front.AfterStatement:
 			ir.Hooks.AfterCount++
-		case *InitStatement:
+		case *front.InitStatement:
 			ir.Hooks.InitCount++
-		case *ShutdownStatement:
+		case *front.ShutdownStatement:
 			ir.Hooks.ShutdownCount++
-		case *ErrorStatement:
-			ir.Errors = append(ir.Errors, IRErrorHandler{StatusCode: s.StatusCode})
-		case *EveryStatement:
-			sched := IRSchedule{}
+		case *front.ErrorStatement:
+			ir.Errors = append(ir.Errors, ErrorHandler{StatusCode: s.StatusCode})
+		case *front.EveryStatement:
+			sched := Schedule{}
 			if s.CronExpr != "" {
 				sched.Kind = "cron"
 				sched.CronExpr = s.CronExpr
@@ -116,7 +122,7 @@ func LowerToIR(program *Program) *IRProgram {
 			ir.Schedules = append(ir.Schedules, sched)
 		}
 	}
-	drivers, hasDB, hasSQL, hasMongo := detectIRDBFeatures(ir.TopLevel)
+	drivers, hasDB, hasSQL, hasMongo := detectDBFeatures(program)
 	ir.Features.DBDrivers = drivers
 	ir.Features.HasDB = hasDB
 	ir.Features.HasSQL = hasSQL
@@ -124,50 +130,44 @@ func LowerToIR(program *Program) *IRProgram {
 	return ir
 }
 
-func classifyTopLevel(stmt Statement) IRTopLevelKind {
+func classifyTopLevel(stmt front.Statement) TopLevelKind {
 	switch stmt.(type) {
-	case *RouteStatement:
-		return IRTopLevelRoute
-	case *FnStatement:
-		return IRTopLevelFunction
-	case *ServerStatement:
-		return IRTopLevelServer
-	case *GroupStatement:
-		return IRTopLevelGroup
-	case *BeforeStatement:
-		return IRTopLevelBefore
-	case *AfterStatement:
-		return IRTopLevelAfter
-	case *InitStatement:
-		return IRTopLevelInit
-	case *ShutdownStatement:
-		return IRTopLevelShutdown
-	case *HelpStatement:
-		return IRTopLevelHelp
-	case *ErrorStatement:
-		return IRTopLevelError
-	case *EveryStatement:
-		return IRTopLevelEvery
+	case *front.RouteStatement:
+		return TopLevelRoute
+	case *front.FnStatement:
+		return TopLevelFunction
+	case *front.ServerStatement:
+		return TopLevelServer
+	case *front.GroupStatement:
+		return TopLevelGroup
+	case *front.BeforeStatement:
+		return TopLevelBefore
+	case *front.AfterStatement:
+		return TopLevelAfter
+	case *front.InitStatement:
+		return TopLevelInit
+	case *front.ShutdownStatement:
+		return TopLevelShutdown
+	case *front.HelpStatement:
+		return TopLevelHelp
+	case *front.ErrorStatement:
+		return TopLevelError
+	case *front.EveryStatement:
+		return TopLevelEvery
 	default:
-		return IRTopLevelUnknown
+		return TopLevelUnknown
 	}
 }
 
-func detectIRDBFeatures(nodes []IRTopLevelNode) (map[string]bool, bool, bool, bool) {
-	program := &Program{Statements: make([]Statement, 0, len(nodes))}
-	for _, node := range nodes {
-		if node.Statement != nil {
-			program.Statements = append(program.Statements, node.Statement)
-		}
-	}
-	drivers := DetectDBDrivers(program)
+func detectDBFeatures(program *front.Program) (map[string]bool, bool, bool, bool) {
+	drivers := front.DetectDBDrivers(program)
 	hasDB := len(drivers) > 0
 	hasSQL := drivers["sqlite"] || drivers["postgres"] || drivers["mysql"]
 	hasMongo := drivers["mongo"]
 	return drivers, hasDB, hasSQL, hasMongo
 }
 
-func routeHasBuiltin(block *BlockStatement, name string) bool {
+func routeHasBuiltin(block *front.BlockStatement, name string) bool {
 	if block == nil {
 		return false
 	}
@@ -179,50 +179,50 @@ func routeHasBuiltin(block *BlockStatement, name string) bool {
 	return false
 }
 
-func stmtHasBuiltin(stmt Statement, name string) bool {
+func stmtHasBuiltin(stmt front.Statement, name string) bool {
 	switch s := stmt.(type) {
-	case *ExpressionStatement:
+	case *front.ExpressionStatement:
 		return exprHasBuiltin(s.Expression, name)
-	case *AssignStatement:
+	case *front.AssignStatement:
 		for _, v := range s.Values {
 			if exprHasBuiltin(v, name) {
 				return true
 			}
 		}
-	case *IfStatement:
+	case *front.IfStatement:
 		if exprHasBuiltin(s.Condition, name) || routeHasBuiltin(s.Consequence, name) {
 			return true
 		}
 		if s.Alternative != nil {
 			switch alt := s.Alternative.(type) {
-			case *BlockStatement:
+			case *front.BlockStatement:
 				return routeHasBuiltin(alt, name)
-			case *IfStatement:
+			case *front.IfStatement:
 				return stmtHasBuiltin(alt, name)
 			}
 		}
-	case *WhileStatement:
+	case *front.WhileStatement:
 		return exprHasBuiltin(s.Condition, name) || routeHasBuiltin(s.Body, name)
-	case *EachStatement:
+	case *front.EachStatement:
 		return exprHasBuiltin(s.Iterable, name) || routeHasBuiltin(s.Body, name)
-	case *ReturnStatement:
+	case *front.ReturnStatement:
 		for _, v := range s.Values {
 			if exprHasBuiltin(v, name) {
 				return true
 			}
 		}
-	case *TryCatchStatement:
+	case *front.TryCatchStatement:
 		return routeHasBuiltin(s.Try, name) || routeHasBuiltin(s.Catch, name)
-	case *ThrowStatement:
+	case *front.ThrowStatement:
 		return exprHasBuiltin(s.Value, name)
 	}
 	return false
 }
 
-func exprHasBuiltin(expr Expression, name string) bool {
+func exprHasBuiltin(expr front.Expression, name string) bool {
 	switch e := expr.(type) {
-	case *CallExpression:
-		if id, ok := e.Function.(*Identifier); ok && id.Value == name {
+	case *front.CallExpression:
+		if id, ok := e.Function.(*front.Identifier); ok && id.Value == name {
 			return true
 		}
 		if exprHasBuiltin(e.Function, name) {
@@ -233,36 +233,36 @@ func exprHasBuiltin(expr Expression, name string) bool {
 				return true
 			}
 		}
-	case *PrefixExpression:
+	case *front.PrefixExpression:
 		return exprHasBuiltin(e.Right, name)
-	case *InfixExpression:
+	case *front.InfixExpression:
 		return exprHasBuiltin(e.Left, name) || exprHasBuiltin(e.Right, name)
-	case *TernaryExpression:
+	case *front.TernaryExpression:
 		return exprHasBuiltin(e.Condition, name) || exprHasBuiltin(e.Consequence, name) || exprHasBuiltin(e.Alternative, name)
-	case *DotExpression:
+	case *front.DotExpression:
 		return exprHasBuiltin(e.Left, name)
-	case *IndexExpression:
+	case *front.IndexExpression:
 		return exprHasBuiltin(e.Left, name) || exprHasBuiltin(e.Index, name)
-	case *ArrayLiteral:
+	case *front.ArrayLiteral:
 		for _, el := range e.Elements {
 			if exprHasBuiltin(el, name) {
 				return true
 			}
 		}
-	case *HashLiteral:
+	case *front.HashLiteral:
 		for _, pair := range e.Pairs {
 			if exprHasBuiltin(pair.Key, name) || exprHasBuiltin(pair.Value, name) {
 				return true
 			}
 		}
-	case *AsyncExpression:
+	case *front.AsyncExpression:
 		return exprHasBuiltin(e.Expression, name)
 	}
 	return false
 }
 
-// ValidateIR enforces backend-level invariants before emission.
-func ValidateIR(ir *IRProgram) []string {
+// Validate enforces backend-level invariants before emission.
+func Validate(ir *Program) []string {
 	var errs []string
 	if ir == nil {
 		return []string{"ir: missing program"}
@@ -276,67 +276,62 @@ func ValidateIR(ir *IRProgram) []string {
 
 	// Mirror top-level constraints defensively in IR validation.
 	for _, node := range ir.TopLevel {
-		if node.Statement == nil {
-			errs = append(errs, "ir top-level node has nil statement")
-			continue
-		}
 		switch node.Kind {
-		case IRTopLevelRoute,
-			IRTopLevelFunction,
-			IRTopLevelServer,
-			IRTopLevelGroup,
-			IRTopLevelBefore,
-			IRTopLevelAfter,
-			IRTopLevelInit,
-			IRTopLevelShutdown,
-			IRTopLevelHelp,
-			IRTopLevelError,
-			IRTopLevelEvery:
+		case TopLevelRoute,
+			TopLevelFunction,
+			TopLevelServer,
+			TopLevelGroup,
+			TopLevelBefore,
+			TopLevelAfter,
+			TopLevelInit,
+			TopLevelShutdown,
+			TopLevelHelp,
+			TopLevelError,
+			TopLevelEvery:
 			continue
 		default:
-			line, col := statementLocationForIR(node.Statement)
-			errs = append(errs, fmt.Sprintf("line %d, col %d: invalid top-level statement in IR", line, col))
+			errs = append(errs, fmt.Sprintf("line %d, col %d: invalid top-level statement in IR", node.Line, node.Column))
 		}
 	}
 
 	return errs
 }
 
-func statementLocationForIR(stmt Statement) (int, int) {
+func statementLocation(stmt front.Statement) (int, int) {
 	switch s := stmt.(type) {
-	case *RouteStatement:
+	case *front.RouteStatement:
 		return s.Token.Line, s.Token.Column
-	case *FnStatement:
+	case *front.FnStatement:
 		return s.Token.Line, s.Token.Column
-	case *ServerStatement:
+	case *front.ServerStatement:
 		return s.Token.Line, s.Token.Column
-	case *GroupStatement:
+	case *front.GroupStatement:
 		return s.Token.Line, s.Token.Column
-	case *BeforeStatement:
+	case *front.BeforeStatement:
 		return s.Token.Line, s.Token.Column
-	case *AfterStatement:
+	case *front.AfterStatement:
 		return s.Token.Line, s.Token.Column
-	case *InitStatement:
+	case *front.InitStatement:
 		return s.Token.Line, s.Token.Column
-	case *ShutdownStatement:
+	case *front.ShutdownStatement:
 		return s.Token.Line, s.Token.Column
-	case *HelpStatement:
+	case *front.HelpStatement:
 		return s.Token.Line, s.Token.Column
-	case *ErrorStatement:
+	case *front.ErrorStatement:
 		return s.Token.Line, s.Token.Column
-	case *EveryStatement:
+	case *front.EveryStatement:
 		return s.Token.Line, s.Token.Column
-	case *AssignStatement:
+	case *front.AssignStatement:
 		return s.Token.Line, s.Token.Column
-	case *CompoundAssignStatement:
+	case *front.CompoundAssignStatement:
 		return s.Token.Line, s.Token.Column
-	case *IndexAssignStatement:
+	case *front.IndexAssignStatement:
 		return s.Token.Line, s.Token.Column
-	case *ExpressionStatement:
+	case *front.ExpressionStatement:
 		return s.Token.Line, s.Token.Column
-	case *ObjectDestructureStatement:
+	case *front.ObjectDestructureStatement:
 		return s.Token.Line, s.Token.Column
-	case *ArrayDestructureStatement:
+	case *front.ArrayDestructureStatement:
 		return s.Token.Line, s.Token.Column
 	default:
 		return 0, 0

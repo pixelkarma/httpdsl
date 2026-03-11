@@ -1,15 +1,16 @@
-package compiler
+package ir
 
 import (
 	"fmt"
 	"sort"
 	"strings"
+
+	front "httpdsl/compiler"
 )
 
-// EmitIRPreview walks IR-backed AST nodes and emits normalized statement/expression
-// strings. It is used as an IR backend preflight to ensure we have coverage across
-// the language surface before final Go emission.
-func EmitIRPreview(ir *IRProgram) (string, error) {
+// EmitPreview walks IR summaries and emits normalized statement/expression strings.
+// It acts as a preflight check that lowering covered core language surfaces.
+func EmitPreview(ir *Program) (string, error) {
 	if ir == nil {
 		return "", fmt.Errorf("ir is nil")
 	}
@@ -47,14 +48,7 @@ func EmitIRPreview(ir *IRProgram) (string, error) {
 	return b.String(), nil
 }
 
-func emitPreviewBlock(b *strings.Builder, block *BlockStatement) {
-	for _, line := range previewBlockLines(block) {
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-}
-
-func previewBlockLines(block *BlockStatement) []string {
+func previewBlockLines(block *front.BlockStatement) []string {
 	if block == nil {
 		return nil
 	}
@@ -65,31 +59,31 @@ func previewBlockLines(block *BlockStatement) []string {
 	return out
 }
 
-func previewStmt(stmt Statement) string {
+func previewStmt(stmt front.Statement) string {
 	switch s := stmt.(type) {
-	case *AssignStatement:
+	case *front.AssignStatement:
 		vals := make([]string, 0, len(s.Values))
 		for _, v := range s.Values {
 			vals = append(vals, previewExpr(v))
 		}
 		return fmt.Sprintf("assign %s = %s", strings.Join(s.Names, ","), strings.Join(vals, ","))
-	case *CompoundAssignStatement:
+	case *front.CompoundAssignStatement:
 		return fmt.Sprintf("assign %s %s %s", s.Name, s.Operator, previewExpr(s.Value))
-	case *IndexAssignStatement:
+	case *front.IndexAssignStatement:
 		return fmt.Sprintf("assign %s[%s] = %s", previewExpr(s.Left), previewExpr(s.Index), previewExpr(s.Value))
-	case *ObjectDestructureStatement:
+	case *front.ObjectDestructureStatement:
 		return fmt.Sprintf("destructure {%s} = %s", strings.Join(s.Keys, ","), previewExpr(s.Value))
-	case *ArrayDestructureStatement:
+	case *front.ArrayDestructureStatement:
 		return fmt.Sprintf("destructure [%s] = %s", strings.Join(s.Names, ","), previewExpr(s.Value))
-	case *ReturnStatement:
+	case *front.ReturnStatement:
 		vals := make([]string, 0, len(s.Values))
 		for _, v := range s.Values {
 			vals = append(vals, previewExpr(v))
 		}
 		return "return " + strings.Join(vals, ",")
-	case *ExpressionStatement:
+	case *front.ExpressionStatement:
 		return previewExpr(s.Expression)
-	case *IfStatement:
+	case *front.IfStatement:
 		out := "if " + previewExpr(s.Condition)
 		if s.Consequence != nil {
 			out += " {..}"
@@ -98,92 +92,92 @@ func previewStmt(stmt Statement) string {
 			out += " else {..}"
 		}
 		return out
-	case *SwitchStatement:
+	case *front.SwitchStatement:
 		return "switch " + previewExpr(s.Subject)
-	case *WhileStatement:
+	case *front.WhileStatement:
 		return "while " + previewExpr(s.Condition)
-	case *EachStatement:
+	case *front.EachStatement:
 		if s.Index != "" {
 			return fmt.Sprintf("each %s,%s in %s", s.Value, s.Index, previewExpr(s.Iterable))
 		}
 		return fmt.Sprintf("each %s in %s", s.Value, previewExpr(s.Iterable))
-	case *BreakStatement:
+	case *front.BreakStatement:
 		return "break"
-	case *ContinueStatement:
+	case *front.ContinueStatement:
 		return "continue"
-	case *TryCatchStatement:
+	case *front.TryCatchStatement:
 		return "try catch(" + s.CatchVar + ")"
-	case *ThrowStatement:
+	case *front.ThrowStatement:
 		return "throw " + previewExpr(s.Value)
-	case *BeforeStatement:
+	case *front.BeforeStatement:
 		return "before"
-	case *AfterStatement:
+	case *front.AfterStatement:
 		return "after"
-	case *InitStatement:
+	case *front.InitStatement:
 		return "init"
-	case *ShutdownStatement:
+	case *front.ShutdownStatement:
 		return "shutdown"
-	case *EveryStatement:
+	case *front.EveryStatement:
 		if s.CronExpr != "" {
 			return "every cron " + s.CronExpr
 		}
 		return fmt.Sprintf("every interval %d", s.Interval)
-	case *ErrorStatement:
+	case *front.ErrorStatement:
 		return fmt.Sprintf("error %d", s.StatusCode)
 	default:
 		return fmt.Sprintf("stmt<%T>", stmt)
 	}
 }
 
-func previewExpr(expr Expression) string {
+func previewExpr(expr front.Expression) string {
 	switch e := expr.(type) {
-	case *Identifier:
+	case *front.Identifier:
 		return e.Value
-	case *IntegerLiteral:
+	case *front.IntegerLiteral:
 		return fmt.Sprintf("%d", e.Value)
-	case *FloatLiteral:
+	case *front.FloatLiteral:
 		return fmt.Sprintf("%g", e.Value)
-	case *StringLiteral:
+	case *front.StringLiteral:
 		return fmt.Sprintf("%q", e.Value)
-	case *BooleanLiteral:
+	case *front.BooleanLiteral:
 		if e.Value {
 			return "true"
 		}
 		return "false"
-	case *NullLiteral:
+	case *front.NullLiteral:
 		return "null"
-	case *ArrayLiteral:
+	case *front.ArrayLiteral:
 		parts := make([]string, 0, len(e.Elements))
 		for _, el := range e.Elements {
 			parts = append(parts, previewExpr(el))
 		}
 		return "[" + strings.Join(parts, ",") + "]"
-	case *HashLiteral:
+	case *front.HashLiteral:
 		parts := make([]string, 0, len(e.Pairs))
 		for _, p := range e.Pairs {
 			parts = append(parts, previewExpr(p.Key)+":"+previewExpr(p.Value))
 		}
 		sort.Strings(parts)
 		return "{" + strings.Join(parts, ",") + "}"
-	case *PrefixExpression:
+	case *front.PrefixExpression:
 		return e.Operator + previewExpr(e.Right)
-	case *InfixExpression:
+	case *front.InfixExpression:
 		return "(" + previewExpr(e.Left) + " " + e.Operator + " " + previewExpr(e.Right) + ")"
-	case *TernaryExpression:
+	case *front.TernaryExpression:
 		return "(" + previewExpr(e.Condition) + " ? " + previewExpr(e.Consequence) + " : " + previewExpr(e.Alternative) + ")"
-	case *CallExpression:
+	case *front.CallExpression:
 		args := make([]string, 0, len(e.Arguments))
 		for _, arg := range e.Arguments {
 			args = append(args, previewExpr(arg))
 		}
 		return previewExpr(e.Function) + "(" + strings.Join(args, ",") + ")"
-	case *IndexExpression:
+	case *front.IndexExpression:
 		return previewExpr(e.Left) + "[" + previewExpr(e.Index) + "]"
-	case *DotExpression:
+	case *front.DotExpression:
 		return previewExpr(e.Left) + "." + e.Field
-	case *FunctionLiteral:
+	case *front.FunctionLiteral:
 		return "fn(" + strings.Join(e.Params, ",") + ") {..}"
-	case *AsyncExpression:
+	case *front.AsyncExpression:
 		return "async " + previewExpr(e.Expression)
 	default:
 		return fmt.Sprintf("expr<%T>", expr)

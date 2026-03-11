@@ -2,7 +2,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BACKENDS=(legacy ir)
 OVERALL=0
 
 echo "Building compiler binary for parity runs..."
@@ -12,25 +11,21 @@ echo "Building compiler binary for parity runs..."
 )
 
 echo ""
-echo "Running backend parity suite"
+echo "Running parity suite (IR backend)"
 echo "============================"
-
-for backend in "${BACKENDS[@]}"; do
-  log="/tmp/httpdsl-parity-${backend}.log"
-  echo ""
-  echo "[$backend] running tests/run.sh"
-
-  if HTTPDSL_BACKEND="$backend" bash ./run.sh >"$log" 2>&1; then
-    summary=$(grep -E "ALL TESTS PASSED|FAILED" "$log" | tail -n 1 || true)
-    echo "[$backend] PASS ${summary}"
-  else
-    rc=$?
-    summary=$(grep -E "ALL TESTS PASSED|FAILED" "$log" | tail -n 1 || true)
-    echo "[$backend] FAIL (exit=$rc) ${summary}"
-    OVERALL=1
-  fi
-  echo "[$backend] log: $log"
-done
+log="/tmp/httpdsl-parity-ir.log"
+echo ""
+echo "[ir] running tests/run.sh"
+if bash ./run.sh >"$log" 2>&1; then
+  summary=$(grep -E "ALL TESTS PASSED|FAILED" "$log" | tail -n 1 || true)
+  echo "[ir] PASS ${summary}"
+else
+  rc=$?
+  summary=$(grep -E "ALL TESTS PASSED|FAILED" "$log" | tail -n 1 || true)
+  echo "[ir] FAIL (exit=$rc) ${summary}"
+  OVERALL=1
+fi
+echo "[ir] log: $log"
 
 echo ""
 echo "Verifying golden checksums"

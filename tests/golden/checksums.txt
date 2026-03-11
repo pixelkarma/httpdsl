@@ -1,8 +1,5 @@
 # HTTPDSL generated-source checksums
-# Format: <backend> <fixture> <sha256>
-legacy tests/golden/fixtures/basic.httpdsl 4ce3c7f2c266f02eb1758b61b715f932915dc9dafb373bca99bd1b23f194f6f5
-legacy tests/golden/fixtures/session.httpdsl 3df24f232b9ec8c68782191fe50949cc61de2098571afe531982c33c395af2fd
-legacy tests/golden/fixtures/sse.httpdsl b56d1de19efa1864b53304e5dcc02b56cedbca17943038caf7e2071cd28a532d
-ir tests/golden/fixtures/basic.httpdsl 4ce3c7f2c266f02eb1758b61b715f932915dc9dafb373bca99bd1b23f194f6f5
-ir tests/golden/fixtures/session.httpdsl 3df24f232b9ec8c68782191fe50949cc61de2098571afe531982c33c395af2fd
-ir tests/golden/fixtures/sse.httpdsl b56d1de19efa1864b53304e5dcc02b56cedbca17943038caf7e2071cd28a532d
+# Format: <fixture> <sha256>
+tests/golden/fixtures/basic.httpdsl 4ce3c7f2c266f02eb1758b61b715f932915dc9dafb373bca99bd1b23f194f6f5
+tests/golden/fixtures/session.httpdsl 3df24f232b9ec8c68782191fe50949cc61de2098571afe531982c33c395af2fd
+tests/golden/fixtures/sse.httpdsl b56d1de19efa1864b53304e5dcc02b56cedbca17943038caf7e2071cd28a532d

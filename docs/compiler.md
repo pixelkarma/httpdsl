@@ -86,18 +86,27 @@ This compiles to a temp directory, starts the server, and watches all files in t
 
 ## Compilation Model
 
-The pipeline has three stages:
+The pipeline has four stages:
 
 ```
-.httpdsl source  →  Go source code  →  native binary
-   (parse)           (generate)         (go build)
+.httpdsl source  →  AST  →  IR  →  Go source code  →  native binary
+   (parse)         (frontend) (lower/validate) (goemit)    (go build)
 ```
 
 1. **Parse** — The compiler lexes and parses your `.httpdsl` files into an AST. Syntax errors are reported with line numbers.
-2. **Generate** — The AST is compiled into a single `main.go` file in a temp directory, alongside a `go.mod` with auto-detected dependencies.
-3. **Build** — `go build -ldflags="-s -w" -o <binary> .` with `CGO_ENABLED=0` produces a statically-linked binary.
+2. **Lower/Validate IR** — AST is lowered into IR and validated (`disconnect` constraints, top-level rules, etc.).
+3. **Generate** — The IR path emits a single `main.go` in a temp directory, alongside a `go.mod` with auto-detected dependencies.
+4. **Build** — `go build -ldflags="-s -w" -o <binary> .` with `CGO_ENABLED=0` produces a statically-linked binary.
 
 The temp directory is cleaned up after compilation. If the build fails, the generated source is saved to `/tmp/<name>.go` for debugging.
+
+### Compiler Packages
+
+- `compiler/frontend` — frontend validation helpers.
+- `compiler/ir` — IR model, lowering, validation, preview checks.
+- `compiler/backend/goemit` — Go emitter backend.
+- `compiler/pipeline` — orchestration for parse/IR/backend flow.
+- `compiler/runtime` — embedded runtime templates.
 
 ## Output Naming
 

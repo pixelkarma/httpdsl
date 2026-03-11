@@ -1,4 +1,4 @@
-package compiler
+package goemit
 
 import (
 	"fmt"
@@ -101,27 +101,18 @@ func GenerateNativeCode(program *Program) (string, error) {
 	return c.emitProgram()
 }
 
-func GenerateGoFromIR(ir *IRProgram) (string, error) {
-	if ir == nil {
-		return "", fmt.Errorf("nil ir program")
+func GenerateGoFromIR(program *Program, dbDrivers map[string]bool) (string, error) {
+	if program == nil {
+		return "", fmt.Errorf("nil program")
 	}
 	c := newNativeCompiler()
-	if len(ir.Features.DBDrivers) > 0 {
-		c.dbDrivers = make(map[string]bool, len(ir.Features.DBDrivers))
-		for k, v := range ir.Features.DBDrivers {
+	if len(dbDrivers) > 0 {
+		c.dbDrivers = make(map[string]bool, len(dbDrivers))
+		for k, v := range dbDrivers {
 			c.dbDrivers[k] = v
 		}
 	}
-	statements := make([]Statement, 0, len(ir.TopLevel))
-	for _, node := range ir.TopLevel {
-		if node.Statement != nil {
-			statements = append(statements, node.Statement)
-		}
-	}
-	if err := c.loadFromStatements(statements); err != nil {
-		return "", err
-	}
-	if err := c.finalizeProgram(nil); err != nil {
+	if err := c.prepareProgram(program); err != nil {
 		return "", err
 	}
 	return c.emitProgram()
@@ -4109,7 +4100,7 @@ func (c *NativeCompiler) emitFnDef(fn *FnStatement) {
 	c.typeEnv = tenv
 
 	// Check if ALL params and return are typed → emit a typed function
-	allTyped := tenv != nil && tenv.retType.IsTyped()
+	allTyped := tenv != nil && tenv.RetType().IsTyped()
 	if allTyped {
 		for _, p := range fn.Params {
 			if !tenv.Get(p).IsTyped() {
@@ -4156,7 +4147,7 @@ func (c *NativeCompiler) emitTypedFn(fn *FnStatement, tenv *TypeEnv) {
 		params[i] = fmt.Sprintf("%s %s", safeIdent(p), tenv.Get(p).String())
 		paramSet[p] = true
 	}
-	retType := tenv.retType.String()
+	retType := tenv.RetType().String()
 	c.lnf("func fn_%s_typed(%s) %s {", safeIdent(fn.Name), strings.Join(params, ", "), retType)
 	c.indent++
 	vars := c.collectVars(fn.Body)
@@ -4177,7 +4168,7 @@ func (c *NativeCompiler) emitTypedFn(fn *FnStatement, tenv *TypeEnv) {
 	}
 	c.emitTypedBlock(fn.Body)
 	// zero-value return as fallback
-	switch tenv.retType {
+	switch tenv.RetType() {
 	case TypeInt:
 		c.ln("return 0")
 	case TypeFloat:
@@ -4352,7 +4343,7 @@ func (c *NativeCompiler) typedExpr(e Expression) string {
 	case *CallExpression:
 		if ident, ok := ex.Function.(*Identifier); ok {
 			// Check if calling a typed function
-			if tenv, ok := c.fnTypes[ident.Value]; ok && tenv.retType.IsTyped() {
+			if tenv, ok := c.fnTypes[ident.Value]; ok && tenv.RetType().IsTyped() {
 				allParamsTyped := true
 				for _, fn := range c.functions {
 					if fn.Name == ident.Value {

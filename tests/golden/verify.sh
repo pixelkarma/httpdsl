@@ -17,18 +17,18 @@ fi
 )
 
 failed=0
-while read -r backend fixture expected; do
-  [[ -z "${backend:-}" ]] && continue
-  [[ "${backend:0:1}" == "#" ]] && continue
+while read -r fixture expected; do
+  [[ -z "${fixture:-}" ]] && continue
+  [[ "${fixture:0:1}" == "#" ]] && continue
 
   fixture_dir="$(dirname "$fixture")"
   fixture_file="$(basename "$fixture")"
   actual=$(
     cd "$ROOT/$fixture_dir" && \
-      HTTPDSL_BACKEND="$backend" "$ROOT/httpdsl" emit "$fixture_file" | shasum -a 256 | awk '{print $1}'
+      "$ROOT/httpdsl" emit "$fixture_file" | shasum -a 256 | awk '{print $1}'
   )
   if [[ "$actual" != "$expected" ]]; then
-    echo "Mismatch: backend=$backend fixture=$fixture"
+    echo "Mismatch: fixture=$fixture"
     echo "  expected: $expected"
     echo "  actual:   $actual"
     failed=1
