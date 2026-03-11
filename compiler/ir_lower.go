@@ -50,6 +50,9 @@ func LowerToIR(program *Program) *IRProgram {
 				CSRFDisabled:  s.CSRFDisabled,
 				HasElse:       s.ElseBlock != nil,
 				HasDisconnect: s.DisconnectBlock != nil,
+				BodyPreview:   previewBlockLines(s.Body),
+				ElsePreview:   previewBlockLines(s.ElseBlock),
+				DiscPreview:   previewBlockLines(s.DisconnectBlock),
 				Source:        s,
 			}
 			ir.Routes = append(ir.Routes, r)
@@ -77,6 +80,9 @@ func LowerToIR(program *Program) *IRProgram {
 					CSRFDisabled:  route.CSRFDisabled,
 					HasElse:       route.ElseBlock != nil,
 					HasDisconnect: route.DisconnectBlock != nil,
+					BodyPreview:   previewBlockLines(route.Body),
+					ElsePreview:   previewBlockLines(route.ElseBlock),
+					DiscPreview:   previewBlockLines(route.DisconnectBlock),
 					Source:        route,
 				}
 				ir.Routes = append(ir.Routes, r)
@@ -85,7 +91,12 @@ func LowerToIR(program *Program) *IRProgram {
 				}
 			}
 		case *FnStatement:
-			ir.Functions = append(ir.Functions, IRFunction{Name: s.Name, Params: append([]string(nil), s.Params...), Source: s})
+			ir.Functions = append(ir.Functions, IRFunction{
+				Name:        s.Name,
+				Params:      append([]string(nil), s.Params...),
+				BodyPreview: previewBlockLines(s.Body),
+				Source:      s,
+			})
 		case *BeforeStatement:
 			ir.Hooks.BeforeCount++
 		case *AfterStatement:

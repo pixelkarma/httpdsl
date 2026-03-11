@@ -15,44 +15,54 @@ func EmitIRPreview(ir *IRProgram) (string, error) {
 	}
 	var b strings.Builder
 	for _, fn := range ir.Functions {
-		if fn.Source == nil || fn.Source.Body == nil {
-			continue
-		}
 		b.WriteString("fn ")
 		b.WriteString(fn.Name)
 		b.WriteString("(")
 		b.WriteString(strings.Join(fn.Params, ","))
 		b.WriteString(")\n")
-		emitPreviewBlock(&b, fn.Source.Body)
+		for _, line := range fn.BodyPreview {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
 	}
 	for _, route := range ir.Routes {
-		if route.Source == nil || route.Source.Body == nil {
-			continue
-		}
 		b.WriteString("route ")
 		b.WriteString(route.Method)
 		b.WriteString(" ")
 		b.WriteString(route.Path)
 		b.WriteByte('\n')
-		emitPreviewBlock(&b, route.Source.Body)
-		if route.Source.ElseBlock != nil {
-			emitPreviewBlock(&b, route.Source.ElseBlock)
+		for _, line := range route.BodyPreview {
+			b.WriteString(line)
+			b.WriteByte('\n')
 		}
-		if route.Source.DisconnectBlock != nil {
-			emitPreviewBlock(&b, route.Source.DisconnectBlock)
+		for _, line := range route.ElsePreview {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+		for _, line := range route.DiscPreview {
+			b.WriteString(line)
+			b.WriteByte('\n')
 		}
 	}
 	return b.String(), nil
 }
 
 func emitPreviewBlock(b *strings.Builder, block *BlockStatement) {
-	if block == nil {
-		return
-	}
-	for _, stmt := range block.Statements {
-		b.WriteString(previewStmt(stmt))
+	for _, line := range previewBlockLines(block) {
+		b.WriteString(line)
 		b.WriteByte('\n')
 	}
+}
+
+func previewBlockLines(block *BlockStatement) []string {
+	if block == nil {
+		return nil
+	}
+	out := make([]string, 0, len(block.Statements))
+	for _, stmt := range block.Statements {
+		out = append(out, previewStmt(stmt))
+	}
+	return out
 }
 
 func previewStmt(stmt Statement) string {

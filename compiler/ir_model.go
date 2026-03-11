@@ -30,6 +30,9 @@ type IRRoute struct {
 	CSRFDisabled  bool
 	HasElse       bool
 	HasDisconnect bool
+	BodyPreview   []string
+	ElsePreview   []string
+	DiscPreview   []string
 	Source        *RouteStatement
 }
 
@@ -42,9 +45,10 @@ type IRGroup struct {
 }
 
 type IRFunction struct {
-	Name   string
-	Params []string
-	Source *FnStatement
+	Name        string
+	Params      []string
+	BodyPreview []string
+	Source      *FnStatement
 }
 
 type IRHooks struct {
