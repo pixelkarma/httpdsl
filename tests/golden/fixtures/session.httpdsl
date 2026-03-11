@@ -1,0 +1,13 @@
+server {
+    port 9992
+    session {
+        cookie "golden_sid"
+        expires 1 h
+        secret "golden-secret"
+    }
+}
+
+route POST "/login" {
+    request.session.user = "alice"
+    response.body = "ok"
+}

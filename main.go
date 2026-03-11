@@ -34,6 +34,7 @@ func main() {
 		fmt.Println("Commands:")
 		fmt.Println("  run [path]    Compile, run, and watch for changes (requires Go)")
 		fmt.Println("  build [path]  Compile to native binary (requires Go)")
+		fmt.Println("  emit [path]   Emit generated Go source to stdout")
 		fmt.Println("")
 		fmt.Println("If no path given, looks for app.httpdsl in current directory")
 		fmt.Println("and recursively includes all .httpdsl files.")
@@ -44,6 +45,24 @@ func main() {
 	var target string
 
 	switch cmd {
+	case "emit":
+		if len(os.Args) >= 3 {
+			target = os.Args[2]
+		} else {
+			target = resolveDefault()
+		}
+		program := parseTarget(target)
+		backend, err := compiler.BackendFromEnv()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Backend selection error: %s\n", err)
+			os.Exit(1)
+		}
+		src, err := compiler.GenerateCode(program, backend)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(src)
 	case "build":
 		if len(os.Args) >= 3 {
 			target = os.Args[2]
@@ -605,7 +624,12 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 		return nil, 0, err
 	}
 
-	src, err := compiler.GenerateNativeCode(program)
+	backend, err := compiler.BackendFromEnv()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	src, err := compiler.GenerateCode(program, backend)
 	if err != nil {
 		return nil, 0, fmt.Errorf("code generation: %w", err)
 	}
@@ -670,7 +694,13 @@ func buildSoft(target string, binPath string) (*compiler.Program, time.Duration,
 }
 
 func doBuild(program *compiler.Program, target string, outputOverride ...string) {
-	src, err := compiler.GenerateNativeCode(program)
+	backend, err := compiler.BackendFromEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Backend selection error: %s\n", err)
+		os.Exit(1)
+	}
+
+	src, err := compiler.GenerateCode(program, backend)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Code generation error: %s\n", err)
 		os.Exit(1)

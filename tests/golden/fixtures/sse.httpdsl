@@ -1,0 +1,7 @@
+server {
+    port 9991
+}
+
+route SSE "/events" {
+    stream.send("welcome")
+}
