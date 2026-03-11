@@ -81,8 +81,8 @@ func DetectDBDrivers(program *Program) map[string]bool {
 	return c.dbDrivers
 }
 
-func GenerateNativeCode(program *Program) (string, error) {
-	c := &NativeCompiler{
+func newNativeCompiler() *NativeCompiler {
+	return &NativeCompiler{
 		port:           8080,
 		usedBuiltins:   make(map[string]bool),
 		usedImports:    make(map[string]bool),
@@ -91,7 +91,40 @@ func GenerateNativeCode(program *Program) (string, error) {
 		routeAfterMap:  make(map[*RouteStatement][]*BlockStatement),
 		globalVars:     make(map[string]bool),
 	}
-	for _, stmt := range program.Statements {
+}
+
+func GenerateNativeCode(program *Program) (string, error) {
+	c := newNativeCompiler()
+	if err := c.prepareProgram(program); err != nil {
+		return "", err
+	}
+	return c.emitProgram()
+}
+
+func GenerateGoFromIR(ir *IRProgram) (string, error) {
+	if ir == nil {
+		return "", fmt.Errorf("nil ir program")
+	}
+	c := newNativeCompiler()
+	program := &Program{Statements: append([]Statement(nil), ir.TopLevel...)}
+	if err := c.prepareProgram(program); err != nil {
+		return "", err
+	}
+	return c.emitProgram()
+}
+
+func (c *NativeCompiler) prepareProgram(program *Program) error {
+	if program == nil {
+		return fmt.Errorf("nil program")
+	}
+	if err := c.loadFromStatements(program.Statements); err != nil {
+		return err
+	}
+	return c.finalizeProgram(program)
+}
+
+func (c *NativeCompiler) loadFromStatements(statements []Statement) error {
+	for _, stmt := range statements {
 		switch s := stmt.(type) {
 		case *RouteStatement:
 			c.routes = append(c.routes, s)
@@ -295,9 +328,13 @@ func GenerateNativeCode(program *Program) (string, error) {
 				}
 			}
 		default:
-			return "", fmt.Errorf("unexpected top-level statement — use init {} for startup code")
+			return fmt.Errorf("unexpected top-level statement — use init {} for startup code")
 		}
 	}
+	return nil
+}
+
+func (c *NativeCompiler) finalizeProgram(program *Program) error {
 	c.usedImports["context"] = true
 	c.usedImports["encoding/json"] = true
 	c.usedImports["fmt"] = true
@@ -423,13 +460,16 @@ func GenerateNativeCode(program *Program) (string, error) {
 	// Load template files at compile time
 	if c.templatesDir != "" {
 		if err := c.loadTemplateFiles(); err != nil {
-			return "", fmt.Errorf("templates: %w", err)
+			return fmt.Errorf("templates: %w", err)
 		}
 		if len(c.templateFiles) > 0 {
 			c.usedImports["html/template"] = true
 		}
 	}
+	return nil
+}
 
+func (c *NativeCompiler) emitProgram() (string, error) {
 	c.emitHeader()
 	c.emitGlobalVars()
 	c.emitEnvRuntime()
