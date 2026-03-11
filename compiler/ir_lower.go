@@ -53,7 +53,6 @@ func LowerToIR(program *Program) *IRProgram {
 				BodyPreview:   previewBlockLines(s.Body),
 				ElsePreview:   previewBlockLines(s.ElseBlock),
 				DiscPreview:   previewBlockLines(s.DisconnectBlock),
-				Source:        s,
 			}
 			ir.Routes = append(ir.Routes, r)
 			if s.Method == "SSE" {
@@ -68,7 +67,6 @@ func LowerToIR(program *Program) *IRProgram {
 				RouteCount:  len(s.Routes),
 				BeforeCount: len(s.Before),
 				AfterCount:  len(s.After),
-				Source:      s,
 			}
 			ir.Groups = append(ir.Groups, g)
 			for _, route := range s.Routes {
@@ -83,7 +81,6 @@ func LowerToIR(program *Program) *IRProgram {
 					BodyPreview:   previewBlockLines(route.Body),
 					ElsePreview:   previewBlockLines(route.ElseBlock),
 					DiscPreview:   previewBlockLines(route.DisconnectBlock),
-					Source:        route,
 				}
 				ir.Routes = append(ir.Routes, r)
 				if route.Method == "SSE" {
@@ -95,7 +92,6 @@ func LowerToIR(program *Program) *IRProgram {
 				Name:        s.Name,
 				Params:      append([]string(nil), s.Params...),
 				BodyPreview: previewBlockLines(s.Body),
-				Source:      s,
 			})
 		case *BeforeStatement:
 			ir.Hooks.BeforeCount++
@@ -106,9 +102,9 @@ func LowerToIR(program *Program) *IRProgram {
 		case *ShutdownStatement:
 			ir.Hooks.ShutdownCount++
 		case *ErrorStatement:
-			ir.Errors = append(ir.Errors, IRErrorHandler{StatusCode: s.StatusCode, Source: s})
+			ir.Errors = append(ir.Errors, IRErrorHandler{StatusCode: s.StatusCode})
 		case *EveryStatement:
-			sched := IRSchedule{Source: s}
+			sched := IRSchedule{}
 			if s.CronExpr != "" {
 				sched.Kind = "cron"
 				sched.CronExpr = s.CronExpr

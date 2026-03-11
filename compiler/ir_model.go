@@ -33,7 +33,6 @@ type IRRoute struct {
 	BodyPreview   []string
 	ElsePreview   []string
 	DiscPreview   []string
-	Source        *RouteStatement
 }
 
 type IRGroup struct {
@@ -41,14 +40,12 @@ type IRGroup struct {
 	RouteCount  int
 	BeforeCount int
 	AfterCount  int
-	Source      *GroupStatement
 }
 
 type IRFunction struct {
 	Name        string
 	Params      []string
 	BodyPreview []string
-	Source      *FnStatement
 }
 
 type IRHooks struct {
@@ -60,14 +57,12 @@ type IRHooks struct {
 
 type IRErrorHandler struct {
 	StatusCode int
-	Source     *ErrorStatement
 }
 
 type IRSchedule struct {
 	Kind     string // "interval" | "cron"
 	Interval int
 	CronExpr string
-	Source   *EveryStatement
 }
 
 type IRFeatures struct {
