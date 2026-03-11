@@ -26,7 +26,7 @@ HTTPDSL compiles `.httpdsl` source files into standalone native Go binaries. The
 ## Building from Source
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/pixelkarma/httpdsl.git
 cd httpdsl
 go build -o httpdsl .
 ```
