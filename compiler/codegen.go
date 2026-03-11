@@ -18,7 +18,7 @@ const (
 func ParseBackend(value string) (Backend, error) {
 	v := strings.TrimSpace(strings.ToLower(value))
 	if v == "" {
-		return BackendLegacy, nil
+		return BackendIR, nil
 	}
 	switch Backend(v) {
 	case BackendLegacy, BackendIR:
@@ -28,7 +28,7 @@ func ParseBackend(value string) (Backend, error) {
 	}
 }
 
-// BackendFromEnv reads HTTPDSL_BACKEND and falls back to legacy.
+// BackendFromEnv reads HTTPDSL_BACKEND and falls back to ir.
 func BackendFromEnv() (Backend, error) {
 	return ParseBackend(os.Getenv("HTTPDSL_BACKEND"))
 }
