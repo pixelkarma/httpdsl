@@ -16,8 +16,9 @@ func GenerateIRCode(program *Program) (string, error) {
 	if _, err := EmitIRPreview(ir); err != nil {
 		return "", fmt.Errorf("ir preview emission failed: %w", err)
 	}
+	rebuilt := RaiseFromIR(ir)
 
 	// Temporary backend bridge: reuse proven legacy Go emitter while IR backend
 	// matures. The rewrite now has an explicit AST->IR->backend pipeline shape.
-	return GenerateNativeCode(ir.LegacyAST)
+	return GenerateNativeCode(rebuilt)
 }

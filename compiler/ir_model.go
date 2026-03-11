@@ -4,6 +4,7 @@ package compiler
 // During migration it also keeps a reference to the source AST for fallback codegen.
 type IRProgram struct {
 	LegacyAST *Program
+	TopLevel  []Statement
 	Server    *IRServer
 	Routes    []IRRoute
 	Groups    []IRGroup

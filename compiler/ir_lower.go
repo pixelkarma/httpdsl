@@ -6,6 +6,7 @@ import "fmt"
 func LowerToIR(program *Program) *IRProgram {
 	ir := &IRProgram{LegacyAST: program}
 	for _, stmt := range program.Statements {
+		ir.TopLevel = append(ir.TopLevel, stmt)
 		switch s := stmt.(type) {
 		case *ServerStatement:
 			if ir.Server == nil {
@@ -222,7 +223,7 @@ func ValidateIR(ir *IRProgram) []string {
 	}
 
 	// Mirror top-level constraints defensively in IR validation.
-	for _, stmt := range ir.LegacyAST.Statements {
+	for _, stmt := range ir.TopLevel {
 		switch stmt.(type) {
 		case *RouteStatement,
 			*FnStatement,
