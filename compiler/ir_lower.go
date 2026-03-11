@@ -120,7 +120,11 @@ func LowerToIR(program *Program) *IRProgram {
 			ir.Schedules = append(ir.Schedules, sched)
 		}
 	}
-	ir.Features.HasDB, ir.Features.HasSQL, ir.Features.HasMongo = detectIRDBFeatures(ir.TopLevel)
+	drivers, hasDB, hasSQL, hasMongo := detectIRDBFeatures(ir.TopLevel)
+	ir.Features.DBDrivers = drivers
+	ir.Features.HasDB = hasDB
+	ir.Features.HasSQL = hasSQL
+	ir.Features.HasMongo = hasMongo
 	return ir
 }
 
@@ -153,7 +157,7 @@ func classifyTopLevel(stmt Statement) IRTopLevelKind {
 	}
 }
 
-func detectIRDBFeatures(nodes []IRTopLevelNode) (hasDB bool, hasSQL bool, hasMongo bool) {
+func detectIRDBFeatures(nodes []IRTopLevelNode) (map[string]bool, bool, bool, bool) {
 	program := &Program{Statements: make([]Statement, 0, len(nodes))}
 	for _, node := range nodes {
 		if node.Statement != nil {
@@ -161,10 +165,10 @@ func detectIRDBFeatures(nodes []IRTopLevelNode) (hasDB bool, hasSQL bool, hasMon
 		}
 	}
 	drivers := DetectDBDrivers(program)
-	hasDB = len(drivers) > 0
-	hasSQL = drivers["sqlite"] || drivers["postgres"] || drivers["mysql"]
-	hasMongo = drivers["mongo"]
-	return
+	hasDB := len(drivers) > 0
+	hasSQL := drivers["sqlite"] || drivers["postgres"] || drivers["mysql"]
+	hasMongo := drivers["mongo"]
+	return drivers, hasDB, hasSQL, hasMongo
 }
 
 func routeHasBuiltin(block *BlockStatement, name string) bool {

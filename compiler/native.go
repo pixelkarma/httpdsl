@@ -106,8 +106,22 @@ func GenerateGoFromIR(ir *IRProgram) (string, error) {
 		return "", fmt.Errorf("nil ir program")
 	}
 	c := newNativeCompiler()
-	program := RaiseFromIR(ir)
-	if err := c.prepareProgram(program); err != nil {
+	if len(ir.Features.DBDrivers) > 0 {
+		c.dbDrivers = make(map[string]bool, len(ir.Features.DBDrivers))
+		for k, v := range ir.Features.DBDrivers {
+			c.dbDrivers[k] = v
+		}
+	}
+	statements := make([]Statement, 0, len(ir.TopLevel))
+	for _, node := range ir.TopLevel {
+		if node.Statement != nil {
+			statements = append(statements, node.Statement)
+		}
+	}
+	if err := c.loadFromStatements(statements); err != nil {
+		return "", err
+	}
+	if err := c.finalizeProgram(nil); err != nil {
 		return "", err
 	}
 	return c.emitProgram()
@@ -443,7 +457,9 @@ func (c *NativeCompiler) finalizeProgram(program *Program) error {
 	}
 
 	// Detect database drivers from db.open() calls
-	c.detectDBDrivers(program)
+	if len(c.dbDrivers) == 0 && program != nil {
+		c.detectDBDrivers(program)
+	}
 	if len(c.dbDrivers) > 0 {
 		if c.dbDrivers["sqlite"] || c.dbDrivers["postgres"] || c.dbDrivers["mysql"] {
 			c.usedImports["database/sql"] = true

@@ -80,6 +80,7 @@ type IRFeatures struct {
 	HasSQL     bool
 	HasExec    bool
 	HasTLS     bool
+	DBDrivers  map[string]bool
 }
 
 type IRTopLevelKind string
