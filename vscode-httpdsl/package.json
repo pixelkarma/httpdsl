@@ -2,11 +2,12 @@
   "name": "httpdsl",
   "displayName": "HTTPDSL",
   "description": "Syntax highlighting and formatting for the HTTPDSL language",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "pixelkarma",
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:httpdsl"
+    "onLanguage:httpdsl",
+    "onCommand:httpdsl.formatDocument"
   ],
   "engines": {
     "vscode": "^1.75.0"
@@ -15,6 +16,18 @@
     "Programming Languages"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[httpdsl]": {
+        "editor.defaultFormatter": "pixelkarma.httpdsl"
+      }
+    },
+    "commands": [
+      {
+        "command": "httpdsl.formatDocument",
+        "title": "HTTPDSL: Format Document",
+        "category": "HTTPDSL"
+      }
+    ],
     "languages": [
       {
         "id": "httpdsl",

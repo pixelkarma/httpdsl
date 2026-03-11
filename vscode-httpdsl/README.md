@@ -5,6 +5,7 @@ Syntax highlighting and formatting for [HTTPDSL](https://github.com/pixelkarma/h
 ## Features
 
 - Full syntax highlighting for `.httpdsl` files
+- Code completion for keywords, snippets, route methods, and core object members (`request.*`, `response.*`, `store.*`, etc.)
 - Route definitions with method highlighting (`GET`, `POST`, `PUT`, `SSE`, etc.)
 - Built-in function recognition (100+ functions)
 - Template string interpolation (`${...}` inside backticks)
@@ -23,7 +24,7 @@ The quickest way to install during development:
 
 ```bash
 # macOS / Linux
-ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.1
+ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.2
 
 # Then reload VS Code (Cmd+Shift+P → "Developer: Reload Window")
 ```
@@ -31,7 +32,7 @@ ln -s /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.
 ### Manual Install (copy)
 
 ```bash
-cp -r /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.1
+cp -r /path/to/httpdsl/vscode-httpdsl ~/.vscode/extensions/pixelkarma.httpdsl-0.1.2
 ```
 
 Reload VS Code after copying.
@@ -43,14 +44,17 @@ If you have `vsce` installed:
 ```bash
 cd vscode-httpdsl
 npx @vscode/vsce package
-# Produces httpdsl-0.1.1.vsix
+# Produces httpdsl-0.1.2.vsix
 ```
 
-Then install via: `code --install-extension httpdsl-0.1.1.vsix`
+Then install via: `code --install-extension httpdsl-0.1.2.vsix`
 
 ## Formatting
 
 - Run `Format Document` (`Shift+Option+F` on macOS) in `.httpdsl` files.
+- HTTPDSL sets itself as the default formatter for `[httpdsl]`.
+- If another formatter still takes over, run command: `HTTPDSL: Format Document`.
+- Formatting normalizes indentation and common spacing (assignment/comparison operators, commas, control-flow keyword spacing).
 - To enable format-on-save:
 
 ```json
