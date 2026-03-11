@@ -4,9 +4,15 @@ import "fmt"
 
 // LowerToIR converts AST to a normalized IR snapshot.
 func LowerToIR(program *Program) *IRProgram {
-	ir := &IRProgram{LegacyAST: program}
+	ir := &IRProgram{}
+	if program == nil {
+		return ir
+	}
 	for _, stmt := range program.Statements {
-		ir.TopLevel = append(ir.TopLevel, stmt)
+		ir.TopLevel = append(ir.TopLevel, IRTopLevelNode{
+			Kind:      classifyTopLevel(stmt),
+			Statement: stmt,
+		})
 		switch s := stmt.(type) {
 		case *ServerStatement:
 			if ir.Server == nil {
@@ -103,11 +109,46 @@ func LowerToIR(program *Program) *IRProgram {
 			ir.Schedules = append(ir.Schedules, sched)
 		}
 	}
-	ir.Features.HasDB, ir.Features.HasSQL, ir.Features.HasMongo = detectIRDBFeatures(program)
+	ir.Features.HasDB, ir.Features.HasSQL, ir.Features.HasMongo = detectIRDBFeatures(ir.TopLevel)
 	return ir
 }
 
-func detectIRDBFeatures(program *Program) (hasDB bool, hasSQL bool, hasMongo bool) {
+func classifyTopLevel(stmt Statement) IRTopLevelKind {
+	switch stmt.(type) {
+	case *RouteStatement:
+		return IRTopLevelRoute
+	case *FnStatement:
+		return IRTopLevelFunction
+	case *ServerStatement:
+		return IRTopLevelServer
+	case *GroupStatement:
+		return IRTopLevelGroup
+	case *BeforeStatement:
+		return IRTopLevelBefore
+	case *AfterStatement:
+		return IRTopLevelAfter
+	case *InitStatement:
+		return IRTopLevelInit
+	case *ShutdownStatement:
+		return IRTopLevelShutdown
+	case *HelpStatement:
+		return IRTopLevelHelp
+	case *ErrorStatement:
+		return IRTopLevelError
+	case *EveryStatement:
+		return IRTopLevelEvery
+	default:
+		return IRTopLevelUnknown
+	}
+}
+
+func detectIRDBFeatures(nodes []IRTopLevelNode) (hasDB bool, hasSQL bool, hasMongo bool) {
+	program := &Program{Statements: make([]Statement, 0, len(nodes))}
+	for _, node := range nodes {
+		if node.Statement != nil {
+			program.Statements = append(program.Statements, node.Statement)
+		}
+	}
 	drivers := DetectDBDrivers(program)
 	hasDB = len(drivers) > 0
 	hasSQL = drivers["sqlite"] || drivers["postgres"] || drivers["mysql"]
@@ -212,7 +253,7 @@ func exprHasBuiltin(expr Expression, name string) bool {
 // ValidateIR enforces backend-level invariants before emission.
 func ValidateIR(ir *IRProgram) []string {
 	var errs []string
-	if ir == nil || ir.LegacyAST == nil {
+	if ir == nil {
 		return []string{"ir: missing program"}
 	}
 
@@ -223,22 +264,26 @@ func ValidateIR(ir *IRProgram) []string {
 	}
 
 	// Mirror top-level constraints defensively in IR validation.
-	for _, stmt := range ir.TopLevel {
-		switch stmt.(type) {
-		case *RouteStatement,
-			*FnStatement,
-			*ServerStatement,
-			*GroupStatement,
-			*BeforeStatement,
-			*AfterStatement,
-			*InitStatement,
-			*ShutdownStatement,
-			*HelpStatement,
-			*ErrorStatement,
-			*EveryStatement:
+	for _, node := range ir.TopLevel {
+		if node.Statement == nil {
+			errs = append(errs, "ir top-level node has nil statement")
+			continue
+		}
+		switch node.Kind {
+		case IRTopLevelRoute,
+			IRTopLevelFunction,
+			IRTopLevelServer,
+			IRTopLevelGroup,
+			IRTopLevelBefore,
+			IRTopLevelAfter,
+			IRTopLevelInit,
+			IRTopLevelShutdown,
+			IRTopLevelHelp,
+			IRTopLevelError,
+			IRTopLevelEvery:
 			continue
 		default:
-			line, col := statementLocationForIR(stmt)
+			line, col := statementLocationForIR(node.Statement)
 			errs = append(errs, fmt.Sprintf("line %d, col %d: invalid top-level statement in IR", line, col))
 		}
 	}

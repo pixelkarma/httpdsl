@@ -8,6 +8,10 @@ func RaiseFromIR(ir *IRProgram) *Program {
 		return &Program{}
 	}
 	out := &Program{Statements: make([]Statement, 0, len(ir.TopLevel))}
-	out.Statements = append(out.Statements, ir.TopLevel...)
+	for _, node := range ir.TopLevel {
+		if node.Statement != nil {
+			out.Statements = append(out.Statements, node.Statement)
+		}
+	}
 	return out
 }

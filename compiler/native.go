@@ -106,7 +106,7 @@ func GenerateGoFromIR(ir *IRProgram) (string, error) {
 		return "", fmt.Errorf("nil ir program")
 	}
 	c := newNativeCompiler()
-	program := &Program{Statements: append([]Statement(nil), ir.TopLevel...)}
+	program := RaiseFromIR(ir)
 	if err := c.prepareProgram(program); err != nil {
 		return "", err
 	}

@@ -1,10 +1,8 @@
 package compiler
 
 // IRProgram is the normalized intermediate representation used by the IR backend.
-// During migration it also keeps a reference to the source AST for fallback codegen.
 type IRProgram struct {
-	LegacyAST *Program
-	TopLevel  []Statement
+	TopLevel  []IRTopLevelNode
 	Server    *IRServer
 	Routes    []IRRoute
 	Groups    []IRGroup
@@ -78,4 +76,26 @@ type IRFeatures struct {
 	HasSQL     bool
 	HasExec    bool
 	HasTLS     bool
+}
+
+type IRTopLevelKind string
+
+const (
+	IRTopLevelUnknown  IRTopLevelKind = "unknown"
+	IRTopLevelRoute    IRTopLevelKind = "route"
+	IRTopLevelFunction IRTopLevelKind = "function"
+	IRTopLevelServer   IRTopLevelKind = "server"
+	IRTopLevelGroup    IRTopLevelKind = "group"
+	IRTopLevelBefore   IRTopLevelKind = "before"
+	IRTopLevelAfter    IRTopLevelKind = "after"
+	IRTopLevelInit     IRTopLevelKind = "init"
+	IRTopLevelShutdown IRTopLevelKind = "shutdown"
+	IRTopLevelHelp     IRTopLevelKind = "help"
+	IRTopLevelError    IRTopLevelKind = "error"
+	IRTopLevelEvery    IRTopLevelKind = "every"
+)
+
+type IRTopLevelNode struct {
+	Kind      IRTopLevelKind
+	Statement Statement
 }

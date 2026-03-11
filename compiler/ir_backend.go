@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// GenerateIRCode currently delegates to the legacy backend while the IR emitter
-// is implemented incrementally. This keeps backend selection and parity harness
-// wiring stable across migration milestones.
+// GenerateIRCode compiles through the IR pipeline and emits Go via the dedicated
+// IR emitter seam.
 func GenerateIRCode(program *Program) (string, error) {
 	ir := LowerToIR(program)
 	if errs := ValidateIR(ir); len(errs) > 0 {
