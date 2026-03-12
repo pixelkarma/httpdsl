@@ -48,26 +48,33 @@ func (c *NativeCompiler) expr(e Expression) string {
 		}
 		return fmt.Sprintf("Value([]Value{%s})", strings.Join(elems, ", "))
 	case *HashLiteral:
-		if len(ex.Pairs) == 0 {
-			return "Value(map[string]Value{})"
-		}
-		pairs := make([]string, len(ex.Pairs))
-		for i, p := range ex.Pairs {
-			key := c.hashKeyStr(p.Key)
-			pairs[i] = fmt.Sprintf("%s: %s", key, c.expr(p.Value))
-		}
-		return fmt.Sprintf("Value(map[string]Value{%s})", strings.Join(pairs, ", "))
+		return c.hashLiteralExpr(ex)
 	case *FunctionLiteral:
-		// Anonymous function — always variadic so callValue can invoke
+		autoBindSelf := c.objectValueDepth > 0 && c.selfBindingRoot != ""
+		if autoBindSelf {
+			if err := c.validateBoundSelfFunction(ex); err != nil {
+				if c.emitErr == nil {
+					c.emitErr = err
+				}
+				return "null"
+			}
+		}
+		// Anonymous function — always variadic so callValue can invoke.
 		var fb strings.Builder
 		old := c.b
 		c.b = fb
+		if autoBindSelf {
+			c.lnf("var self Value = Value(%s)", c.selfBindingRoot)
+		}
 		// Unpack args into named params
 		for i, p := range ex.Params {
 			c.lnf("var %s Value = null", safeIdent(p))
 			c.lnf("if len(_args) > %d { %s = _args[%d] }", i, safeIdent(p), i)
 		}
+		prevDepth := c.objectValueDepth
+		c.objectValueDepth = 0
 		c.emitBlock(ex.Body, false)
+		c.objectValueDepth = prevDepth
 		c.b.WriteString(strings.Repeat("\t", c.indent+1))
 		c.b.WriteString("return null\n")
 		body := c.b.String()
@@ -81,7 +88,7 @@ func (c *NativeCompiler) expr(e Expression) string {
 	return "null"
 }
 
-func (c *NativeCompiler) hashKeyStr(e Expression) string {
+func (c *NativeCompiler) hashKeyExpr(e Expression) string {
 	switch k := e.(type) {
 	case *StringLiteral:
 		return fmt.Sprintf("%q", k.Value)
@@ -90,6 +97,44 @@ func (c *NativeCompiler) hashKeyStr(e Expression) string {
 	default:
 		return fmt.Sprintf("valueToString(%s)", c.expr(e))
 	}
+}
+
+func (c *NativeCompiler) hashLiteralExpr(ex *HashLiteral) string {
+	if len(ex.Pairs) == 0 {
+		return "Value(map[string]Value{})"
+	}
+
+	objVar := c.tmp()
+	rootVar := c.selfBindingRoot
+	ownsRoot := false
+	if rootVar == "" {
+		rootVar = objVar
+	}
+	if c.selfBindingRoot == "" {
+		ownsRoot = true
+		c.selfBindingRoot = rootVar
+	}
+	defer func() {
+		if ownsRoot {
+			c.selfBindingRoot = ""
+		}
+	}()
+
+	var hb strings.Builder
+	old := c.b
+	c.b = hb
+	c.lnf("%s := map[string]Value{}", objVar)
+	for _, p := range ex.Pairs {
+		keyExpr := c.hashKeyExpr(p.Key)
+		c.objectValueDepth++
+		valExpr := c.expr(p.Value)
+		c.objectValueDepth--
+		c.lnf("%s[%s] = %s", objVar, keyExpr, valExpr)
+	}
+	c.lnf("return Value(%s)", objVar)
+	body := c.b.String()
+	c.b = old
+	return fmt.Sprintf("func() Value {\n%s%s}()", body, strings.Repeat("\t", c.indent))
 }
 
 func (c *NativeCompiler) identExpr(name string) string {
@@ -720,4 +765,217 @@ func (c *NativeCompiler) dotExpr(e *DotExpression) string {
 		return fmt.Sprintf("_sseDotValue(%s, %q)", c.expr(e.Left), e.Field)
 	}
 	return fmt.Sprintf("dotValue(%s, %q)", c.expr(e.Left), e.Field)
+}
+
+func (c *NativeCompiler) validateBoundSelfFunction(fn *FunctionLiteral) error {
+	for _, p := range fn.Params {
+		if p == "self" {
+			return fmt.Errorf(
+				"line %d, col %d: parameter name 'self' is reserved inside object anonymous functions",
+				fn.Token.Line, fn.Token.Column,
+			)
+		}
+	}
+	return c.validateSelfInBlock(fn.Body)
+}
+
+func (c *NativeCompiler) validateSelfInBlock(block *BlockStatement) error {
+	if block == nil {
+		return nil
+	}
+	for _, stmt := range block.Statements {
+		if err := c.validateSelfInStmt(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *NativeCompiler) validateSelfInStmt(stmt Statement) error {
+	if stmt == nil {
+		return nil
+	}
+	switch s := stmt.(type) {
+	case *AssignStatement:
+		for _, name := range s.Names {
+			if name == "self" {
+				return fmt.Errorf("line %d, col %d: cannot assign to reserved identifier 'self'", s.Token.Line, s.Token.Column)
+			}
+		}
+		for _, v := range s.Values {
+			if err := c.validateSelfInExpr(v); err != nil {
+				return err
+			}
+		}
+	case *CompoundAssignStatement:
+		if s.Name == "self" {
+			return fmt.Errorf("line %d, col %d: cannot assign to reserved identifier 'self'", s.Token.Line, s.Token.Column)
+		}
+		return c.validateSelfInExpr(s.Value)
+	case *IndexAssignStatement:
+		if ident, ok := s.Left.(*Identifier); ok && ident.Value == "self" {
+			// Mutating self fields (self.x or self["x"]) is allowed.
+		}
+		if err := c.validateSelfInExpr(s.Left); err != nil {
+			return err
+		}
+		if err := c.validateSelfInExpr(s.Index); err != nil {
+			return err
+		}
+		return c.validateSelfInExpr(s.Value)
+	case *ObjectDestructureStatement:
+		for _, key := range s.Keys {
+			if key == "self" {
+				return fmt.Errorf("line %d, col %d: cannot assign to reserved identifier 'self'", s.Token.Line, s.Token.Column)
+			}
+		}
+		return c.validateSelfInExpr(s.Value)
+	case *ArrayDestructureStatement:
+		for _, name := range s.Names {
+			if name == "self" {
+				return fmt.Errorf("line %d, col %d: cannot assign to reserved identifier 'self'", s.Token.Line, s.Token.Column)
+			}
+		}
+		return c.validateSelfInExpr(s.Value)
+	case *EachStatement:
+		if s.Value == "self" || s.Index == "self" {
+			return fmt.Errorf("line %d, col %d: cannot assign to reserved identifier 'self'", s.Token.Line, s.Token.Column)
+		}
+		if err := c.validateSelfInExpr(s.Iterable); err != nil {
+			return err
+		}
+		return c.validateSelfInBlock(s.Body)
+	case *TryCatchStatement:
+		if s.CatchVar == "self" {
+			return fmt.Errorf("line %d, col %d: catch variable name 'self' is reserved", s.Token.Line, s.Token.Column)
+		}
+		if err := c.validateSelfInBlock(s.Try); err != nil {
+			return err
+		}
+		return c.validateSelfInBlock(s.Catch)
+	case *FnStatement:
+		if s.Name == "self" {
+			return fmt.Errorf("line %d, col %d: function name 'self' is reserved inside object anonymous functions", s.Token.Line, s.Token.Column)
+		}
+		for _, p := range s.Params {
+			if p == "self" {
+				return fmt.Errorf("line %d, col %d: parameter name 'self' is reserved inside object anonymous functions", s.Token.Line, s.Token.Column)
+			}
+		}
+		return c.validateSelfInBlock(s.Body)
+	case *ExpressionStatement:
+		return c.validateSelfInExpr(s.Expression)
+	case *ReturnStatement:
+		for _, v := range s.Values {
+			if err := c.validateSelfInExpr(v); err != nil {
+				return err
+			}
+		}
+	case *IfStatement:
+		if err := c.validateSelfInExpr(s.Condition); err != nil {
+			return err
+		}
+		if err := c.validateSelfInBlock(s.Consequence); err != nil {
+			return err
+		}
+		if s.Alternative != nil {
+			return c.validateSelfInStmt(s.Alternative)
+		}
+	case *WhileStatement:
+		if err := c.validateSelfInExpr(s.Condition); err != nil {
+			return err
+		}
+		return c.validateSelfInBlock(s.Body)
+	case *SwitchStatement:
+		if err := c.validateSelfInExpr(s.Subject); err != nil {
+			return err
+		}
+		for _, cs := range s.Cases {
+			for _, v := range cs.Values {
+				if err := c.validateSelfInExpr(v); err != nil {
+					return err
+				}
+			}
+			if err := c.validateSelfInBlock(cs.Body); err != nil {
+				return err
+			}
+		}
+		if s.Default != nil {
+			return c.validateSelfInBlock(s.Default)
+		}
+	case *ThrowStatement:
+		return c.validateSelfInExpr(s.Value)
+	case *BlockStatement:
+		return c.validateSelfInBlock(s)
+	case *BreakStatement, *ContinueStatement:
+		return nil
+	}
+	return nil
+}
+
+func (c *NativeCompiler) validateSelfInExpr(expr Expression) error {
+	if expr == nil {
+		return nil
+	}
+	switch e := expr.(type) {
+	case *PrefixExpression:
+		return c.validateSelfInExpr(e.Right)
+	case *InfixExpression:
+		if err := c.validateSelfInExpr(e.Left); err != nil {
+			return err
+		}
+		return c.validateSelfInExpr(e.Right)
+	case *TernaryExpression:
+		if err := c.validateSelfInExpr(e.Condition); err != nil {
+			return err
+		}
+		if err := c.validateSelfInExpr(e.Consequence); err != nil {
+			return err
+		}
+		return c.validateSelfInExpr(e.Alternative)
+	case *CallExpression:
+		if err := c.validateSelfInExpr(e.Function); err != nil {
+			return err
+		}
+		for _, a := range e.Arguments {
+			if err := c.validateSelfInExpr(a); err != nil {
+				return err
+			}
+		}
+	case *DotExpression:
+		return c.validateSelfInExpr(e.Left)
+	case *IndexExpression:
+		if err := c.validateSelfInExpr(e.Left); err != nil {
+			return err
+		}
+		return c.validateSelfInExpr(e.Index)
+	case *ArrayLiteral:
+		for _, el := range e.Elements {
+			if err := c.validateSelfInExpr(el); err != nil {
+				return err
+			}
+		}
+	case *HashLiteral:
+		for _, pair := range e.Pairs {
+			if err := c.validateSelfInExpr(pair.Key); err != nil {
+				return err
+			}
+			if err := c.validateSelfInExpr(pair.Value); err != nil {
+				return err
+			}
+		}
+	case *FunctionLiteral:
+		for _, p := range e.Params {
+			if p == "self" {
+				return fmt.Errorf(
+					"line %d, col %d: parameter name 'self' is reserved inside object anonymous functions",
+					e.Token.Line, e.Token.Column,
+				)
+			}
+		}
+		return c.validateSelfInBlock(e.Body)
+	case *AsyncExpression:
+		return c.validateSelfInExpr(e.Expression)
+	}
+	return nil
 }

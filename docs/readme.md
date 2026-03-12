@@ -1,6 +1,6 @@
 # HTTPDSL Language Documentation
 
-HTTPDSL is a domain-specific language that compiles to standalone, native Go HTTP server binaries. You write `.httpdsl` files. The compiler produces a single Go source file. `go build` turns it into a static binary with zero runtime dependencies.
+HTTPDSL is a domain-specific language that compiles to standalone, native Go HTTP server binaries. You write `.httpdsl` files. The compiler produces generated Go source code, and `go build` turns it into a static binary with zero runtime dependencies.
 
 This is the complete language reference.
 
@@ -45,6 +45,7 @@ This is the complete language reference.
   - Assignment (`=`, `+=`, `-=`)
   - Destructuring — array (`[a, b] = expr`) and object (`{a, b} = expr`)
   - Scoping rules
+  - `self` in object anonymous functions
   - Reserved words and naming constraints
 
 - [**Operators**](operators.md) — Arithmetic, comparison, and logic

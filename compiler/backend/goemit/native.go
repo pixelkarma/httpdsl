@@ -65,6 +65,8 @@ type NativeCompiler struct {
 	autocertDirExpr    Expression        // autocert cache dir expression
 	httpsRedirect      string            // true, false, or empty (auto: true when TLS active)
 	wwwRedirect        string            // true or false (default: false)
+	selfBindingRoot    string            // root object variable for object-literal self binding
+	objectValueDepth   int               // >0 while emitting expressions inside object literal values
 	emitErr            error
 }
 

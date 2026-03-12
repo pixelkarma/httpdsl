@@ -10,8 +10,10 @@
 - [Built-in Variables](#built-in-variables)
 - [Builtin Name Collision](#builtin-name-collision)
 - [Closures](#closures)
+- [Self in Object Anonymous Functions](#self-in-object-anonymous-functions)
 - [Global Variables](#global-variables)
 - [Practical Examples](#practical-examples)
+  - [Factory Functions for Reusable Objects](#factory-functions-for-reusable-objects)
   - [Request Data Extraction](#request-data-extraction)
   - [Path and Query Parameters](#path-and-query-parameters)
   - [Multiple Return Values](#multiple-return-values)
@@ -194,6 +196,51 @@ log(counter())
 log(counter())
 ```
 
+## Self in Object Anonymous Functions
+
+Anonymous functions defined inside object literals automatically get a `self` variable.
+
+`self` points to the top-level object literal where the function is defined:
+
+```httpdsl
+user = {
+  name: "Bob",
+  talk: fn() {
+    return `Hello from ${self.name}`
+  },
+  profile: {
+    shout: fn() {
+      # still refers to the top-level "user" object above
+      return upper(self.name)
+    }
+  }
+}
+```
+
+Rules:
+
+- Applies only to anonymous `fn(...) { ... }` values inside object literals.
+- `self` is read-only as a binding: you cannot reassign or shadow it.
+- `self.field = ...` is allowed (mutating the object is valid).
+
+Invalid examples:
+
+```httpdsl
+obj = {
+  bad: fn(self) {        # invalid: cannot shadow self as a parameter
+    return self
+  }
+}
+```
+
+```httpdsl
+obj = {
+  bad: fn() {
+    self = "x"           # invalid: cannot reassign self
+  }
+}
+```
+
 ## Global Variables
 
 Top-level variable assignments are not allowed.
@@ -226,6 +273,71 @@ route GET "/api/items" {
 See [Init](init.md) for details.
 
 ## Practical Examples
+
+### Factory Functions for Reusable Objects
+
+```httpdsl
+fn NewUserProfile(name, email, bio) {
+  return {
+    name: trim(name),
+    email: lower(trim(email)),
+    bio: bio ?? "",
+
+    validate_name: fn() {
+      return len(self.name) >= 2
+    },
+
+    validate_email: fn() {
+      return is_email(self.email)
+    },
+
+    validate: fn() {
+      errors = []
+
+      if !self.validate_name() {
+        push(errors, "Name must be at least 2 characters")
+      }
+
+      if !self.validate_email() {
+        push(errors, "Email must be a valid address")
+      }
+
+      return {
+        ok: len(errors) == 0,
+        errors: errors
+      }
+    },
+
+    public: fn() {
+      return {
+        name: self.name,
+        email: self.email,
+        bio: self.bio
+      }
+    }
+  }
+}
+
+route POST "/profiles" json {
+  profile = NewUserProfile(
+    request.data.name ?? "",
+    request.data.email ?? "",
+    request.data.bio ?? ""
+  )
+
+  result = profile.validate()
+  if !result.ok {
+    response.status = 400
+    response.body = {
+      error: "Validation failed",
+      fields: result.errors
+    }
+    return
+  }
+
+  response.body = profile.public()
+}
+```
 
 ### Request Data Extraction
 
