@@ -27,6 +27,11 @@ This is the complete language reference.
   - Execution order
   - Globals vs locals
 
+- [**Project Style Guide**](style-guide.md) — Recommended conventions for multi-file apps
+  - One `server {}` per project
+  - Shallow-first folder layout
+  - PascalCase naming for user-defined symbols
+
 ### II. Language Fundamentals
 
 - [**Types & Values**](types.md) — The value system
