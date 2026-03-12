@@ -268,6 +268,9 @@ func Validate(ir *Program) []string {
 		return []string{"ir: missing program"}
 	}
 
+	serverCount := 0
+	firstServerLine, firstServerCol := 0, 0
+
 	for _, r := range ir.Routes {
 		if r.HasDisconnect && r.Method != "SSE" {
 			errs = append(errs, fmt.Sprintf("route %q: disconnect block only valid for SSE method", r.Path))
@@ -276,6 +279,7 @@ func Validate(ir *Program) []string {
 
 	// Mirror top-level constraints defensively in IR validation.
 	for _, node := range ir.TopLevel {
+		validKind := false
 		switch node.Kind {
 		case TopLevelRoute,
 			TopLevelFunction,
@@ -288,9 +292,24 @@ func Validate(ir *Program) []string {
 			TopLevelHelp,
 			TopLevelError,
 			TopLevelEvery:
-			continue
+			validKind = true
 		default:
 			errs = append(errs, fmt.Sprintf("line %d, col %d: invalid top-level statement in IR", node.Line, node.Column))
+		}
+
+		if validKind && node.Kind == TopLevelServer {
+			serverCount++
+			if serverCount == 1 {
+				firstServerLine, firstServerCol = node.Line, node.Column
+				continue
+			}
+			errs = append(
+				errs,
+				fmt.Sprintf(
+					"line %d, col %d: duplicate server block; first server block defined at line %d, col %d (only one server {} block is allowed per project)",
+					node.Line, node.Column, firstServerLine, firstServerCol,
+				),
+			)
 		}
 	}
 

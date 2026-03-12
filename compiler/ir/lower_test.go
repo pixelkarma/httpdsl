@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"strings"
 	"testing"
 
 	front "httpdsl/compiler"
@@ -61,5 +62,29 @@ func TestValidateDetectsUnknownTopLevelKind(t *testing.T) {
 	errs := Validate(ir)
 	if len(errs) == 0 {
 		t.Fatalf("expected validation error for unknown top-level node")
+	}
+}
+
+func TestValidateDetectsDuplicateServerBlocks(t *testing.T) {
+	ir := &Program{
+		TopLevel: []TopLevelNode{
+			{Kind: TopLevelServer, Line: 1, Column: 1},
+			{Kind: TopLevelRoute, Line: 5, Column: 1},
+			{Kind: TopLevelServer, Line: 10, Column: 2},
+		},
+	}
+	errs := Validate(ir)
+	if len(errs) == 0 {
+		t.Fatalf("expected validation error for duplicate server blocks")
+	}
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "duplicate server block") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected duplicate server validation error, got: %v", errs)
 	}
 }
