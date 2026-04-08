@@ -193,7 +193,7 @@ func (c *NativeCompiler) emitTypedStmt(stmt Statement) {
 }
 
 func (c *NativeCompiler) emitSwitchTyped(s *SwitchStatement) {
-	c.emitSwitch(s)
+	c.emitSwitch(s, false)
 }
 
 // typedExpr returns a Go expression with concrete types (no Value)

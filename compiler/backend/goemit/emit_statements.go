@@ -65,7 +65,7 @@ func (c *NativeCompiler) emitStmt(stmt Statement, isRoute bool) {
 	case *EachStatement:
 		c.emitEach(s, isRoute)
 	case *SwitchStatement:
-		c.emitSwitch(s)
+		c.emitSwitch(s, isRoute)
 	case *BreakStatement:
 		c.ln("break")
 	case *ContinueStatement:
@@ -221,7 +221,7 @@ func (c *NativeCompiler) emitCompoundAssign(s *CompoundAssignStatement) {
 	}
 }
 
-func (c *NativeCompiler) emitSwitch(s *SwitchStatement) {
+func (c *NativeCompiler) emitSwitch(s *SwitchStatement, isRoute bool) {
 	subj := c.tmp()
 	c.lnf("%s := %s", subj, c.expr(s.Subject))
 	for i, cs := range s.Cases {
@@ -235,7 +235,7 @@ func (c *NativeCompiler) emitSwitch(s *SwitchStatement) {
 		}
 		c.lnf("%s %s {", kw, strings.Join(conds, " || "))
 		c.indent++
-		c.emitBlock(cs.Body, true)
+		c.emitBlock(cs.Body, isRoute)
 		c.indent--
 	}
 	if s.Default != nil {
@@ -245,7 +245,7 @@ func (c *NativeCompiler) emitSwitch(s *SwitchStatement) {
 			c.ln("{")
 		}
 		c.indent++
-		c.emitBlock(s.Default, true)
+		c.emitBlock(s.Default, isRoute)
 		c.indent--
 	}
 	if len(s.Cases) > 0 || s.Default != nil {
